@@ -9,6 +9,8 @@ session does not reopen what is settled. Keep it current when a decision changes
 - **Built new**, not a Persepolis fork (see the design doc for why).
 - **v1 includes** yt-dlp and the Chrome extension; the user downloads by clicking in Chrome.
 - **Rules** are ordered by drag-and-drop, with stop/continue; time/date conditions and tokens, **no calendar integration**.
+- **Time conditions are crontab underneath** (five-field cron, OR-ed lines), edited through friendly pickers
+  that read back as a sentence; raw cron only in an Advanced field. The same engine drives schedules later.
 - **No FDM import.** Start fresh.
 - Before code: mockups of the main window and the rules editor, and wait for the user's pick.
 

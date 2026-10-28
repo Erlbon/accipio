@@ -36,6 +36,16 @@ Date tokens make folders rotate by the clock. Missing folders are created when a
 
 No calendar (Outlook/Google) integration: time conditions and date tokens are enough (decided 2026-10-28).
 
+**Time conditions are crontab underneath, with a kinder UI** (decided 2026-10-28). A rule's time condition
+is stored as a five-field cron expression (`minute hour day-of-month month weekday`); it matches when the
+moment the download starts fits the expression, so ranges describe windows: `* 8-15 * * 1-5` is weekdays
+08:00-15:59. The editor never makes you type cron: weekday checkboxes, an hour range, months, day-of-month,
+shown back as a sentence ("Weekdays, 08:00-16:00"). An Advanced field shows and accepts the raw cron line
+for cases the pickers cannot express. Several windows are several cron lines OR-ed together.
+The same cron engine will later drive schedules (start/pause the queue at set times).
+The matcher is our own small module with tests; it needs no scheduler library because it only answers
+"does this moment match?".
+
 **Placing a file:**
 1. Before downloading, a quick request finds the real filename (Content-Disposition, else the URL) and MIME type.
    For video sites yt-dlp supplies the details.
