@@ -9,7 +9,7 @@ type folders are hard-coded (with a missing comma that sends `.mobi` to Others).
 - Python + PyQt6, sharing `redactor_common` with the Redactor apps (menu skeleton, progress, self-update,
   version bump, CLI inside the exe). Code is promoted to `redactor_common` only when two or more apps need it.
 - **aria2c** as the engine for direct downloads, started by the app on localhost with a random RPC secret
-  and stopped when the app quits; controlled through `aria2p`.
+  and stopped when the app quits; controlled through a small stdlib JSON-RPC client (not aria2p).
 - **yt-dlp** for video sites, with **ffmpeg** bundled to join separate video and audio streams.
   yt-dlp can update itself (off by default, with a button).
 - **SQLite** for the queue and history, so they survive a crash.

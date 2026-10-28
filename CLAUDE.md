@@ -24,6 +24,12 @@ session does not reopen what is settled. Keep it current when a decision changes
 - `accipio/core` is Qt-free and has no disk access where it can be avoided: `rules.py` (the walk, conditions,
   tokens, `place()`), `cron.py` (time windows). The GUI, the engine and the CLI are thin layers over it.
 - Time conditions use AND for day-of-month + weekday (unlike classic cron); see the `cron.py` docstring.
+- `aria2.py` is a small stdlib JSON-RPC client, not aria2p (fewer dependencies, smaller exe).
+  **Never turn on aria2's `--continue`**: it appends to an existing file of the same name (a test pins this).
+  `stop()` saves the session and does not wait (aria2c takes ~4 s to exit on Windows).
+- `probe.py` finds the real name/type/size before a download (HEAD, else a one-byte GET).
+- Engines live in `bin/` (gitignored), fetched by `python tools/fetch_engines.py` with pinned SHA-256s.
+  The aria2 tests are skipped where aria2c is missing, so fetch it on a new clone.
 
 ## Conventions (as in the Redactor apps)
 - **Version bump at check-in:** build number `YYYY-MM-DD#NN` in `accipio/core/version.py`. Every commit that

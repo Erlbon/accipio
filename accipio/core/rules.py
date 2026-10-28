@@ -51,7 +51,7 @@ GROUP_MIMES: Dict[str, List[str]] = {
 }
 
 _COMPOUND = sorted((e for exts in GROUPS.values() for e in exts if "." in e), key=len, reverse=True)
-_KNOWN = {e for exts in GROUPS.values() for e in exts}
+KNOWN_EXTENSIONS = {e for exts in GROUPS.values() for e in exts}
 
 
 def split_name(filename: str):
@@ -76,7 +76,7 @@ def in_group(group: str, filename: str, mime: str = "") -> bool:
     if group is None:
         return False
     ext = split_name(filename)[1]
-    if ext in _KNOWN:
+    if ext in KNOWN_EXTENSIONS:
         return ext in GROUPS[group]
     mime = _mime(mime)
     return bool(mime) and any(fnmatch.fnmatchcase(mime, pattern) for pattern in GROUP_MIMES.get(group, []))
