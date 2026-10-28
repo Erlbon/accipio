@@ -1,0 +1,3 @@
+# hook scripts run under sh and must keep LF line endings
+.githooks/* text eol=lf
+*.sh text eol=lf
