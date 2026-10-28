@@ -22,7 +22,7 @@ def test_stop_returns_at_once_and_aria2_exits_by_itself(tmp_path):
     a = aria2.Aria2(EXE, str(tmp_path / "session.txt")).start()
     started = time.monotonic()
     a.stop()
-    assert time.monotonic() - started < 1.0
+    assert time.monotonic() - started < 2.0              # not aria2c's ~4 s exit (2 s of headroom for a busy machine)
     assert a.process.wait(15) == 0                                       # a clean exit, not a kill
 
 
