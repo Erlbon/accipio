@@ -12,6 +12,7 @@ session does not reopen what is settled. Keep it current when a decision changes
 - **Time conditions are crontab underneath** (five-field cron, OR-ed lines), edited through friendly pickers
   that read back as a sentence; raw cron only in an Advanced field. The same engine drives schedules later.
 - **No FDM import.** Start fresh.
+- **Script action runs any command line** (tokens filled in, details also as `ACCIPIO_*` environment variables).
 - **Licence: MIT.** aria2 (GPL-2.0) and ffmpeg (GPL/LGPL builds) are shipped as separate programs next to
   the exe, never linked or imported; the release must include their licence texts and say where their
   source is. yt-dlp is Unlicense; aria2p is ISC.

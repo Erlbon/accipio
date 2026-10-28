@@ -28,6 +28,9 @@ An ordered list. Priority is set by dragging rules up and down. Every download g
 - video details (yt-dlp): channel, uploader, playlist
 
 **Actions:** set folder, add subfolder, rename with a template, run a script, then **stop** or **continue**.
+The script action runs **any command line** when the download finishes (decided 2026-10-28), e.g.
+`powershell -File unpack.ps1 "{path}"`; tokens are filled in, and the file path, URL, domain, type, size
+and video details are also passed as `ACCIPIO_*` environment variables. It may land after v1.
 Continue lets rules combine, as in mail filters: a domain rule sets the base folder, a type rule further
 down adds the subfolder.
 
@@ -77,6 +80,5 @@ clipboard watcher (off by default).
 Schedules and queues, torrents (aria2 has them), the Chrome Web Store listing.
 
 ## Open
-- Script action: Python, PowerShell, or any command (recommended: any command, with the file path and
-  details passed as arguments/environment). May wait until after v1.
+- Machine: this Enterprise PC or a private one (Chrome policy may block unpacked extensions).
 - Mockups of the main window and the rules editor, before any code.
