@@ -31,6 +31,12 @@ session does not reopen what is settled. Keep it current when a decision changes
 - `store.py` (SQLite, WAL, one locked connection) + `queue.py` (probe -> rules -> engine; `refresh()` on a
   timer; sniff-and-re-place on finish via `sniff.py`). `Queue.add/preview` do network I/O: call them off
   the window's thread. Tests use a FakeEngine/FakeProber; one end-to-end test runs real aria2.
+- GUI in `accipio/gui`: `main_window.py` (MainWindow + `open_services`, all queue calls on ONE worker thread via
+  `run()`; `flush()` waits for it in tests), `queue_model.py`, `rules_dialog.py`, `settings_dialog.py`, `app.py`.
+  Menus use redactor_common's `build_standard_menu_bar`; a test runs `lint_menu_bar` (canonical labels too).
+  Window layout is kept in `window.ini` in the config folder, never QSettings' registry default.
+- GUI tests run offscreen (`QT_QPA_PLATFORM=offscreen`, set in `tests/test_gui.py`); offscreen has no fonts,
+  so for screenshots render with the normal platform and `widget.grab()` without showing the window.
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

@@ -2,6 +2,17 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#04 -- The window and the rules editor: Accipio can be used
+
+- **Start it with `python -m accipio`.** Its settings, rules, queue and window layout live in `%APPDATA%\Accipio`.
+- **The main window** (the compact layout): paste one or many links in the bar (or drop them on the window) and press Enter or Add. The filter buttons All / Active / Done / Failed show counts, the total speed is on the right, and the table has Name, Size, Progress, Speed, Time left, Folder (shown under the base folder), Rule and Status. Every column can be resized and sorted, and the widths are remembered.
+- **"Why here?"** shows when you hover a download (and in Downloads > Why Here?, Ctrl+I): the rules that placed it, and the error if it failed. Double-click a finished download to open it; Downloads > Show in Folder opens its folder.
+- **Pause / resume** with Space, **Retry** with Ctrl+R, **Remove from List** with Delete (an unfinished download asks first, and finished files are never deleted), **Clear Finished** in the File menu.
+- **The rules editor** (Tools > Rules…, or the Rules… button): the rules on the left, dragged into order, each marked → (continue) or ■ (stop); New, Duplicate, Delete. On the right the selected rule: name, enabled, one row per condition (domain, file type with a Groups menu, name, size, time, source, video field), then folder with Browse, subfolder, rename, stop or continue, and what is wrong with the rule in plain words. The **time condition** has weekday buttons and an hour range that read back as a sentence ("Weekdays, 08:00–16:00"), with the cron lines in an Advanced field.
+- **The test box** at the bottom shows, as you type a link, the final path, the rules that hit and the ones skipped, using your unsaved edits. Saved rules apply to links added afterwards.
+- **Settings** (Tools > Preferences…, Ctrl+,): base folder, downloads at once, connections per file, total speed limit, and history (off by default).
+- The window never freezes: every queue operation runs on one worker thread in order. The menus follow the family's standard layout (File, Edit, View, Downloads, Tools, Help) and pass its menu check.
+
 ## 2026-10-28#03 -- The download queue (no window yet)
 
 - **The queue ties it together:** a link is checked with the server, placed by the rules and handed to aria2; a timer brings progress, speed and state up to date. It lives in one SQLite file, so it survives a crash or a restart.
