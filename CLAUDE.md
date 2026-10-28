@@ -28,6 +28,12 @@ session does not reopen what is settled. Keep it current when a decision changes
   **Never turn on aria2's `--continue`**: it appends to an existing file of the same name (a test pins this).
   `stop()` saves the session and does not wait (aria2c takes ~4 s to exit on Windows).
 - `probe.py` finds the real name/type/size before a download (HEAD, else a one-byte GET).
+- `store.py` (SQLite, WAL, one locked connection) + `queue.py` (probe -> rules -> engine; `refresh()` on a
+  timer; sniff-and-re-place on finish via `sniff.py`). `Queue.add/preview` do network I/O: call them off
+  the window's thread. Tests use a FakeEngine/FakeProber; one end-to-end test runs real aria2.
+- History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
+- The **command action is stored but not run yet**: running server-controlled names through a command line
+  (especially .bat/.cmd) needs injection-safe quoting first.
 - Engines live in `bin/` (gitignored), fetched by `python tools/fetch_engines.py` with pinned SHA-256s.
   The aria2 tests are skipped where aria2c is missing, so fetch it on a new clone.
 

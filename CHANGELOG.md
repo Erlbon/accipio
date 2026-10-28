@@ -2,6 +2,17 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#03 -- The download queue (no window yet)
+
+- **The queue ties it together:** a link is checked with the server, placed by the rules and handed to aria2; a timer brings progress, speed and state up to date. It lives in one SQLite file, so it survives a crash or a restart.
+- **No two downloads share a file:** a name is free only if no file has it AND no other unfinished download is heading for it, so two `setup.exe` downloads at once become `setup.exe` and `setup (1).exe`.
+- **Files whose type was unknown are looked at when they finish.** A `download` or `file.bin` whose first bytes show a PDF, ZIP, EXE, picture, video, epub, comic (cbz) or Office file gets that extension and goes through the rules again, which may move it (from Other to Documents, say); "why here?" says so. A file with a known extension is never second-guessed, and a folder chosen by hand in the Add box is kept.
+- **A server that cannot resume** is started over by itself after a pause, up to three times, before it shows as an error.
+- **Retry** a failed download: one that never got a name is checked and placed again; one whose file name was taken in the meantime gets a free name.
+- **Removing** an unfinished download deletes its half-finished file, but only when aria2's control file beside it proves it is Accipio's. A finished file is never touched.
+- **After a restart**, downloads the engine no longer has, or that were being checked when Accipio closed, show as errors you can retry.
+- **Privacy:** cookies and other headers sent with a download are wiped when it finishes. Finished downloads are forgotten at the next start unless history is turned on (off by default).
+
 ## 2026-10-28#02 -- The download engine (aria2) and the link check (no window yet)
 
 - **aria2 runs the direct downloads.** Accipio starts its own aria2c on 127.0.0.1 with a random port and secret, and aria2c stops by itself if Accipio crashes. Downloads go to the folder and name the rules chose; the folder is created when needed. Pause, resume, remove, the number of downloads at once and a total speed limit work while downloads run. Unfinished downloads are saved and come back after a restart.

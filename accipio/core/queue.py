@@ -1,0 +1,215 @@
+"""The download queue: a link goes in, a file comes out where the rules say.
+
+Adding a link: the probe asks the server what it is, the rules choose folder and name, ``free_name`` makes
+sure nothing is overwritten (counting the other downloads still running into the same folder), and the
+engine starts it. ``refresh()`` is called on a timer and brings the rows up to date from the engine.
+
+When a download finishes and its name showed no type the rules know (``download``, ``file.bin``), the first
+bytes are read (``sniff``). If they show a known type, the file gets that extension and goes through the
+rules again, which may move it; "why here?" says so.
+
+A server that cannot resume makes resuming after a pause fail; the queue then starts that download over by
+itself (a few times at most).
+
+The probe makes a network request, so ``add`` and ``preview`` belong on a worker thread, not the window's.
+"""
+from __future__ import annotations
+
+import datetime
+import os
+import shutil
+from typing import Callable, Dict, List, Optional, Tuple
+
+from accipio.core import aria2, probe, rules, sniff
+from accipio.core.rules import Download, Placement, Rule
+from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
+
+MAX_RESTARTS = 3
+
+
+class Queue:
+    def __init__(self, store: Store, engine: aria2.Aria2, rule_set: Callable[[], List[Rule]], base_folder: str, *,
+                 prober: Callable[..., probe.Probe] = probe.probe, exists: Callable[[str], bool] = os.path.exists,
+                 keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now):
+        self.store = store
+        self.engine = engine
+        self.rule_set = rule_set
+        self.base_folder = base_folder
+        self.prober = prober
+        self.exists = exists
+        self.clock = clock
+        self.speeds: Dict[int, int] = {}
+        if not keep_history:
+            store.forget_finished()
+        self._reconcile()
+
+    # ---- start-up --------------------------------------------------------------------------------------------
+
+    def _reconcile(self) -> None:
+        """After a restart: rows the engine no longer knows become errors that can be retried."""
+        known = {s.gid for s in self.engine.all()}
+        for row in self.store.rows(UNFINISHED):
+            if row.state == PROBING:
+                self.store.update(row.id, state=ERROR, error="Accipio closed while checking this link. Retry to start it.")
+            elif row.gid not in known:
+                self.store.update(row.id, state=ERROR, error="The engine lost this download (its saved queue was missing). Retry to start it again.")
+
+    # ---- adding ----------------------------------------------------------------------------------------------
+
+    def _download(self, found: probe.Probe, page_url: str, when: datetime.datetime, filename: str = "") -> Download:
+        return Download(url=found.url, filename=filename or found.filename, page_url=page_url, mime=found.mime,
+                        size=found.size, when=when)
+
+    def preview(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None) -> Tuple[probe.Probe, Placement]:
+        """What adding the link would do, for the Add box: the probe and where the rules put it."""
+        found = self.prober(url, headers=headers)
+        return found, rules.place(self.rule_set(), self._download(found, page_url, self.clock()), self.base_folder)
+
+    def add(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None,
+            folder: str = "", filename: str = "") -> int:
+        """Queue a link. ``folder`` and ``filename`` are the Add box's overrides (empty = the rules decide)."""
+        row_id = self.store.add(url, page_url=page_url, headers=headers or {}, state=PROBING, pinned=bool(folder),
+                                added=self.clock().isoformat(timespec="seconds"))
+        self._start(row_id, folder=folder, filename=filename)
+        return row_id
+
+    def _start(self, row_id: int, folder: str = "", filename: str = "") -> None:
+        row = self.store.get(row_id)
+        self.store.update(row_id, state=PROBING, error="")
+        try:
+            found = self.prober(row.url, headers=row.headers)
+        except probe.ProbeError as error:
+            self.store.update(row_id, state=ERROR, error=str(error))
+            return
+        placement = rules.place(self.rule_set(), self._download(found, row.page_url, row.added_at, filename), self.base_folder)
+        target = os.path.normpath(folder) if folder else placement.folder
+        name = rules.safe_part(filename, placement.filename) if filename else placement.filename
+        name = self._free(target, name, row_id)
+        why = placement.why()
+        if folder:
+            why += f" Folder chosen by hand: {target}."
+        try:
+            gid = self.engine.add(row.url, target, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
+        except aria2.Aria2Error as error:
+            self.store.update(row_id, state=ERROR, error=f"The engine refused it: {error}")
+            return
+        self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime=found.mime,
+                          size=found.size, total=found.size or 0, done=0, resumable=found.resumable,
+                          rules=placement.rule_numbers, why=why)
+
+    def _free(self, folder: str, filename: str, row_id: int) -> str:
+        """A name nothing has: not a file on disk, and not another unfinished download into the same folder."""
+        taken = {os.path.normcase(r.path) for r in self.store.rows((ACTIVE, PAUSED)) if r.id != row_id and r.path}
+        return rules.free_name(folder, filename, lambda p: self.exists(p) or os.path.normcase(p) in taken)
+
+    # ---- the timer -------------------------------------------------------------------------------------------
+
+    def refresh(self) -> List[Row]:
+        """Bring every running row up to date from the engine. Returns the rows that changed."""
+        statuses = {s.gid: s for s in self.engine.all()}
+        changed = []
+        for row in self.store.rows((ACTIVE, PAUSED)):
+            status = statuses.get(row.gid)
+            if status is None:
+                continue
+            self.speeds[row.id] = status.speed
+            if status.state == "complete":
+                self._finish(row, status)
+            elif status.state == "error":
+                self._failed(row, status)
+            else:
+                state = PAUSED if status.state == "paused" else ACTIVE
+                if (state, status.done, status.total) == (row.state, row.done, row.total):
+                    continue
+                self.store.update(row.id, state=state, done=status.done, total=status.total or row.total)
+            changed.append(self.store.get(row.id))
+        return changed
+
+    def _failed(self, row: Row, status: aria2.Status) -> None:
+        if status.error_code == aria2.CANNOT_RESUME and row.restarts < MAX_RESTARTS:
+            gid = self.engine.restart(row.gid)
+            self.store.update(row.id, gid=gid, done=0, restarts=row.restarts + 1,
+                              why=row.why + " The server cannot resume, so it started over.")
+            return
+        self.speeds.pop(row.id, None)
+        self.store.update(row.id, state=ERROR, error=status.error_message or f"aria2 error {status.error_code}")
+
+    def _finish(self, row: Row, status: aria2.Status) -> None:
+        folder, name, why, numbers = row.folder, row.filename, row.why, row.rules
+        stem, ext = rules.split_name(name)
+        if ext not in rules.KNOWN_EXTENSIONS:
+            real = sniff.sniff(row.path)
+            if real and real in rules.KNOWN_EXTENSIONS:
+                renamed = f"{stem}.{real}" if ext in probe.SCRIPT_EXTENSIONS else f"{name}.{real}"
+                d = Download(url=row.url, filename=renamed, page_url=row.page_url, mime=row.mime, size=status.total,
+                             source=row.source, video=row.video, when=row.added_at)
+                placement = rules.place(self.rule_set(), d, self.base_folder)
+                target = folder if row.pinned else placement.folder
+                final = rules.free_name(target, placement.filename, self.exists)
+                os.makedirs(target, exist_ok=True)
+                shutil.move(row.path, os.path.join(target, final))
+                folder, name = target, final
+                why += f" After the download the content turned out to be {real.upper()}, so it became {final}: {placement.why()}"
+                numbers = placement.rule_numbers if not row.pinned else numbers
+        self.store.update(row.id, state=COMPLETE, folder=folder, filename=name, why=why, rules=numbers,
+                          done=status.done, total=status.total, headers={}, error="",
+                          finished=self.clock().isoformat(timespec="seconds"))
+        self.speeds.pop(row.id, None)
+        self.engine.remove(row.gid)                       # forget the result in aria2; the row keeps it
+
+    # ---- buttons ---------------------------------------------------------------------------------------------
+
+    def pause(self, row_id: int) -> None:
+        row = self.store.get(row_id)
+        if row and row.state == ACTIVE:
+            self.engine.pause(row.gid)
+            self.store.update(row_id, state=PAUSED)
+
+    def resume(self, row_id: int) -> None:
+        row = self.store.get(row_id)
+        if row and row.state == PAUSED:
+            self.engine.resume(row.gid)
+            self.store.update(row_id, state=ACTIVE)
+
+    def retry(self, row_id: int) -> None:
+        """Start a failed download again. One that never got a name goes through the probe and rules again."""
+        row = self.store.get(row_id)
+        if not row or row.state != ERROR:
+            return
+        if not row.filename:
+            self._start(row_id)
+            return
+        self._drop_partial(row)
+        name = self._free(row.folder, row.filename, row_id)       # someone else's file may have appeared there
+        try:
+            gid = self.engine.add(row.url, row.folder, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
+        except aria2.Aria2Error as error:
+            self.store.update(row_id, error=f"The engine refused it: {error}")
+            return
+        self.store.update(row_id, state=ACTIVE, gid=gid, filename=name, done=0, error="")
+
+    def remove(self, row_id: int) -> None:
+        """Take a download off the list. An unfinished one is stopped and its half-finished file deleted;
+        a finished file is never touched."""
+        row = self.store.get(row_id)
+        if not row:
+            return
+        if row.gid:
+            self.engine.remove(row.gid)
+        if row.state != COMPLETE:
+            self._drop_partial(row)
+        self.speeds.pop(row_id, None)
+        self.store.delete(row_id)
+
+    def _drop_partial(self, row: Row) -> None:
+        """Delete a half-finished file, but only when aria2's control file beside it proves it is ours."""
+        if row.path and os.path.isfile(row.path + ".aria2"):
+            for leftover in (row.path, row.path + ".aria2"):
+                if os.path.isfile(leftover):
+                    os.remove(leftover)
+
+    def clear_finished(self) -> int:
+        return self.store.forget_finished()
+
+    def rows(self) -> List[Row]:
+        return self.store.rows()
