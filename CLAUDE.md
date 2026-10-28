@@ -16,7 +16,9 @@ session does not reopen what is settled. Keep it current when a decision changes
 - **Licence: MIT.** aria2 (GPL-2.0) and ffmpeg (GPL/LGPL builds) are shipped as separate programs next to
   the exe, never linked or imported; the release must include their licence texts and say where their
   source is. yt-dlp is Unlicense; aria2p is ISC.
-- Before code: mockups of the main window and the rules editor, and wait for the user's pick.
+- **Mockups picked:** main window B (compact: paste bar, filter chips, one table with a Rule column,
+  "why here?" on hover/right-click), rules editor A (drag list left, form right, test box at the bottom).
+  Described in `docs/design.md`.
 
 ## Conventions (as in the Redactor apps)
 - Sync (`git pull --rebase`) before editing or pushing.

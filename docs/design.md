@@ -76,8 +76,20 @@ filters All / Active / Done / Failed. Add-links box takes many links at once and
 the folder of each. Settings: base folder, downloads at once, connections per file, speed limit, an opt-in
 clipboard watcher (off by default).
 
+**Layout picked 2026-10-28: mockup B, compact.** One table, no sidebar. On top: a paste bar ("Paste links or
+drop files here" + Add) with the Rules and Settings buttons; under it filter chips All / Active / Done / Failed
+with counts, and the total speed on the right. The table has a Rule column showing which rules placed the
+file (e.g. `1+5`). "Why here?" (the rules that hit and the path they built) shows on hover and in the
+right-click menu.
+
+## Rules editor
+**Layout picked 2026-10-28: mockup A, list + form.** Left: the ordered rule list with drag handles, each
+row marked continue (→) or stop (■), and "New rule" at the bottom; disabled rules shown greyed. Right: the
+selected rule as a form: name and enabled switch, "When all of these match" (one row per condition,
+"Add condition"), and "Then" (folder, rename, run command, Stop/Continue). The time condition is weekday
+buttons plus an hour range, read back as a sentence, with the raw cron line under Advanced.
+At the bottom, across both halves, the test box: paste a URL, see which rule hit, which were skipped,
+and the final path.
+
 ## Later
 Schedules and queues, torrents (aria2 has them), the Chrome Web Store listing.
-
-## Open
-- Mockups of the main window and the rules editor, before any code.
