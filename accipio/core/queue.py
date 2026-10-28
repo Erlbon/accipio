@@ -22,7 +22,8 @@ from __future__ import annotations
 import datetime
 import os
 import shutil
-from typing import Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional
 
 from accipio.core import aria2, probe, rules, sniff
 from accipio.core.video import VideoProbe
@@ -30,6 +31,17 @@ from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
 MAX_RESTARTS = 3
+
+
+@dataclass
+class Preview:
+    """What the Add box shows for one link before it is added."""
+    url: str
+    filename: str
+    size: Optional[int]
+    kind: str                      # "file", "video" or "playlist"
+    placement: Placement
+    count: int = 1                 # videos in a playlist
 
 
 class Queue:
@@ -77,10 +89,23 @@ class Queue:
         return Download(url=found.url, filename=filename or found.filename, page_url=page_url, mime=found.mime,
                         size=found.size, when=when)
 
-    def preview(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None) -> Tuple[probe.Probe, Placement]:
-        """What adding the link would do, for the Add box: the probe and where the rules put it."""
+    def preview(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None) -> Preview:
+        """What adding the link would do, for the Add box: its name, size and where the rules put it.
+        Raises ProbeError when the server or site says no."""
+        when = self.clock()
+        found_video = self.video_prober(url, headers=headers) if self.video_prober else None
+        if found_video is not None and found_video.entries is not None:
+            video = {"playlist": found_video.playlist} if found_video.playlist else {}
+            d = Download(url=url, filename=found_video.filename, page_url=page_url, source="video", video=video, when=when)
+            return Preview(url, f"Playlist: {len(found_video.entries)} videos", None, "playlist",
+                           rules.place(self.rule_set(), d, self.base_folder), len(found_video.entries))
+        if found_video is not None:
+            d = Download(url=found_video.url, filename=found_video.filename, page_url=page_url, size=found_video.size,
+                         source="video", video=found_video.fields, when=when)
+            return Preview(url, found_video.filename, found_video.size, "video", rules.place(self.rule_set(), d, self.base_folder))
         found = self.prober(url, headers=headers)
-        return found, rules.place(self.rule_set(), self._download(found, page_url, self.clock()), self.base_folder)
+        placement = rules.place(self.rule_set(), self._download(found, page_url, when), self.base_folder)
+        return Preview(url, placement.filename, found.size, "file", placement)
 
     def add(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None,
             folder: str = "", filename: str = "") -> int:

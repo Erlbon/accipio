@@ -340,3 +340,98 @@ def test_a_second_start_hands_over_and_quits(world, monkeypatch):
     assert app_mod.main(["accipio"]) == 0
     QApplication.processEvents()
     assert shown == [1]
+
+
+# ---- the Add box -----------------------------------------------------------------------------------------
+
+def open_box(win, text, answer):
+    """Open the Add box on ``text``; ``answer(dialog)`` plays the user and returns True for Add."""
+    from accipio.gui.add_dialog import AddDialog
+
+    def show(dialog):
+        win.flush()
+        dialog.collect()
+        return answer(dialog)
+    win._show_add_dialog = show
+    return win.open_add_dialog(text)
+
+
+def test_the_add_box_checks_every_link_and_shows_where_it_goes(world):
+    win, engine, prober, base = world
+    prober.serve("https://a.org/tool.zip", "tool.zip", size=88 * 1024 * 1024)
+    prober.serve("https://a.org/Dune.epub", "Dune.epub")
+    seen = {}
+
+    def look(dialog):
+        rows = [[dialog.table.item(r, c).text() for c in range(1, 5)] for r in range(dialog.table.rowCount())]
+        seen["rows"] = rows
+        seen["button"] = dialog.add_button.text()
+        seen["error_checkable"] = bool(dialog.table.item(2, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable)
+        return False
+    open_box(win, "https://a.org/tool.zip https://a.org/Dune.epub https://gone.org/x", look)
+    assert seen["rows"][0] == ["tool.zip", "Archives", "7", "Ready · 88.0 MB"]
+    assert seen["rows"][1][:3] == ["Dune.epub", "Books", "5"]
+    assert seen["rows"][2][0] == "https://gone.org/x" and "404" in seen["rows"][2][3]
+    assert seen["button"] == "Add 2" and seen["error_checkable"] is False
+    win.flush()
+    assert win.model.rows == []                                         # Cancel adds nothing
+
+
+def test_the_add_box_adds_the_ticked_links_with_their_folders(world, tmp_path):
+    win, engine, prober, base = world
+    for name in ("a.zip", "b.zip", "c.zip"):
+        prober.serve(f"https://a.org/{name}", name)
+    elsewhere = str(tmp_path / "Elsewhere")
+
+    def choose(dialog):
+        dialog.table.item(1, 0).setCheckState(Qt.CheckState.Unchecked)   # leave b out
+        dialog.set_folder(2, elsewhere)                                   # c somewhere else
+        return True
+    open_box(win, "https://a.org/a.zip\nhttps://a.org/b.zip\nhttps://a.org/c.zip", choose)
+    win.flush()
+    rows = {r.filename: r for r in win.model.rows}
+    assert set(rows) == {"a.zip", "c.zip"}
+    assert rows["a.zip"].folder == os.path.join(base, "Archives") and not rows["a.zip"].pinned
+    assert rows["c.zip"].folder == os.path.normpath(elsewhere) and rows["c.zip"].pinned
+
+
+def test_put_all_in_sends_everything_to_one_folder(world, tmp_path):
+    win, engine, prober, base = world
+    prober.serve("https://a.org/a.zip", "a.zip")
+    prober.serve("https://a.org/b.epub", "b.epub")
+    today = str(tmp_path / "Today")
+
+    def all_in(dialog):
+        dialog.all_in.setText(today)
+        assert dialog.table.item(0, 2).toolTip().endswith("(chosen by hand)") and dialog.table.item(0, 3).text() == ""
+        return True
+    open_box(win, "https://a.org/a.zip https://a.org/b.epub", all_in)
+    win.flush()
+    assert {r.folder for r in win.model.rows} == {os.path.normpath(today)}
+
+
+def test_editing_the_text_checks_new_links_and_drops_removed_ones(world):
+    win, engine, prober, base = world
+    prober.serve("https://a.org/a.zip", "a.zip")
+    prober.serve("https://a.org/b.zip", "b.zip")
+
+    def edit(dialog):
+        dialog.text.setPlainText("https://a.org/b.zip")
+        dialog.read_links()
+        win.flush()
+        dialog.collect()
+        assert [dialog.table.item(r, 1).text() for r in range(dialog.table.rowCount())] == ["b.zip"]
+        return True
+    open_box(win, "https://a.org/a.zip", edit)
+    win.flush()
+    assert [r.filename for r in win.model.rows] == ["b.zip"]
+
+
+def test_shift_enter_in_the_bar_opens_the_box_and_clears_the_bar_on_add(world):
+    win, engine, prober, base = world
+    prober.serve("https://a.org/a.zip", "a.zip")
+    win._show_add_dialog = lambda dialog: (win.flush(), dialog.collect(), True)[-1]
+    win.paste.setText("https://a.org/a.zip")
+    win.open_add_dialog(win.paste.text(), from_bar=True)
+    win.flush()
+    assert win.paste.text() == "" and [r.filename for r in win.model.rows] == ["a.zip"]

@@ -18,7 +18,7 @@ session does not reopen what is settled. Keep it current when a decision changes
   source is. yt-dlp is Unlicense; aria2p is ISC.
 - **Mockups picked:** main window B (compact: paste bar, filter chips, one table with a Rule column,
   "why here?" on hover/right-click), rules editor A (drag list left, form right, test box at the bottom).
-  Described in `docs/design.md`.
+  Described in `docs/design.md`. Add box: mockup A (one row per link, folder per row, Put all in), 2026-10-28.
 
 ## Code layout
 - `accipio/core` is Qt-free and has no disk access where it can be avoided: `rules.py` (the walk, conditions,

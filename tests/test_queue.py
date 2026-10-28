@@ -138,8 +138,8 @@ def test_the_add_box_can_choose_folder_and_name(world, tmp_path):
 def test_preview_shows_where_it_would_go_without_adding(world):
     q, engine, prober, base, _ = world
     prober.serve("https://a.org/v", "clip.webm", "video/webm")
-    found, placement = q.preview("https://a.org/v")
-    assert found.filename == "clip.webm" and placement.folder == under(base, "Video")
+    shown = q.preview("https://a.org/v")
+    assert (shown.filename, shown.kind) == ("clip.webm", "file") and shown.placement.folder == under(base, "Video")
     assert q.rows() == [] and engine.jobs == {}
 
 

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from PyQt6.QtCore import QModelIndex, QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
+from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
                              QMenu, QMessageBox, QPushButton, QTableView, QVBoxLayout, QWidget)
 
@@ -104,6 +104,9 @@ class MainWindow(QMainWindow):
         self.paste = QLineEdit()
         self.paste.setPlaceholderText("Paste links or drop files here")
         self.paste.returnPressed.connect(self.add_from_bar)
+        self.paste.setToolTip("Enter adds the links at once; Shift+Enter opens the Add box to check them first")
+        boxed = QShortcut(QKeySequence("Shift+Return"), self.paste, context=Qt.ShortcutContext.WidgetShortcut)
+        boxed.activated.connect(lambda: self.open_add_dialog(self.paste.text(), from_bar=True))
         self.add_button = QPushButton("Add")
         self.add_button.clicked.connect(self.add_from_bar)
         self.rules_button = QPushButton("Rules…")
@@ -208,7 +211,7 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         spec = StandardMenuSpec(
-            file=[MenuAction("add_links", "&Add Links", self.focus_paste_bar, shortcut="Ctrl+N"),
+            file=[MenuAction("add_links", "&Add Links…", self.open_add_dialog, shortcut="Ctrl+N"),
                   Separator(),
                   MenuAction("clear_finished", "&Clear Finished", self.clear_finished),
                   Separator(),
@@ -295,6 +298,23 @@ class MainWindow(QMainWindow):
             self.paste.clear()
         else:
             self.statusBar().showMessage("No link there: paste an address that starts with http://, https:// or ftp://", 6000)
+
+    def open_add_dialog(self, text: Optional[str] = None, from_bar: bool = False) -> Optional[object]:
+        """The Add box: the given text, else the paste bar's, else links on the clipboard. Returns the dialog
+        (tests drive it through ``exec``'s stand-in ``_show_add_dialog``)."""
+        from accipio.gui.add_dialog import AddDialog
+        if text is None:
+            text = self.paste.text() or ("\n".join(links_in(QGuiApplication.clipboard().text())))
+        dialog = AddDialog(text, self.services.settings.base_folder, self.worker.submit, self.queue.preview, links_in, self)
+        if self._show_add_dialog(dialog):
+            for url, folder in dialog.chosen():
+                self.run(self.queue.add, url, folder=folder)
+            if from_bar:
+                self.paste.clear()
+        return dialog
+
+    def _show_add_dialog(self, dialog) -> bool:
+        return bool(dialog.exec())
 
     def paste_links(self) -> None:
         if not self.add_links(QGuiApplication.clipboard().text()):

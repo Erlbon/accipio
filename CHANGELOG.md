@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#07 -- The Add box: check links before adding them
+
+- **File > Add Links… (Ctrl+N), or Shift+Enter in the paste bar**, opens the Add box with the links from the bar (or the clipboard). Plain Enter still adds at once.
+- Every link is checked with its server or video site while the box is open, and gets a row: name, folder (shown under the base folder), the rule that placed it, and Ready with the size (and "video" or "N videos" for a playlist), or the server's error. Links that fail are greyed out and left out; untick any you do not want. Hover a name for "why here?".
+- **Double-click a folder** to send that one link somewhere else, or **Put all in** one folder for the whole lot. A folder chosen here is kept even if the rules would move the file later.
+- Edit the links in the box and only the new ones are checked; removed ones disappear. The button says how many will be added.
+
 ## 2026-10-28#06 -- The Chrome extension: clicked downloads go to Accipio
 
 - **The extension** (folder `extension`, loaded in Chrome or Edge as an unpacked extension) takes over the downloads you click: Chrome's download is paused, offered to Accipio, and cancelled only once Accipio has it. If Accipio cannot be reached, Chrome simply carries on, so a click is never lost. Cookies, the page address and the browser's identity go along, so downloads behind a login work. Incognito downloads and `blob:`/`data:` links stay with the browser.

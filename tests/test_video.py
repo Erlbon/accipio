@@ -287,3 +287,16 @@ def test_video_downloads_start_again_after_a_restart(tmp_path):
           video_engine=videos, video_prober=FakeVideoProber())
     assert store.get(running).state == ACTIVE and store.get(running).gid in videos.jobs
     assert store.get(paused).gid in videos.jobs and store.get(paused).state == PAUSED
+
+
+def test_preview_knows_videos_and_playlists(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    url = "https://www.youtube.com/watch?v=1"
+    vprober.answers[url] = VideoProbe(url, "Talk", "mp4", 900, uploader="xyz")
+    shown = q.preview(url)
+    assert (shown.kind, shown.filename, shown.size) == ("video", "Talk.mp4", 900)
+    assert shown.placement.folder == os.path.join(base, "Video", "xyz")
+    vprober.answers["https://www.youtube.com/playlist?list=P"] = VideoProbe("p", "L", playlist="L", entries=["a", "b"])
+    shown = q.preview("https://www.youtube.com/playlist?list=P")
+    assert (shown.kind, shown.count, shown.filename) == ("playlist", 2, "Playlist: 2 videos")
+    assert q.rows() == [] and videos.jobs == {}
