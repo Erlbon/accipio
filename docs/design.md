@@ -80,5 +80,4 @@ clipboard watcher (off by default).
 Schedules and queues, torrents (aria2 has them), the Chrome Web Store listing.
 
 ## Open
-- Machine: this Enterprise PC or a private one (Chrome policy may block unpacked extensions).
 - Mockups of the main window and the rules editor, before any code.
