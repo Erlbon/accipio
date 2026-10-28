@@ -2,6 +2,16 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#06 -- The Chrome extension: clicked downloads go to Accipio
+
+- **The extension** (folder `extension`, loaded in Chrome or Edge as an unpacked extension) takes over the downloads you click: Chrome's download is paused, offered to Accipio, and cancelled only once Accipio has it. If Accipio cannot be reached, Chrome simply carries on, so a click is never lost. Cookies, the page address and the browser's identity go along, so downloads behind a login work. Incognito downloads and `blob:`/`data:` links stay with the browser.
+- **Right-click:** "Download with Accipio" on links, pictures, video and audio; "Download this page's video with Accipio" anywhere on a page; and "Download with Chrome instead" on a link, for the times you want the browser to keep one (extensions are not told which keys were held during a download, so this menu item and the toolbar switch take the place of a modifier key).
+- **The toolbar button** shows whether Accipio is ready, switches the takeover on and off, and sends the page you are on to yt-dlp.
+- **Accipio starts itself:** a download clicked while Accipio is closed starts it and arrives once it is up.
+- **Only one Accipio:** starting it a second time brings the running one to the front.
+- At every start Accipio registers its native messaging host for Chrome and Edge, for this user only (no admin). The browser reaches the app over a local pipe that needs a key from Accipio's own folder, so no other program can send downloads in.
+- ffmpeg is now found the same way the Redactor apps find it (bundled copy, PATH, or the usual install folders).
+
 ## 2026-10-28#05 -- Video sites through yt-dlp
 
 - **Paste a YouTube (or Vimeo, or any of yt-dlp's sites) link and it downloads the video.** Accipio asks the site first for the title, channel, uploader and playlist, so the file is named after the title and the rules can place it: the default rule puts it in `Video\{uploader}`, and a rule can test the channel, uploader, playlist or title, or use them in a folder (`Video\{channel}\{yyyy}`). A plain file link still goes to aria2; only real video sites go to yt-dlp.

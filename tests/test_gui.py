@@ -304,3 +304,39 @@ def test_picker_state_reads_back_windows_past_midnight():
     lines = cron.window_lines({5}, datetime.time(22), datetime.time(6))
     assert picker_state(lines) == ({5}, datetime.time(22), datetime.time(6))
     assert picker_state(["* 8-15 1-7 * 1"]) is None                    # days of the month: Advanced only
+
+
+# ---- messages from the browser ---------------------------------------------------------------------------
+
+def test_a_download_from_the_browser_arrives_with_its_cookies(world):
+    from accipio.core import ipc
+    win, engine, prober, base = world
+    prober.serve("https://a.org/f.zip", "f.zip")
+    reply = ipc.send(win.services.folder, {"type": "add", "url": "https://a.org/f.zip", "page_url": "https://a.org/",
+                                           "referrer": "https://a.org/", "cookies": "s=1", "user_agent": "Chrome"})
+    assert reply == {"ok": True}
+    win.flush()
+    row = win.model.rows[0]
+    assert row.filename == "f.zip" and row.page_url == "https://a.org/"
+    assert prober.seen_headers[-1] == {"Cookie": "s=1", "Referer": "https://a.org/", "User-Agent": "Chrome"}
+
+
+def test_ping_show_and_nonsense(world):
+    from accipio.core import ipc
+    win, *_ = world
+    assert ipc.send(win.services.folder, {"type": "ping"}) == {"ok": True, "version": mw.APP_VERSION}
+    assert ipc.send(win.services.folder, {"type": "show"}) == {"ok": True}
+    assert ipc.send(win.services.folder, {"type": "add", "url": "javascript:alert(1)"})["ok"] is False
+    assert ipc.send(win.services.folder, {"type": "format c:"})["ok"] is False
+
+
+def test_a_second_start_hands_over_and_quits(world, monkeypatch):
+    from accipio.core import settings as settings_mod
+    from accipio.gui import app as app_mod
+    win, *_ = world
+    monkeypatch.setattr(settings_mod, "config_dir", lambda: win.services.folder)
+    shown = []
+    win.bridge.show_requested.connect(lambda: shown.append(1))
+    assert app_mod.main(["accipio"]) == 0
+    QApplication.processEvents()
+    assert shown == [1]

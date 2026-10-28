@@ -42,7 +42,16 @@ session does not reopen what is settled. Keep it current when a decision changes
   The queue picks the engine by `row.source` ("direct"/"video") via `engine_of(row)`. Tests never reach a real
   site: the engine is tested with a stand-in downloader and with real yt-dlp's generic extractor on the local
   server. Format sort prefers H.264 at equal resolution (AV1 does not play on stock Windows).
-- ffmpeg: `bin/ffmpeg/ffmpeg.exe` or PATH. Bundling it for releases is not decided yet (size, GPL/LGPL build).
+- ffmpeg: found through redactor_common's `tool_locator.find_tool` (as videoredactor does): bundled
+  `bin/ffmpeg` / `ffmpeg/` next to the exe, PATH, install folders. Bundling it for releases is not decided yet.
+- Browser link: `extension/` (MV3; fixed ID `ongnefecmhlaofpaaoehcdmdinnlgble` from the public `key` in its
+  manifest; no private key is kept or needed for unpacked loading; a test checks key and ID agree).
+  `accipio/native_host.py` is what Chrome starts (stdin/stdout framing); it relays over `core/ipc.py` (named
+  pipe / Unix socket + key file) to the running app, starting the app if needed. `core/browser.py` registers
+  the host (HKCU Chrome + Edge keys) at every app start; tests inject a fake registry, never the real one.
+  `extension/package.json` only marks the JS as ES modules for `node --check` (the pre-commit hook).
+- No modifier key for "let Chrome download it": extensions are not told about held keys on downloads.
+  Instead: a "Download with Chrome instead" link menu item and the popup's takeover switch.
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

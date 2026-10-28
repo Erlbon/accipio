@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Accipio",
+  "description": "Sends your downloads to Accipio, which puts each file where your rules say.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuYzJFlVaGV5OjQbb4P4x96RvXDSjh5UvlrXFGszVp1UWSHrkLZ1ycS70B3zGYmEYpVnXbfzCnEQcTGdXUQC2rX4UmYwzmtOi2Oz3sPAoGQ9j9sSPywx/dKhrxko7ZYOiwaY54zIp7yr17t/EDIuMMGnmPnaU4CP+y5j6Bs6RZguX6O6ytn6Ei7k94xMfFyZoqqFmNbu92q6imoCrjkv85pyP9sJ8kbPEBfKZa2FMhuYfGPPz76UDPFcIHNguTnJZxiDFE0mRBWAFWsn8a4d/BuRDUSCqd7jVqWswxcYoFxaHdJLRvnu31hY3fKbpuwDGy8kg5kYRaeCwS23YnKc7eQIDAQAB",
+  "permissions": ["downloads", "contextMenus", "nativeMessaging", "cookies", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "Accipio", "default_popup": "popup.html"}
+}

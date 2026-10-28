@@ -13,7 +13,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
-from PyQt6.QtCore import QModelIndex, QSettings, Qt, QTimer, QUrl
+from PyQt6.QtCore import QModelIndex, QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence
 from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
                              QMenu, QMessageBox, QPushButton, QTableView, QVBoxLayout, QWidget)
@@ -22,7 +22,7 @@ from redactor_common.core import labels
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
-from accipio.core import aria2, rules, settings as settings_mod
+from accipio.core import aria2, ipc, rules, settings as settings_mod
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -35,6 +35,12 @@ def links_in(text: str) -> List[str]:
     """Every http(s)/ftp link in pasted or dropped text, in order, without repeats."""
     found = [m.group(0).rstrip(".,;)>\"'") for m in LINK.finditer(text or "")]
     return list(dict.fromkeys(found))
+
+
+class Bridge(QObject):
+    """Carries requests from the pipe's thread to the window's thread."""
+    show_requested = pyqtSignal()
+    message = pyqtSignal(str)
 
 
 @dataclass
@@ -156,10 +162,47 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._restore_layout()
 
+        self.bridge = Bridge(self)
+        self.bridge.show_requested.connect(self.bring_to_front)
+        self.bridge.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        try:
+            self.ipc: Optional[ipc.Server] = ipc.Server(services.folder, self.handle_message).start()
+        except OSError as error:
+            self.ipc = None
+            self.statusBar().showMessage(f"The browser cannot reach Accipio: {error}", 10000)
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(tick_ms)
         self.reload()
+
+    # ---- the browser and a second start ----------------------------------------------------------------------
+
+    def handle_message(self, message: dict) -> dict:
+        """A message from the extension's native host or a second Accipio. Runs on the pipe's thread."""
+        kind = message.get("type")
+        if kind == "ping":
+            return {"ok": True, "version": APP_VERSION}
+        if kind == "show":
+            self.bridge.show_requested.emit()
+            return {"ok": True}
+        if kind == "add":
+            links = links_in(str(message.get("url") or ""))
+            if not links:
+                return {"ok": False, "error": "not a link Accipio can download"}
+            headers = {name: str(message[key]) for key, name in
+                       (("cookies", "Cookie"), ("referrer", "Referer"), ("user_agent", "User-Agent")) if message.get(key)}
+            self.run(self.queue.add, links[0], page_url=str(message.get("page_url") or ""), headers=headers)
+            self.bridge.message.emit(f"From the browser: {links[0]}")
+            return {"ok": True}
+        return {"ok": False, "error": f"unknown message {kind!r}"}
+
+    def bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
 
     # ---- menus -----------------------------------------------------------------------------------------------
 
@@ -428,6 +471,8 @@ class MainWindow(QMainWindow):
         stored.setValue("window/geometry", self.saveGeometry())
         stored.setValue("window/header", self.table.horizontalHeader().saveState())
         self.timer.stop()
+        if self.ipc is not None:
+            self.ipc.stop()
         self.worker.shutdown(wait=True, cancel_futures=True)
         for engine in (self.services.engine, getattr(self.services, "video_engine", None)):
             stop = getattr(engine, "stop", None)
