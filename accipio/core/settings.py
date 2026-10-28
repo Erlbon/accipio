@@ -32,6 +32,7 @@ class Settings:
     connections: int = 8                  # per file
     speed_limit_kib: int = 0              # total, KiB/s; 0 = no limit
     keep_history: bool = False            # finished downloads are forgotten at the next start unless on
+    video_quality: str = "best"           # best, 1080, 720 or audio (see video.QUALITIES)
 
     def __post_init__(self):
         if not self.base_folder:

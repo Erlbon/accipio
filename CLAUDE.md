@@ -37,6 +37,12 @@ session does not reopen what is settled. Keep it current when a decision changes
   Window layout is kept in `window.ini` in the config folder, never QSettings' registry default.
 - GUI tests run offscreen (`QT_QPA_PLATFORM=offscreen`, set in `tests/test_gui.py`); offscreen has no fonts,
   so for screenshots render with the normal platform and `widget.grab()` without showing the window.
+- `video.py`: `is_video_site` (yt-dlp extractors minus Generic), `probe_video`, `VideoEngine` (same calls as
+  `Aria2`: add/pause/resume/remove/restart/status/all/set_limits/stop; one thread per download, max N running).
+  The queue picks the engine by `row.source` ("direct"/"video") via `engine_of(row)`. Tests never reach a real
+  site: the engine is tested with a stand-in downloader and with real yt-dlp's generic extractor on the local
+  server. Format sort prefers H.264 at equal resolution (AV1 does not play on stock Windows).
+- ffmpeg: `bin/ffmpeg/ffmpeg.exe` or PATH. Bundling it for releases is not decided yet (size, GPL/LGPL build).
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

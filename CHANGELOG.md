@@ -2,6 +2,15 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#05 -- Video sites through yt-dlp
+
+- **Paste a YouTube (or Vimeo, or any of yt-dlp's sites) link and it downloads the video.** Accipio asks the site first for the title, channel, uploader and playlist, so the file is named after the title and the rules can place it: the default rule puts it in `Video\{uploader}`, and a rule can test the channel, uploader, playlist or title, or use them in a folder (`Video\{channel}\{yyyy}`). A plain file link still goes to aria2; only real video sites go to yt-dlp.
+- **Playlists:** a playlist link becomes one download per video, and `{playlist}` can name their folder.
+- **Quality** (Tools > Preferences > Video sites): Best, Up to 1080p, Up to 720p, or Audio only (mp3). At the same resolution H.264 in mp4 is preferred, because it plays everywhere; YouTube otherwise often hands out AV1, which Windows cannot play without an extra codec.
+- **ffmpeg** joins the separate picture and sound most sites send. Accipio uses one in `bin\ffmpeg`, or the one on PATH; without it you get the best single file and audio is not converted to mp3 (the Preferences say which).
+- **Pause and resume** work for videos too (yt-dlp continues its `.part` file), and video downloads still running or paused when Accipio closes pick up again at the next start. Removing an unfinished video deletes only its half-finished parts.
+- Tested for real on YouTube ("Me at the zoo": probed in 2.6 s, merged picture and sound, placed in `Video\jawed`).
+
 ## 2026-10-28#04 -- The window and the rules editor: Accipio can be used
 
 - **Start it with `python -m accipio`.** Its settings, rules, queue and window layout live in `%APPDATA%\Accipio`.

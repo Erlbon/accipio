@@ -56,22 +56,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._slow(ranges=False)
         if path == "/slow-resumable.bin":
             return self._slow(ranges=True)
+        if path == "/media/clip.mp4":                    # a plain video file: yt-dlp's generic extractor takes it
+            return self._slow(ranges=True, mime="video/mp4", size=256 * 1024, pause=0.0)
+        if path == "/media/slow.mp4":
+            return self._slow(ranges=True, mime="video/mp4")
         return self._send(404, {"Content-Type": "text/plain"}, b"not here")
 
-    def _slow(self, ranges):
-        """4 MiB at about 800 KiB/s; with ``ranges`` it can resume (``Range: bytes=N-``), without it cannot."""
-        start, end = 0, SLOW_SIZE - 1
+    def _slow(self, ranges, mime="application/octet-stream", size=SLOW_SIZE, pause=0.02):
+        """``size`` bytes (4 MiB) at about 800 KiB/s; with ``ranges`` it can resume (``Range: bytes=N-``)."""
+        start, end = 0, size - 1
         wanted = self.headers.get("Range", "")
         if ranges and wanted.startswith("bytes="):
             first, _, last = wanted[6:].partition("-")
-            start, end = int(first), (int(last) if last else SLOW_SIZE - 1)
+            start, end = int(first), (int(last) if last else size - 1)
             self.send_response(206)
-            self.send_header("Content-Range", f"bytes {start}-{end}/{SLOW_SIZE}")
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         else:
             self.send_response(200)
         if ranges:
             self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(end + 1 - start))
         self.end_headers()
         if self.command == "HEAD":
@@ -80,7 +84,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             for offset in range(start, end + 1, chunk):
                 self.wfile.write(b"x" * min(chunk, end + 1 - offset))
-                time.sleep(0.02)
+                if pause:
+                    time.sleep(pause)
         except OSError:
             pass                                 # the client went away (paused or removed)
 

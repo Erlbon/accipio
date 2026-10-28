@@ -48,8 +48,9 @@ class Services:
     queue: Queue
 
 
-def open_services(folder: str, engine=None, prober=None) -> Services:
-    """Load settings and rules, open the queue database, and start aria2 (unless an engine is given)."""
+def open_services(folder: str, engine=None, prober=None, video_engine=None, video_prober=None) -> Services:
+    """Load settings and rules, open the queue database, and start aria2 and the yt-dlp engine (unless
+    engines are given; tests pass fakes, and ``video_engine=False`` leaves video sites out)."""
     current = settings_mod.load_settings(folder)
     rule_list = settings_mod.load_rules(folder)
     store = Store(os.path.join(folder, "queue.db"))
@@ -61,10 +62,18 @@ def open_services(folder: str, engine=None, prober=None) -> Services:
         engine = aria2.Aria2(exe, os.path.join(folder, "aria2.session"), max_downloads=current.max_downloads,
                              connections=current.connections).start()
         engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
+    if video_engine is None:
+        from accipio.core import video
+        video_engine = video.VideoEngine(video.find_ffmpeg(), max_downloads=current.max_downloads,
+                                         quality=current.video_quality)
+        video_engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
+        video_prober = video_prober or video.make_prober(video_engine)
     holder = {"rules": rule_list}
     kwargs = {"prober": prober} if prober else {}
-    queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history, **kwargs)
+    queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history,
+                  video_engine=video_engine or None, video_prober=video_prober, **kwargs)
     services = Services(folder, current, rule_list, store, engine, queue)
+    services.video_engine = video_engine or None
     services._holder = holder
     return services
 
@@ -383,7 +392,11 @@ class MainWindow(QMainWindow):
         self.queue.base_folder = new.base_folder
         self.model.base_folder = new.base_folder
         self.queue.keep_history = new.keep_history
-        self.run(self.services.engine.set_limits, max_downloads=new.max_downloads, speed_limit=new.speed_limit_kib * 1024)
+        for engine in (self.services.engine, self.services.video_engine):
+            if engine is not None:
+                self.run(engine.set_limits, max_downloads=new.max_downloads, speed_limit=new.speed_limit_kib * 1024)
+        if self.services.video_engine is not None:
+            self.services.video_engine.quality = new.video_quality
         self.statusBar().showMessage("Settings saved.", 4000)
 
     def open_changelog(self) -> None:
@@ -416,8 +429,9 @@ class MainWindow(QMainWindow):
         stored.setValue("window/header", self.table.horizontalHeader().saveState())
         self.timer.stop()
         self.worker.shutdown(wait=True, cancel_futures=True)
-        stop = getattr(self.services.engine, "stop", None)
-        if stop:
-            stop()
+        for engine in (self.services.engine, getattr(self.services, "video_engine", None)):
+            stop = getattr(engine, "stop", None)
+            if stop:
+                stop()
         self.services.store.close()
         super().closeEvent(event)

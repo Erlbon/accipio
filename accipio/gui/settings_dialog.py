@@ -4,10 +4,11 @@ from __future__ import annotations
 import dataclasses
 import os
 
-from PyQt6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-                             QLineEdit, QPushButton, QSpinBox, QVBoxLayout)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+                             QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout)
 
 from accipio.core.settings import Settings
+from accipio.core.video import QUALITIES, find_ffmpeg
 
 
 class SettingsDialog(QDialog):
@@ -38,11 +39,19 @@ class SettingsDialog(QDialog):
         self.speed_limit.setSpecialValueText("No limit")
         self.speed_limit.setValue(current.speed_limit_kib)
         form.addRow("Total speed limit", self.speed_limit)
+        self.video_quality = QComboBox()
+        for key, label in QUALITIES.items():
+            self.video_quality.addItem(label, key)
+        self.video_quality.setCurrentIndex(max(self.video_quality.findData(current.video_quality), 0))
+        form.addRow("Video sites", self.video_quality)
         self.keep_history = QCheckBox("Keep finished downloads in the list after a restart")
         self.keep_history.setChecked(current.keep_history)
         form.addRow("History", self.keep_history)
         layout.addLayout(form)
-        note = QLabel("Connections per file takes effect for downloads started after the next restart.")
+        ffmpeg = find_ffmpeg()
+        note = QLabel("Connections per file takes effect for downloads started after the next restart.\n"
+                      + (f"ffmpeg: {ffmpeg}" if ffmpeg else
+                         "ffmpeg was not found: video sites give the best single file, and audio is not converted to mp3."))
         note.setWordWrap(True)
         note.setEnabled(False)
         layout.addWidget(note)
@@ -59,4 +68,5 @@ class SettingsDialog(QDialog):
     def result_settings(self) -> Settings:
         return dataclasses.replace(self.current, base_folder=self.base_folder.text().strip() or self.current.base_folder,
                                    max_downloads=self.max_downloads.value(), connections=self.connections.value(),
-                                   speed_limit_kib=self.speed_limit.value(), keep_history=self.keep_history.isChecked())
+                                   speed_limit_kib=self.speed_limit.value(), keep_history=self.keep_history.isChecked(),
+                                   video_quality=self.video_quality.currentData())

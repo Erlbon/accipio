@@ -22,11 +22,11 @@ class FakeEngine:
         self.counter = 0
         self.removed = []
 
-    def add(self, url, folder, filename, headers=()):
+    def add(self, url, folder, filename, headers=(), paused=False):
         self.counter += 1
         gid = f"g{self.counter}"
-        self.jobs[gid] = dict(url=url, folder=folder, filename=filename, headers=list(headers), state="active",
-                              done=0, total=0, code="", message="")
+        self.jobs[gid] = dict(url=url, folder=folder, filename=filename, headers=list(headers),
+                              state="paused" if paused else "active", done=0, total=0, code="", message="")
         return gid
 
     def status_of(self, gid):

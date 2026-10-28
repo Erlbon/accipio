@@ -44,7 +44,7 @@ def world(app, tmp_path):
     folder = str(tmp_path / "config")
     settings.save_settings(folder, settings.Settings(base_folder=str(tmp_path / "Downloads")))
     engine, prober = Engine(), FakeProber()
-    win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober), tick_ms=60_000)
+    win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober, video_engine=False), tick_ms=60_000)
     yield win, engine, prober, str(tmp_path / "Downloads")
     win.close()
 

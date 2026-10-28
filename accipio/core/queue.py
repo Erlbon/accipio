@@ -11,6 +11,10 @@ rules again, which may move it; "why here?" says so.
 A server that cannot resume makes resuming after a pause fail; the queue then starts that download over by
 itself (a few times at most).
 
+Links to video sites (when a video engine and prober are given) go to yt-dlp instead of aria2: the site is
+asked for title, channel, uploader and playlist, which the rules can use. A playlist becomes one row per
+video. Each row remembers its engine through ``source`` ("direct" or "video").
+
 The probe makes a network request, so ``add`` and ``preview`` belong on a worker thread, not the window's.
 """
 from __future__ import annotations
@@ -21,6 +25,7 @@ import shutil
 from typing import Callable, Dict, List, Optional, Tuple
 
 from accipio.core import aria2, probe, rules, sniff
+from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
@@ -30,9 +35,12 @@ MAX_RESTARTS = 3
 class Queue:
     def __init__(self, store: Store, engine: aria2.Aria2, rule_set: Callable[[], List[Rule]], base_folder: str, *,
                  prober: Callable[..., probe.Probe] = probe.probe, exists: Callable[[str], bool] = os.path.exists,
-                 keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now):
+                 keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now,
+                 video_engine=None, video_prober: Optional[Callable[..., Optional[VideoProbe]]] = None):
         self.store = store
         self.engine = engine
+        self.engines = {"direct": engine, "video": video_engine}
+        self.video_prober = video_prober if video_engine is not None else None
         self.rule_set = rule_set
         self.base_folder = base_folder
         self.prober = prober
@@ -45,11 +53,20 @@ class Queue:
 
     # ---- start-up --------------------------------------------------------------------------------------------
 
+    def engine_of(self, row: Row):
+        return self.engines.get(row.source) or self.engine
+
     def _reconcile(self) -> None:
-        """After a restart: rows the engine no longer knows become errors that can be retried."""
+        """After a restart: rows the engine no longer knows become errors that can be retried. Video downloads
+        are started again (paused ones stay paused): yt-dlp continues from its .part file."""
         known = {s.gid for s in self.engine.all()}
         for row in self.store.rows(UNFINISHED):
-            if row.state == PROBING:
+            if row.state != PROBING and row.source == "video" and self.engines["video"] is not None and row.filename:
+                gid = self.engines["video"].add(row.url, row.folder, row.filename,
+                                                headers=[f"{k}: {v}" for k, v in row.headers.items()],
+                                                paused=row.state == PAUSED)
+                self.store.update(row.id, gid=gid)
+            elif row.state == PROBING:
                 self.store.update(row.id, state=ERROR, error="Accipio closed while checking this link. Retry to start it.")
             elif row.gid not in known:
                 self.store.update(row.id, state=ERROR, error="The engine lost this download (its saved queue was missing). Retry to start it again.")
@@ -77,6 +94,12 @@ class Queue:
         row = self.store.get(row_id)
         self.store.update(row_id, state=PROBING, error="")
         try:
+            found_video = None
+            if self.video_prober:
+                found_video = self.video_prober(row.url, headers=row.headers, playlist=row.video.get("playlist", ""))
+            if found_video is not None:
+                self._start_video(row_id, found_video, folder, filename)
+                return
             found = self.prober(row.url, headers=row.headers)
         except probe.ProbeError as error:
             self.store.update(row_id, state=ERROR, error=str(error))
@@ -97,6 +120,37 @@ class Queue:
                           size=found.size, total=found.size or 0, done=0, resumable=found.resumable,
                           rules=placement.rule_numbers, why=why)
 
+    def _start_video(self, row_id: int, found: VideoProbe, folder: str, filename: str) -> None:
+        if found.entries is not None:                     # a playlist: this row becomes its first video
+            if not found.entries:
+                self.store.update(row_id, state=ERROR, error="The playlist is empty.")
+                return
+            row = self.store.get(row_id)
+            video = {"playlist": found.playlist} if found.playlist else {}
+            ids = [row_id] + [self.store.add(link, page_url=row.page_url, headers=row.headers, state=PROBING,
+                                             source="video", video=video, pinned=row.pinned, added=row.added)
+                              for link in found.entries[1:]]
+            self.store.update(row_id, url=found.entries[0], source="video", video=video)
+            for each in ids:
+                self._start(each, folder=folder)
+            return
+        row = self.store.get(row_id)
+        d = Download(url=found.url, filename=filename or found.filename, page_url=row.page_url, size=found.size,
+                     source="video", video=found.fields, when=row.added_at)
+        placement = rules.place(self.rule_set(), d, self.base_folder)
+        target = os.path.normpath(folder) if folder else placement.folder
+        name = rules.safe_part(filename, placement.filename) if filename else placement.filename
+        name = self._free(target, name, row_id)
+        why = placement.why() + (f" Folder chosen by hand: {target}." if folder else "")
+        self.store.update(row_id, source="video", video=found.fields)
+        try:
+            gid = self.engines["video"].add(row.url, target, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
+        except Exception as error:
+            self.store.update(row_id, state=ERROR, error=f"The video engine refused it: {error}")
+            return
+        self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime="", size=found.size,
+                          total=found.size or 0, done=0, resumable=True, rules=placement.rule_numbers, why=why)
+
     def _free(self, folder: str, filename: str, row_id: int) -> str:
         """A name nothing has: not a file on disk, and not another unfinished download into the same folder."""
         taken = {os.path.normcase(r.path) for r in self.store.rows((ACTIVE, PAUSED)) if r.id != row_id and r.path}
@@ -106,10 +160,10 @@ class Queue:
 
     def refresh(self) -> List[Row]:
         """Bring every running row up to date from the engine. Returns the rows that changed."""
-        statuses = {s.gid: s for s in self.engine.all()}
+        statuses = {source: {s.gid: s for s in engine.all()} for source, engine in self.engines.items() if engine}
         changed = []
         for row in self.store.rows((ACTIVE, PAUSED)):
-            status = statuses.get(row.gid)
+            status = statuses.get(row.source if row.source in statuses else "direct", {}).get(row.gid)
             if status is None:
                 continue
             self.speeds[row.id] = status.speed
@@ -127,7 +181,7 @@ class Queue:
 
     def _failed(self, row: Row, status: aria2.Status) -> None:
         if status.error_code == aria2.CANNOT_RESUME and row.restarts < MAX_RESTARTS:
-            gid = self.engine.restart(row.gid)
+            gid = self.engine_of(row).restart(row.gid)
             self.store.update(row.id, gid=gid, done=0, restarts=row.restarts + 1,
                               why=row.why + " The server cannot resume, so it started over.")
             return
@@ -136,6 +190,9 @@ class Queue:
 
     def _finish(self, row: Row, status: aria2.Status) -> None:
         folder, name, why, numbers = row.folder, row.filename, row.why, row.rules
+        if status.path and os.path.normcase(status.path) != os.path.normcase(row.path) and os.path.isfile(status.path):
+            folder, name = os.path.split(status.path)            # yt-dlp may end up with another container (mkv)
+            row.folder, row.filename = folder, name
         stem, ext = rules.split_name(name)
         if ext not in rules.KNOWN_EXTENSIONS:
             real = sniff.sniff(row.path)
@@ -155,20 +212,20 @@ class Queue:
                           done=status.done, total=status.total, headers={}, error="",
                           finished=self.clock().isoformat(timespec="seconds"))
         self.speeds.pop(row.id, None)
-        self.engine.remove(row.gid)                       # forget the result in aria2; the row keeps it
+        self.engine_of(row).remove(row.gid)               # forget the result in the engine; the row keeps it
 
     # ---- buttons ---------------------------------------------------------------------------------------------
 
     def pause(self, row_id: int) -> None:
         row = self.store.get(row_id)
         if row and row.state == ACTIVE:
-            self.engine.pause(row.gid)
+            self.engine_of(row).pause(row.gid)
             self.store.update(row_id, state=PAUSED)
 
     def resume(self, row_id: int) -> None:
         row = self.store.get(row_id)
         if row and row.state == PAUSED:
-            self.engine.resume(row.gid)
+            self.engine_of(row).resume(row.gid)
             self.store.update(row_id, state=ACTIVE)
 
     def retry(self, row_id: int) -> None:
@@ -182,8 +239,8 @@ class Queue:
         self._drop_partial(row)
         name = self._free(row.folder, row.filename, row_id)       # someone else's file may have appeared there
         try:
-            gid = self.engine.add(row.url, row.folder, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
-        except aria2.Aria2Error as error:
+            gid = self.engine_of(row).add(row.url, row.folder, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
+        except Exception as error:
             self.store.update(row_id, error=f"The engine refused it: {error}")
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, filename=name, done=0, error="")
@@ -195,7 +252,10 @@ class Queue:
         if not row:
             return
         if row.gid:
-            self.engine.remove(row.gid)
+            try:
+                self.engine_of(row).remove(row.gid)
+            except KeyError:
+                pass                                      # the engine had already forgotten it
         if row.state != COMPLETE:
             self._drop_partial(row)
         self.speeds.pop(row_id, None)
