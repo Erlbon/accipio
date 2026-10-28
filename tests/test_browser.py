@@ -188,3 +188,29 @@ def test_the_extension_talks_to_the_registered_host_name():
 def test_the_extension_scripts_parse(name):
     done = subprocess.run(["node", "--check", os.path.join(EXTENSION, name)], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
+
+
+def test_a_client_stuck_in_the_handshake_blocks_no_one(server):
+    """A connection that never answers the key challenge must not hold up the next one (it once could:
+    the key check ran inside accept())."""
+    from multiprocessing.connection import Client
+    folder, _ = server
+    stuck = Client(ipc.address(folder))                 # connects, then never takes part in the handshake
+    try:
+        assert ipc.send(folder, {"type": "ping"}, timeout=5)["ok"]
+    finally:
+        stuck.close()
+
+
+def test_a_silent_app_times_out_instead_of_hanging(tmp_path):
+    from multiprocessing.connection import Listener
+    folder = str(tmp_path)
+    mute = Listener(ipc.address(folder))                # accepts nothing: like a hung Accipio
+    try:
+        import time
+        started = time.monotonic()
+        with pytest.raises(OSError):
+            ipc.send(folder, {"type": "ping"}, timeout=1)
+        assert time.monotonic() - started < 5
+    finally:
+        mute.close()

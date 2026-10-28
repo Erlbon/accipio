@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-28#08 -- Fix: the browser link could hang
+
+- **A connection that stalled while proving its key held up every connection after it**, so the browser, a second start of Accipio, or Accipio's own tests could wait forever (it froze one test run). The key is now checked on each connection's own thread, and a caller gives up after 10 seconds instead of waiting for ever. A test that hangs on the old code pins it.
+- A test stuck for two minutes now prints where every thread is, instead of hanging silently.
+
 ## 2026-10-28#07 -- The Add box: check links before adding them
 
 - **File > Add Links… (Ctrl+N), or Shift+Enter in the paste bar**, opens the Add box with the links from the bar (or the clipboard). Plain Enter still adds at once.

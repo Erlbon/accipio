@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.10.28.7"
+version = "2026.10.28.8"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,3 +17,4 @@ accipio = "accipio.gui.app:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]   # bare `pytest` finds the package without an install
+faulthandler_timeout = 120   # a test stuck this long dumps every thread's stack instead of hanging silently
