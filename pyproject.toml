@@ -1,0 +1,12 @@
+[project]
+name = "accipio"
+version = "2026.10.28.1"
+description = "Download manager with your own rules for where each file goes"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]   # bare `pytest` finds the package without an install

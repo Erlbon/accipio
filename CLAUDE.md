@@ -20,7 +20,15 @@ session does not reopen what is settled. Keep it current when a decision changes
   "why here?" on hover/right-click), rules editor A (drag list left, form right, test box at the bottom).
   Described in `docs/design.md`.
 
+## Code layout
+- `accipio/core` is Qt-free and has no disk access where it can be avoided: `rules.py` (the walk, conditions,
+  tokens, `place()`), `cron.py` (time windows). The GUI, the engine and the CLI are thin layers over it.
+- Time conditions use AND for day-of-month + weekday (unlike classic cron); see the `cron.py` docstring.
+
 ## Conventions (as in the Redactor apps)
+- **Version bump at check-in:** build number `YYYY-MM-DD#NN` in `accipio/core/version.py`. Every commit that
+  changes real code runs `python bump_version.py` and adds a matching `CHANGELOG.md` section in the same
+  check-in. Never edit `APP_VERSION` by hand; a test fails when the changelog has no section for it.
 - Sync (`git pull --rebase`) before editing or pushing.
 - Slow operations show progress (`redactor_common` `run_with_progress()`).
 - Every table header resizable and sortable. No Ctrl+Alt shortcuts.
