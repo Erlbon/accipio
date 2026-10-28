@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test gate: the Python tests must pass before anything is pushed (until tests exist there is nothing to run).
+if [ -d tests ]; then
+  python -m pytest tests -q || { echo "pre-push: the Python tests fail; not pushing" >&2; exit 1; }
+fi
+exit 0
