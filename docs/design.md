@@ -77,6 +77,6 @@ clipboard watcher (off by default).
 Schedules and queues, torrents (aria2 has them), the Chrome Web Store listing.
 
 ## Open
-- Script action: Python, PowerShell, or any command.
-- Licence (repo is private until the first release, public after).
+- Script action: Python, PowerShell, or any command (recommended: any command, with the file path and
+  details passed as arguments/environment). May wait until after v1.
 - Mockups of the main window and the rules editor, before any code.
