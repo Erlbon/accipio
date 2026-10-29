@@ -69,6 +69,12 @@ session does not reopen what is settled. Keep it current when a decision changes
   to it; after testing a dist build with a scratch APPDATA, re-register from the checkout.
 - Icon (mockup A, picked 2026-10-29): master `accipio/gui/appicon/accipio.svg`; `tools/make_icons.py` writes the
   .ico, the 256 PNG and `extension/icons/` (all committed). The app loads only the .ico, so the exe needs no QtSvg.
+- Look (mockup 1 "soft", picked 2026-10-29): `gui/style.py` is one stylesheet applied in `app.py` after the
+  family theme. Shades are mixed from the palette (`@border`, `@hover`...), never `palette(mid)` (near-black in
+  light mode). Keep radii <= half the widget height or Qt draws square corners. A styled QComboBox loses its
+  arrow: `appicon/chevron-down(.png, @2x.png)` from `tools/make_icons.py` replaces it. Progress bars are painted
+  in `queue_model.ProgressDelegate`. Check visual changes by rendering real windows (normal platform +
+  `grab()`), dark AND light.
 - Engines live in `bin/` (gitignored), fetched by `python tools/fetch_engines.py` with pinned SHA-256s.
   The aria2 tests are skipped where aria2c is missing, so fetch it on a new clone.
 

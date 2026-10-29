@@ -29,6 +29,7 @@ from accipio.core import aria2, ipc, notices, rules, settings as settings_mod
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
+from accipio.gui import style
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
 LINK = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
@@ -127,7 +128,7 @@ class MainWindow(QMainWindow):
         for name in FILTERS:
             chip = QPushButton(name)
             chip.setCheckable(True)
-            chip.setFlat(True)
+            style.make_chip(chip)
             chip.clicked.connect(lambda _=False, n=name: self.set_filter(n))
             self.chip_group.addButton(chip)
             self.chips[name] = chip
@@ -148,6 +149,7 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(style.ROW_HEIGHT)
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
         self.table.setItemDelegateForColumn(PROGRESS, ProgressDelegate(self.table))

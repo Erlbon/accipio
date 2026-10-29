@@ -31,9 +31,11 @@ def main(argv=None) -> int:
     from redactor_common.gui.app_bootstrap import run_app
 
     def make_window():
-        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtWidgets import QApplication, QMessageBox
 
         from accipio.gui.main_window import MainWindow, open_services
+        from accipio.gui.style import apply_style
+        apply_style(QApplication.instance())             # after run_app's theme: rounds the family look
         try:
             services = open_services(folder)
         except aria2.Aria2Error as error:

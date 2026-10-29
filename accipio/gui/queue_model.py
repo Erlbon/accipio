@@ -4,8 +4,9 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
-from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionProgressBar
+from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QRectF, QSortFilterProxyModel, Qt
+from PyQt6.QtGui import QColor, QPainter, QPalette
+from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, Row
 
@@ -164,8 +165,15 @@ class QueueFilter(QSortFilterProxyModel):
         return row.state in self.states
 
 
+DONE_GREEN = QColor("#3B8C4A")         # readable on both the light and the dark palette
+FAILED_RED = QColor("#C0392B")
+BAR_HEIGHT = 12.0
+LABEL_WIDTH = 46
+
+
 class ProgressDelegate(QStyledItemDelegate):
-    """The Progress column as a real progress bar."""
+    """The Progress column as a rounded bar with the percentage beside it: the accent colour while running,
+    green when done, red when failed."""
 
     def paint(self, painter, option, index):
         source = index.model().mapToSource(index) if isinstance(index.model(), QSortFilterProxyModel) else index
@@ -173,12 +181,31 @@ class ProgressDelegate(QStyledItemDelegate):
         row = model.row_at(source)
         if row is None:
             return super().paint(painter, option, index)
-        bar = QStyleOptionProgressBar()
-        bar.rect = option.rect.adjusted(2, 3, -2, -3)
-        bar.minimum, bar.maximum = 0, 1000
-        bar.progress = int(model.fraction(row) * 1000)
-        bar.text = index.data()
-        bar.textVisible = True
-        bar.state = option.state
+        cell_option = QStyleOptionViewItem(option)          # the row's background and selection, without text
+        self.initStyleOption(cell_option, index)
+        cell_option.text = ""
         style = option.widget.style() if option.widget else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ProgressBar, bar, painter, option.widget)
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, cell_option, painter, option.widget)
+        pal = option.palette
+        cell = QRectF(option.rect.adjusted(6, 0, -6, 0))
+        width = max(cell.width() - LABEL_WIDTH, BAR_HEIGHT)
+        track = QRectF(cell.x(), cell.center().y() - BAR_HEIGHT / 2, width, BAR_HEIGHT)
+        radius = BAR_HEIGHT / 2
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        empty = QColor(pal.color(QPalette.ColorRole.Mid))
+        empty.setAlpha(80)
+        painter.setBrush(empty)
+        painter.drawRoundedRect(track, radius, radius)
+        fraction = model.fraction(row)
+        if fraction > 0:
+            painter.setBrush(DONE_GREEN if row.state == COMPLETE else FAILED_RED if row.state == ERROR
+                             else pal.color(QPalette.ColorRole.Highlight))
+            painter.drawRoundedRect(QRectF(track.x(), track.y(), max(BAR_HEIGHT, width * fraction), BAR_HEIGHT),
+                                    radius, radius)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        painter.setPen(pal.color(QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text))
+        painter.drawText(QRectF(track.right() + 6, option.rect.y(), LABEL_WIDTH, option.rect.height()),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), index.data() or "")
+        painter.restore()

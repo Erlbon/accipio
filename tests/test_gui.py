@@ -474,3 +474,41 @@ def test_clicking_a_group_notice_brings_the_window_up(world, monkeypatch):
     win._clicked_path = ""
     win.notice_clicked()
     assert raised == [1]
+
+
+# ---- the look --------------------------------------------------------------------------------------------
+
+def test_the_soft_style_fills_in_every_shade_for_light_and_dark(app):
+    from PyQt6.QtGui import QColor, QPalette
+    from accipio.gui import style
+    for base, text in (("#ffffff", "#000000"), ("#1e1e1e", "#e0e0e0")):
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Base, QColor(base))
+        palette.setColor(QPalette.ColorRole.Text, QColor(text))
+        sheet = style.stylesheet(palette)
+        assert "@" not in sheet.replace("@2x", "")              # no token left unfilled
+        assert "border-radius" in sheet and "palette(mid)" not in sheet
+    assert style.mix(QColor("#ffffff"), QColor("#000000"), 0.2) == "#cccccc"
+    assert os.path.isfile(style.CHEVRON) and os.path.isfile(style.CHEVRON.replace(".png", "@2x.png"))
+
+
+def test_the_window_wears_the_style(world):
+    from accipio.gui import style
+    win, engine, prober, base = world
+    assert all(chip.property("chip") for chip in win.chips.values())
+    assert win.table.verticalHeader().defaultSectionSize() == style.ROW_HEIGHT
+
+
+def test_the_progress_bars_paint_in_every_state(world):
+    win, engine, prober, base = world
+    for name in ("a.zip", "b.zip", "c.zip"):
+        add(win, prober, f"https://a.org/{name}", name)
+    first, second, third = (r.gid for r in sorted(win.model.rows, key=lambda r: r.id))
+    engine.progress(first, 50, 200)
+    engine.finish(second, b"PK\x03\x04")
+    engine.fail(third, "3")
+    win.tick()
+    win.flush()
+    win.table.selectRow(0)
+    win.resize(900, 300)
+    assert not win.table.viewport().grab().isNull()

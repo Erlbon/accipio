@@ -57,8 +57,29 @@ def write_ico(path: str, sizes) -> None:
         f.write(header + directory + data)
 
 
+def write_chevron(path: str, scale: int) -> None:
+    """The drop-down arrow for combo boxes (the stylesheet hides Fusion's own): 10 x 6, mid gray, which reads
+    on the light and the dark palette alike."""
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QColor, QPen
+    image = QImage(10 * scale, 6 * scale, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor("#8a8a8a"), 1.6 * scale)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    painter.drawPolyline([QPointF(1.2 * scale, 1.2 * scale), QPointF(5 * scale, 4.8 * scale),
+                          QPointF(8.8 * scale, 1.2 * scale)])
+    painter.end()
+    image.save(path, "PNG")
+
+
 def main() -> None:
     app = QGuiApplication.instance() or QGuiApplication([])
+    write_chevron(os.path.join(appicon.HERE, "chevron-down.png"), 1)
+    write_chevron(os.path.join(appicon.HERE, "chevron-down@2x.png"), 2)
     write_ico(appicon.ICO, appicon.SIZES)
     with open(appicon.PNG, "wb") as f:
         f.write(png_bytes(256))

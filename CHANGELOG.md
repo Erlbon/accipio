@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-29#05 -- A softer look
+
+- **Rounded corners everywhere:** buttons, the paste bar, text fields, drop-downs and spin boxes, the tables and lists (in a rounded frame with a flat header), the group boxes in the rules editor, menus and tooltips. The filter buttons are pills, filled when chosen.
+- **Progress is a rounded bar** with the percentage beside it: the accent colour while downloading, green when done, red when failed.
+- **Quieter lines:** borders, hover shades and the slim rounded scrollbar are mixed from the theme's own background and text colours, so light mode is as soft as dark (the theme's standard border colour is near-black in light mode). Rows are a little taller.
+- Every window gets it: the main window, the Add box, the rules editor and Preferences.
+
 ## 2026-10-29#04 -- Accipio's icon
 
 - **The icon:** a white arrow landing in a tray, on a blue tile. It is on the exe, the window, the taskbar, the notification-area icon and the notifications, and on the browser extension's toolbar button and extensions page.

@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayou
                              QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from accipio.core.queue import Preview
+from accipio.gui import style
 from accipio.gui.queue_model import human_size
 
 COLUMNS = ["", "Name", "Folder", "Rule", "Status"]
@@ -63,6 +64,8 @@ class AddDialog(QDialog):
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(style.ROW_HEIGHT)
+        self.table.setShowGrid(False)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSortingEnabled(False)                 # rows follow the pasted order
