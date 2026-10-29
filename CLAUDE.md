@@ -23,6 +23,9 @@ session does not reopen what is settled. Keep it current when a decision changes
 ## Code layout
 - `accipio/core` is Qt-free and has no disk access where it can be avoided: `rules.py` (the walk, conditions,
   tokens, `place()`), `cron.py` (time windows). The GUI, the engine and the CLI are thin layers over it.
+- Templates (`rules.parse_template`): `{key|filter:arg|...}`, filters in `FILTERS`, run left to right; regex
+  groups of a rule's name/video conditions are tokens for that rule only (`captures`); a rename updates
+  `{name}`/`{ext}` for the rules below. Keep `FILTER_HELP` (the editor's tooltip) in step with `FILTERS`.
 - Time conditions use AND for day-of-month + weekday (unlike classic cron); see the `cron.py` docstring.
 - `aria2.py` is a small stdlib JSON-RPC client, not aria2p (fewer dependencies, smaller exe).
   **Never turn on aria2's `--continue`**: it appends to an existing file of the same name (a test pins this).

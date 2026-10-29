@@ -376,7 +376,7 @@ class RuleForm(QWidget):
         self.subfolder.textChanged.connect(self.changed)
         form.addRow("Subfolder", self.subfolder)
         self.rename = QLineEdit()
-        self.rename.setPlaceholderText("(keep the name)   e.g. {yyyy}-{MM}-{dd} {name}.{ext}")
+        self.rename.setPlaceholderText("(keep the name)   e.g. {yyyy}-{MM}-{dd} {name|dots|trim}.{ext}")
         self.rename.textChanged.connect(self.changed)
         form.addRow("Rename", self.rename)
         self.command = QLineEdit()
@@ -395,7 +395,12 @@ class RuleForm(QWidget):
         after.addStretch(1)
         form.addRow("After", after)
         layout.addWidget(then)
-        tokens = QLabel("Tokens: " + " ".join("{" + t + "}" for t in rules.TOKENS))
+        for edit in (self.folder, self.subfolder, self.rename):
+            edit.setToolTip(rules.FILTER_HELP)
+        tokens = QLabel("Tokens: " + " ".join("{" + t + "}" for t in rules.TOKENS)
+                        + ".  Pieces of a regular expression in a name or video condition: {1} {2} …, or {show} "
+                          "for a (?P<show>…) group.  Filters after |, run in order: {name|dots|cut:1080p|trim} "
+                          "(hover a field for the list).")
         tokens.setWordWrap(True)
         tokens.setEnabled(False)
         layout.addWidget(tokens)

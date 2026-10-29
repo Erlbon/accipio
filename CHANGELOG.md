@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-29#02 -- Renaming: filters and pieces of the old name
+
+- **Filters on any token**, after a `|`, run left to right so a messy name can be trimmed step by step: `{name|strip:www.SiteRips.org|dots|cut:\b(1080p|WEB-DL|x264-GRP)\b|trim|title}.{ext}` turns `www.SiteRips.org_-_the_last_ship.2014.1080p.WEB-DL.x264-GRP.mkv` into `The Last Ship 2014.mkv`. The filters: `lower`, `upper`, `title`, `dots` (dots and underscores to spaces), `trim`, `replace:old:new`, `strip:a:b:…`, `cut:regex`, `sub:regex:new` (with `\1`), `before:text`, `after:text`, `max:80`, `default:text`. They work in folders and subfolders too. Hover the Folder, Subfolder or Rename field in the rules editor for the list.
+- **Pieces of the old name as tokens:** a regular expression in a rule's name (or video) condition hands its groups to that rule as `{1}`, `{2}`, … or by name: with `^(?P<show>.+?)[ ._]S(?P<season>\d+)E(\d+)`, the folder `TV\{show|dots}\Season {season}` and the name `{show|dots} - S{season}E{3}.{ext}` file `The.Show.S01E05.1080p.WEB.mkv` as `TV\The Show\Season 01\The Show - S01E05.mkv`.
+- **Renames chain:** a rule that renames and continues hands the new name to the rules below, so one rule can clean names and the next add a date.
+- The rules editor says what is wrong in plain words: an unknown filter, the wrong number of arguments, a broken regular expression, or a piece no pattern captures. The test box shows the final name as you type.
+- A `|` inside brackets, as in `(1080p|720p)`, needs no escape; write `\:` for a `:` inside an argument.
+
 ## 2026-10-29#01 -- Notifications: added, finished, failed
 
 - **Windows notifications** tell you when downloads are added, finish or fail, so you need not keep the window open. Accipio puts an icon in the notification area for them (click it to bring up the window; right-click for Show Accipio and Exit).

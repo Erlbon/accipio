@@ -229,3 +229,93 @@ def test_the_default_rules_sort_by_kind(base, download, sub):
     rules = r.default_rules()
     assert all(r.validate(rule) == [] for rule in rules)
     assert r.place(rules, download, base).folder == under(base, *sub)
+
+
+# ---- filters and pattern pieces --------------------------------------------------------------------------
+
+def name_of(template, filename, conditions=(), base="unused"):
+    return r.place([Rule("t", list(conditions), rename=template)], dl(filename), base).filename
+
+
+@pytest.mark.parametrize("template, expected", [
+    ("{name|lower}.{ext}", "the.show.s01e05.mkv"),
+    ("{name|upper}.{ext}", "THE.SHOW.S01E05.mkv"),
+    ("{name|dots}.{ext}", "The Show S01E05.mkv"),
+    ("{name|dots|title}.{ext}", "The Show S01E05.mkv"),
+    ("{name|replace:.: }.{ext}", "The Show S01E05.mkv"),
+    ("{name|strip:.show:the.}.{ext}", "S01E05.mkv"),
+    ("{name|cut:\\.S\\d+E\\d+}.{ext}", "The.Show.mkv"),
+    ("{name|sub:S(\\d+)E(\\d+):\\1x\\2}.{ext}", "The.Show.01x05.mkv"),
+    ("{name|before:.s01}.{ext}", "The.Show.mkv"),
+    ("{name|after:show.}.{ext}", "S01E05.mkv"),
+    ("{name|max:3}.{ext}", "The.mkv"),
+    ("{name|before:nothing-like-this}.{ext}", "The.Show.S01E05.mkv"),
+])
+def test_each_filter(template, expected):
+    assert name_of(template, "The.Show.S01E05.mkv") == expected
+
+
+def test_filters_run_in_order_to_trim_a_messy_name():
+    messy = "www.SiteRips.org_-_the_last_ship.2014.1080p.WEB-DL.x264-GRP.mkv"
+    template = "{name|strip:www.SiteRips.org|dots|cut:\\b(1080p|720p|WEB-DL|x264-GRP)\\b|trim|title}.{ext}"
+    assert name_of(template, messy) == "The Last Ship 2014.mkv"
+
+
+def test_escapes_and_braces_inside_a_filter():
+    assert name_of("{name|replace:\\::-}.{ext}", "a:b.txt") in ("a-b.txt",)       # the name never holds a raw :
+    assert name_of("{name|cut:\\d{4}}.{ext}", "report2026.pdf") == "report.pdf"
+    assert name_of("{name|cut:a\\|b}.{ext}", "xaybz.txt") == "xyz.txt"
+
+
+def test_default_fills_an_empty_value_and_title_keeps_apostrophes():
+    assert name_of("{title|default:no title}.{ext}", "x.mp4") == "no title.mp4"
+    assert name_of("{name|title}.{ext}", "don't stop.mp3") == "Don't Stop.mp3"
+
+
+def test_pattern_pieces_become_tokens(base):
+    show = Condition("name", [r"^(?P<show>.+?)[ ._]S(?P<season>\d+)E(\d+)"], regex=True)
+    rule = Rule("TV", [show], folder="TV/{show|dots}/Season {season}", rename="{show|dots} - S{season}E{3}.{ext}")
+    assert r.validate(rule) == []
+    p = r.place([rule], dl("The.Show.S01E05.1080p.WEB.mkv"), base)
+    assert p.filename == "The Show - S01E05.mkv"
+    assert p.folder == under(base, "TV", "The Show", "Season 01")
+
+
+def test_the_first_matching_pattern_gives_the_pieces_and_a_missing_piece_is_empty():
+    cond = Condition("name", [r"^IMG_(\d+)", r"^scan[-_](\d+)(x)?"], regex=True)
+    assert name_of("photo {1}{2|default:}.{ext}", "scan-0042.jpg", [cond]) == "photo 0042.jpg"
+
+
+def test_video_fields_give_pieces_too(base):
+    cond = Condition("video", [r"^(?P<artist>.+?) - (?P<song>.+?)( \(Official.*\))?$"], where="title", regex=True)
+    rule = Rule("Music", [cond], rename="{artist} - {song}.{ext}")
+    video = dl("x.mp4", source="video", video={"title": "Band - Song (Official Video)"})
+    assert r.place([rule], video, base).filename == "Band - Song.mp4"
+
+
+def test_a_rename_is_passed_on_to_the_rules_below(base):
+    rules = [Rule("Clean", rename="{name|dots|trim}.{ext}", stop=False),
+             Rule("Date", rename="{yyyy}-{MM}-{dd} {name}.{ext}")]
+    p = r.place(rules, dl("my_report.PDF"), base)
+    assert p.filename == "2026-10-27 my report.pdf" and "rename to my report.pdf" in p.why()
+
+
+def test_folder_filters_may_hold_slashes_and_backslashes(base):
+    video = dl("x.mp4", source="video", video={"uploader": "Some Channel 2024"})
+    rule = Rule("V", subfolder="Video/{uploader|cut:\\s*\\d{4}$}")
+    assert r.place([rule], video, base).folder == under(base, "Video", "Some Channel")
+
+
+def test_validate_names_the_trouble_with_tokens_and_filters():
+    problems = r.validate(Rule("x", rename="{1} {show} {name|shout} {name|replace:a} {name|cut:(} {name|max:x}.{ext}"))
+    text = "\n".join(problems)
+    assert "unknown token {1}" in text and "unknown token {show}" in text and "regular expression in a name" in text
+    assert "unknown filter 'shout'" in text and "replace takes 2 arguments, not 1" in text
+    assert "cut: '(' is not a regular expression" in text and "max needs a number" in text
+    assert r.validate(Rule("x", rename="{name|replace:/:-}.{ext}")) == []      # a / inside a filter is fine
+    assert r.validate(Rule("x", rename="a/{name}")) != []
+
+
+def test_text_that_is_not_a_token_is_kept():
+    assert name_of("{ {name} }.{ext}", "a.txt") == "{ a }.txt"
+    assert name_of("{nope|lower}.{ext}", "a.txt") == "{nope_lower}.txt"     # kept, made safe; validate() says so

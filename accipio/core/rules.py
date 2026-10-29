@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import datetime
 import fnmatch
+import functools
 import json
 import os
 import re
 from dataclasses import asdict, dataclass, field, fields
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
 from accipio.core import cron
@@ -255,7 +256,6 @@ class Placement:
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 TOKENS = ("yyyy", "MM", "dd", "week", "weekday", "domain", "pagedomain", "name", "ext",
           "channel", "uploader", "playlist", "title")
-_TOKEN = re.compile(r"\{(\w+)\}")
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
 
@@ -286,27 +286,247 @@ def token_values(d: Download, when: datetime.datetime) -> Dict[str, str]:
     return values
 
 
+# ---- templates: tokens with filters ----------------------------------------------------------------------
+#
+# A token is {key} or {key|filter|filter:arg|...}. The filters run left to right on the token's value, each
+# on the result of the one before, so a messy name can be trimmed step by step:
+#     {name|dots|cut:\b(1080p|720p|WEB|x264)\b|trim}
+# Arguments are split on ":"; write "\:" for a literal : inside one, and "\|" for a | outside (...) or [...]. A backslash before any
+# other character is kept, so regular expressions read as usual (\d, \b). Braces may nest inside a token
+# ({name|cut:\d{4}}). Text that is not a well-formed token is kept as it is written.
+
+@dataclass
+class _Token:
+    key: str
+    filters: List[Tuple[str, List[str]]]
+    text: str                            # as written, for an unknown key
+
+
+def _split(text: str, sep: str) -> List[str]:
+    """Split on ``sep`` where it is not escaped; "\\" + sep becomes sep, other escapes are kept whole. A "|"
+    inside (...) or [...] stays, so a regex alternative (1080p|720p) needs no escape."""
+    parts, buf, i, depth = [], [], 0, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            buf.append(nxt if nxt == sep else ch + nxt)
+            i += 2
+            continue
+        if sep == "|" and ch in "([":
+            depth += 1
+        elif sep == "|" and ch in ")]" and depth:
+            depth -= 1
+        if ch == sep and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def _closing_brace(text: str, start: int) -> int:
+    """The index of the "}" that closes the "{" at ``start``, or -1."""
+    depth, i = 0, start
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def parse_template(template: str) -> List[Union[str, _Token]]:
+    out: List[Union[str, _Token]] = []
+    i = 0
+    while i < len(template):
+        start = template.find("{", i)
+        if start < 0:
+            out.append(template[i:])
+            break
+        if start > i:
+            out.append(template[i:start])
+        end = _closing_brace(template, start)
+        inner = template[start + 1:end] if end > 0 else ""
+        m = re.fullmatch(r"(\w+)(\|.*)?", inner, re.DOTALL) if end > 0 else None
+        if not m:
+            out.append("{")
+            i = start + 1
+            continue
+        filters = []
+        for piece in _split(m.group(2) or "", "|")[1:]:
+            name, *args = _split(piece, ":")
+            filters.append((name.strip().lower(), args))
+        out.append(_Token(m.group(1), filters, template[start:end + 1]))
+        i = end + 1
+    return out
+
+
+def _icase_replace(text: str, old: str, new: str) -> str:
+    return re.sub(re.escape(old), lambda _: new, text, flags=re.IGNORECASE) if old else text
+
+
+def _title(text: str) -> str:
+    """Capital first letter in each word, the rest kept ("don't" stays "Don't", "AC" stays "AC")."""
+    return re.sub(r"(^|[\s\-_.(\[])(\w)", lambda m: m.group(1) + m.group(2).upper(), text)
+
+
+def _cut_at(text: str, mark: str, keep_before: bool) -> str:
+    at = text.lower().find(mark.lower()) if mark else -1
+    if at < 0:
+        return text
+    return text[:at] if keep_before else text[at + len(mark):]
+
+
+def _max(text: str, n: str) -> str:
+    try:
+        return text[:max(int(n), 1)].rstrip()
+    except ValueError:
+        return text
+
+
+# name -> (smallest number of arguments, largest or None, what it does on (value, args))
+FILTERS: Dict[str, Tuple[int, Optional[int], Callable[[str, List[str]], str]]] = {
+    "lower":   (0, 0, lambda v, a: v.lower()),
+    "upper":   (0, 0, lambda v, a: v.upper()),
+    "title":   (0, 0, lambda v, a: _title(v)),
+    "dots":    (0, 0, lambda v, a: re.sub(r"[._]+", " ", v)),
+    "trim":    (0, 0, lambda v, a: re.sub(r"\s+", " ", v).strip(" -_.,;")),
+    "replace": (2, 2, lambda v, a: _icase_replace(v, a[0], a[1])),
+    "strip":   (1, None, lambda v, a: functools.reduce(lambda t, s: _icase_replace(t, s, ""), a, v)),
+    "cut":     (1, 1, lambda v, a: re.sub(a[0], "", v, flags=re.IGNORECASE)),
+    "sub":     (2, 2, lambda v, a: re.sub(a[0], a[1], v, flags=re.IGNORECASE)),
+    "before":  (1, 1, lambda v, a: _cut_at(v, a[0], True)),
+    "after":   (1, 1, lambda v, a: _cut_at(v, a[0], False)),
+    "max":     (1, 1, lambda v, a: _max(v, a[0])),
+    "default": (1, 1, lambda v, a: v if v.strip() else a[0]),
+}
+REGEX_FILTERS = ("cut", "sub")
+
+FILTER_HELP = (
+    "Filters, after a | and run left to right:  {name|dots|cut:1080p|trim}\n"
+    "  lower  upper  title      change the case\n"
+    "  dots                     dots and underscores become spaces\n"
+    "  trim                     single spaces, no spaces or - _ . at the ends\n"
+    "  replace:old:new          replace text (any case)\n"
+    "  strip:a:b:...            remove each text\n"
+    "  cut:regex                remove what the regular expression matches\n"
+    "  sub:regex:new            replace with a regular expression (\\1 for a piece)\n"
+    "  before:text  after:text  keep what comes before / after the first text\n"
+    "  max:80                   at most 80 characters\n"
+    "  default:text             use text when the value is empty\n"
+    "Write \\: for a : inside an argument, and \\| for a | outside brackets ((1080p|720p) needs no \\).\n"
+    "Pieces of a regular expression in a name or video condition: {1} {2} ..., or {show} for (?P<show>...).")
+
+
+def apply_filters(value: str, filters: List[Tuple[str, List[str]]]) -> str:
+    for name, args in filters:
+        known = FILTERS.get(name)
+        if known is None or len(args) < known[0] or (known[1] is not None and len(args) > known[1]):
+            continue                                       # validate() reports it; the rest still runs
+        try:
+            value = known[2](value, args)
+        except (re.error, IndexError):
+            continue
+    return value
+
+
 def expand(template: str, values: Dict[str, str]) -> str:
-    """Fill in the tokens. Each value is made safe as a name of its own, so a channel called "AC/DC" stays
-    one folder. An unknown token is left as it is (validate() reports it)."""
-    def one(match):
-        key = match.group(1)
-        return safe_part(values[key]) if key in values else match.group(0)
-    return _TOKEN.sub(one, template)
+    """Fill in the tokens, each run through its filters. Each value is made safe as a name of its own, so a
+    channel called "AC/DC" stays one folder. An unknown token is left as it is (validate() reports it)."""
+    out = []
+    for part in parse_template(template):
+        if isinstance(part, str):
+            out.append(part)
+        elif part.key in values:
+            # empty becomes "unknown", unless the template gives its own default (which may be empty)
+            fallback = "" if any(name == "default" for name, _ in part.filters) else "unknown"
+            out.append(safe_part(apply_filters(values[part.key], part.filters), fallback))
+        else:
+            out.append(part.text)
+    return "".join(out)
+
+
+def _path_parts(template: str) -> List[str]:
+    """Split a folder template on \\ and / outside tokens (a filter's argument may hold either)."""
+    parts, buf, i = [], [], 0
+    while i < len(template):
+        ch = template[i]
+        if ch == "{":
+            end = _closing_brace(template, i)
+            if end > 0:
+                buf.append(template[i:end + 1])
+                i = end + 1
+                continue
+        if ch in "\\/":
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
 
 
 def _expand_folder(template: str, values: Dict[str, str]) -> str:
-    text = template.replace("\\", "/")
-    parts = [p for p in text.split("/")]
+    parts = _path_parts(template)
     drive = ""
     if re.fullmatch(r"[A-Za-z]:", parts[0] or ""):
         drive, parts = parts[0] + os.sep, parts[1:]
-    elif text.startswith("//"):
-        return os.path.normpath(expand(template, values))     # a network share: \\server\share\...
-    elif text.startswith("/"):
+    elif len(parts) > 2 and parts[0] == "" and parts[1] == "":
+        rest = [safe_part(expand(p, values), "_") for p in parts[2:] if p and p != "."]
+        return os.path.normpath(os.sep * 2 + os.path.join(*rest)) if rest else ""   # \\server\share\...
+    elif parts[0] == "" and len(parts) > 1:
         drive = os.sep
     out = [safe_part(expand(p, values), "_") for p in parts if p and p != "."]
     return os.path.normpath(drive + os.path.join(*out)) if out else (drive or "")
+
+
+# ---- pieces of a pattern ---------------------------------------------------------------------------------
+
+def _regex_conditions(rule: Rule) -> List[Condition]:
+    return [c for c in rule.conditions if c.regex and c.kind in ("name", "video")]
+
+
+def captures(rule: Rule, d: Download) -> Dict[str, str]:
+    """The pieces the rule's regular expressions cut out of the name (or video field): numbered groups as
+    "1", "2", ..., named ones under their name. The first pattern of a condition that matches gives them; a
+    piece that took no part in the match is empty."""
+    found: Dict[str, str] = {}
+    for c in _regex_conditions(rule):
+        text = d.filename if c.kind == "name" else d.video.get(c.where, "")
+        for pattern in (v for v in c.values if v.strip()):
+            try:
+                m = re.search(pattern, text, re.IGNORECASE)
+            except re.error:
+                continue
+            if m:
+                found.update({str(n): g or "" for n, g in enumerate(m.groups(), 1)})
+                found.update({k: g or "" for k, g in m.groupdict().items()})
+                break
+    return found
+
+
+def capture_names(rule: Rule) -> set:
+    names = set()
+    for c in _regex_conditions(rule):
+        for pattern in c.values:
+            try:
+                compiled = re.compile(pattern)
+            except re.error:
+                continue
+            names.update(str(n) for n in range(1, compiled.groups + 1))
+            names.update(compiled.groupindex)
+    return names
 
 
 def place(rules: List[Rule], d: Download, base_folder: str) -> Placement:
@@ -321,18 +541,20 @@ def place(rules: List[Rule], d: Download, base_folder: str) -> Placement:
         if not rule.enabled or not all(condition_matches(c, d, when) for c in rule.conditions):
             continue
         effects = []
+        here = {**values, **captures(rule, d)}             # a pattern's pieces belong to its own rule
         if rule.folder.strip():
-            target = _expand_folder(rule.folder, values)
+            target = _expand_folder(rule.folder, here)
             folder = target if os.path.isabs(target) or re.match(r"[A-Za-z]:", target) else os.path.join(base_folder, target)
             effects.append(f"set folder {folder}")
         if rule.subfolder.strip():
-            sub = _expand_folder(rule.subfolder.lstrip("\\/"), values)
+            sub = _expand_folder(rule.subfolder.lstrip("\\/"), here)
             if sub:
                 folder = os.path.join(folder, sub)
                 effects.append(f"add subfolder {sub}")
         if rule.rename.strip():
-            filename = expand(rule.rename, values)
-            effects.append(f"rename to {safe_part(filename, d.filename)}")
+            filename = safe_part(expand(rule.rename, here), filename)
+            effects.append(f"rename to {filename}")
+            values["name"], values["ext"] = split_name(filename)   # a rule below trims on from here
         if rule.command.strip():
             commands.append(rule.command)
             effects.append("run command")
@@ -359,11 +581,34 @@ def free_name(folder: str, filename: str, exists: Callable[[str], bool]) -> str:
 def validate(rule: Rule) -> List[str]:
     """What is wrong with a rule, in words for the editor; empty when it is fine."""
     found = []
+    known = set(TOKENS) | capture_names(rule)
     for label, template in (("folder", rule.folder), ("subfolder", rule.subfolder), ("rename", rule.rename)):
-        for key in _TOKEN.findall(template):
-            if key not in TOKENS:
-                found.append(f"{label}: unknown token {{{key}}}")
-    if rule.rename.strip() and re.search(r"[\\/]", rule.rename):
+        for part in parse_template(template):
+            if isinstance(part, str):
+                continue
+            if part.key not in known:
+                hint = (" (a piece needs a regular expression in a name or video condition with that group)"
+                        if part.key.isdigit() or part.key not in TOKENS else "")
+                found.append(f"{label}: unknown token {{{part.key}}}{hint}")
+            for name, args in part.filters:
+                spec = FILTERS.get(name)
+                if spec is None:
+                    found.append(f"{label}: {{{part.key}}} has an unknown filter {name!r}")
+                    continue
+                low, high = spec[0], spec[1]
+                if len(args) < low or (high is not None and len(args) > high):
+                    wanted = str(low) if low == high else f"at least {low}" if high is None else f"{low} to {high}"
+                    found.append(f"{label}: {name} takes {wanted} argument{'' if wanted.endswith('1') else 's'}, "
+                                 f"not {len(args)} (write \\: for a : inside one)")
+                elif name in REGEX_FILTERS:
+                    try:
+                        re.compile(args[0])
+                    except re.error as error:
+                        found.append(f"{label}: {name}: {args[0]!r} is not a regular expression ({error})")
+                elif name == "max" and not args[0].strip().isdigit():
+                    found.append(f"{label}: max needs a number, not {args[0]!r}")
+    rename_text = "".join(p for p in parse_template(rule.rename) if isinstance(p, str))
+    if rule.rename.strip() and re.search(r"[\\/]", rename_text):
         found.append("rename: a file name cannot contain \\ or /; use the folder for that")
     for n, c in enumerate(rule.conditions, 1):
         where = f"condition {n} ({c.kind})"
