@@ -1,3 +1,5 @@
 # hook scripts run under sh and must keep LF line endings
 .githooks/* text eol=lf
 *.sh text eol=lf
+# cmd reads .bat files reliably only with CRLF line endings
+*.bat text eol=crlf
