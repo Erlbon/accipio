@@ -52,6 +52,9 @@ session does not reopen what is settled. Keep it current when a decision changes
   `extension/package.json` only marks the JS as ES modules for `node --check` (the pre-commit hook).
 - No modifier key for "let Chrome download it": extensions are not told about held keys on downloads.
   Instead: a "Download with Chrome instead" link menu item and the popup's takeover switch.
+- Notifications (picked 2026-10-29: Windows notifications via a tray icon, not in-window toasts): `core/notices.py`
+  diffs the rows on every `reload()` and groups each kind for `GATHER` seconds; the window shows them through
+  `QSystemTrayIcon.showMessage` (`_show_notice`, which tests replace). Offscreen tests have no tray (`tray` is None).
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

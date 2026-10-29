@@ -435,3 +435,42 @@ def test_shift_enter_in_the_bar_opens_the_box_and_clears_the_bar_on_add(world):
     win.open_add_dialog(win.paste.text(), from_bar=True)
     win.flush()
     assert win.paste.text() == "" and [r.filename for r in win.model.rows] == ["a.zip"]
+
+
+# ---- notifications ---------------------------------------------------------------------------------------
+
+def test_added_and_finished_downloads_are_told(world, monkeypatch):
+    win, engine, prober, base = world
+    shown = []
+    monkeypatch.setattr(win, "_show_notice", shown.append)
+    win.notices.gather = 0
+    add(win, prober, "https://a.org/a.zip", "a.zip")
+    add(win, prober, "https://a.org/b.zip", "b.zip")
+    engine.finish(win.model.rows[0].gid, b"PK\x03\x04")
+    win.tick()
+    win.flush()
+    win.reload()
+    assert [n.title for n in shown] == ["Download added", "Download added", "Download finished"]
+    assert shown[-1].path == os.path.join(base, "Archives", "a.zip")
+
+
+def test_switching_a_notification_off_in_the_settings(world, monkeypatch):
+    win, engine, prober, base = world
+    shown = []
+    monkeypatch.setattr(win, "_show_notice", shown.append)
+    win.notices.gather = 0
+    dialog = SettingsDialog(win.services.settings, win)
+    assert dialog.notify_added.isChecked() and dialog.notify_finished.isChecked() and dialog.notify_failed.isChecked()
+    dialog.notify_added.setChecked(False)
+    win.apply_settings(dialog.result_settings())
+    add(win, prober, "https://a.org/a.zip", "a.zip")
+    assert shown == [] and settings.load_settings(win.services.folder).notify_added is False
+
+
+def test_clicking_a_group_notice_brings_the_window_up(world, monkeypatch):
+    win, engine, prober, base = world
+    raised = []
+    monkeypatch.setattr(win, "bring_to_front", lambda: raised.append(1))
+    win._clicked_path = ""
+    win.notice_clicked()
+    assert raised == [1]

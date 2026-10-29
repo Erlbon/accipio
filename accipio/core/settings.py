@@ -33,6 +33,13 @@ class Settings:
     speed_limit_kib: int = 0              # total, KiB/s; 0 = no limit
     keep_history: bool = False            # finished downloads are forgotten at the next start unless on
     video_quality: str = "best"           # best, 1080, 720 or audio (see video.QUALITIES)
+    notify_added: bool = True             # Windows notifications (see notices.py)
+    notify_finished: bool = True
+    notify_failed: bool = True
+
+    def notice_kinds(self) -> List[str]:
+        return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),
+                                      ("failed", self.notify_failed)) if on]
 
     def __post_init__(self):
         if not self.base_folder:

@@ -1,4 +1,5 @@
-"""Settings: the base folder, how many downloads at once, connections per file, the speed limit, history."""
+"""Settings: the base folder, how many downloads at once, connections per file, the speed limit, history,
+and which notifications to show."""
 from __future__ import annotations
 
 import dataclasses
@@ -47,6 +48,16 @@ class SettingsDialog(QDialog):
         self.keep_history = QCheckBox("Keep finished downloads in the list after a restart")
         self.keep_history.setChecked(current.keep_history)
         form.addRow("History", self.keep_history)
+        notify_row = QHBoxLayout()
+        self.notify_added = QCheckBox("Added")
+        self.notify_finished = QCheckBox("Finished")
+        self.notify_failed = QCheckBox("Failed")
+        for box, on in ((self.notify_added, current.notify_added), (self.notify_finished, current.notify_finished),
+                        (self.notify_failed, current.notify_failed)):
+            box.setChecked(on)
+            notify_row.addWidget(box)
+        notify_row.addStretch(1)
+        form.addRow("Notify when", notify_row)
         layout.addLayout(form)
         ffmpeg = find_ffmpeg()
         note = QLabel("Connections per file takes effect for downloads started after the next restart.\n"
@@ -69,4 +80,7 @@ class SettingsDialog(QDialog):
         return dataclasses.replace(self.current, base_folder=self.base_folder.text().strip() or self.current.base_folder,
                                    max_downloads=self.max_downloads.value(), connections=self.connections.value(),
                                    speed_limit_kib=self.speed_limit.value(), keep_history=self.keep_history.isChecked(),
-                                   video_quality=self.video_quality.currentData())
+                                   video_quality=self.video_quality.currentData(),
+                                   notify_added=self.notify_added.isChecked(),
+                                   notify_finished=self.notify_finished.isChecked(),
+                                   notify_failed=self.notify_failed.isChecked())

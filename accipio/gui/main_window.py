@@ -9,6 +9,9 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import re
+import subprocess
+import sys
+import time
 import traceback
 from dataclasses import dataclass
 from typing import Callable, List, Optional
@@ -16,13 +19,13 @@ from typing import Callable, List, Optional
 from PyQt6.QtCore import QModelIndex, QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
-                             QMenu, QMessageBox, QPushButton, QTableView, QVBoxLayout, QWidget)
+                             QMenu, QMessageBox, QPushButton, QStyle, QSystemTrayIcon, QTableView, QVBoxLayout, QWidget)
 
 from redactor_common.core import labels
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
-from accipio.core import aria2, ipc, rules, settings as settings_mod
+from accipio.core import aria2, ipc, notices, rules, settings as settings_mod
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -164,6 +167,9 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.build_label)
         self._build_menus()
         self._restore_layout()
+        self.notices = notices.Notices(services.settings.notice_kinds())
+        self._clicked_path = ""
+        self.tray = self._build_tray()
 
         self.bridge = Bridge(self)
         self.bridge.show_requested.connect(self.bring_to_front)
@@ -206,6 +212,57 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    # ---- notifications ---------------------------------------------------------------------------------------
+
+    def _build_tray(self) -> Optional[QSystemTrayIcon]:
+        """The tray icon that carries Windows' notifications. None where the desktop has no tray."""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return None
+        icon = self.windowIcon()
+        if icon.isNull():
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+        tray = QSystemTrayIcon(icon, self)
+        tray.setToolTip(APP_NAME)
+        menu = QMenu(self)
+        menu.addAction(f"Show {APP_NAME}", self.bring_to_front)
+        menu.addSeparator()
+        menu.addAction(labels.EXIT, self.close)
+        tray.setContextMenu(menu)
+        tray.activated.connect(lambda reason: self.bring_to_front()
+                               if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
+        tray.messageClicked.connect(self.notice_clicked)
+        tray.show()
+        return tray
+
+    def tell(self, rows: List[Row]) -> None:
+        """Note what changed since the last look and show the notices that are due. "Added" is left out while
+        the window is in front: the user just did it there."""
+        now = time.monotonic()
+        self.notices.observe(rows, now)
+        for notice in self.notices.due(now, self.services.settings.base_folder):
+            if notice.kind == notices.ADDED and self.isActiveWindow():
+                continue
+            self._show_notice(notice)
+
+    def _show_notice(self, notice: notices.Notice) -> None:
+        if self.tray is None:
+            return
+        self._clicked_path = notice.path
+        icon = (QSystemTrayIcon.MessageIcon.Warning if notice.kind == notices.FAILED
+                else QSystemTrayIcon.MessageIcon.Information)
+        self.tray.showMessage(notice.title, notice.text, icon, 6000)
+
+    def notice_clicked(self) -> None:
+        """A click on one finished file shows it in its folder; any other notice brings the window up."""
+        path = self._clicked_path
+        if path and os.path.isfile(path):
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+            else:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
+        else:
+            self.bring_to_front()
 
     # ---- menus -----------------------------------------------------------------------------------------------
 
@@ -265,7 +322,9 @@ class MainWindow(QMainWindow):
 
     def reload(self) -> None:
         selected = {r.id for r in self.selected_rows()}
-        self.model.set_rows(self.queue.rows(), dict(self.queue.speeds))
+        rows = self.queue.rows()
+        self.model.set_rows(rows, dict(self.queue.speeds))
+        self.tell(rows)
         if selected and not {r.id for r in self.selected_rows()}:
             self.select_ids(selected)
         counts = self.model.counts()
@@ -455,6 +514,7 @@ class MainWindow(QMainWindow):
         self.queue.base_folder = new.base_folder
         self.model.base_folder = new.base_folder
         self.queue.keep_history = new.keep_history
+        self.notices.enabled = set(new.notice_kinds())
         for engine in (self.services.engine, self.services.video_engine):
             if engine is not None:
                 self.run(engine.set_limits, max_downloads=new.max_downloads, speed_limit=new.speed_limit_kib * 1024)
@@ -491,6 +551,8 @@ class MainWindow(QMainWindow):
         stored.setValue("window/geometry", self.saveGeometry())
         stored.setValue("window/header", self.table.horizontalHeader().saveState())
         self.timer.stop()
+        if self.tray is not None:
+            self.tray.hide()                              # else Windows keeps a dead icon until the mouse passes
         if self.ipc is not None:
             self.ipc.stop()
         self.worker.shutdown(wait=True, cancel_futures=True)

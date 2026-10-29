@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-29#01 -- Notifications: added, finished, failed
+
+- **Windows notifications** tell you when downloads are added, finish or fail, so you need not keep the window open. Accipio puts an icon in the notification area for them (click it to bring up the window; right-click for Show Accipio and Exit).
+- **Batches become one notice:** downloads of one kind that happen within a second and a half of each other are told together ("5 downloads added", with the first three names), so a playlist or a pile of links never floods the screen.
+- **Click a "Download finished" notice** to see the file in its folder; any other notice brings up the window.
+- "Download added" is not shown while Accipio's window is in front, since you just added it there. Nothing already in the list at start is announced.
+- **Tools > Preferences > Notify when:** Added, Finished, Failed, each on or off (all on by default).
+
 ## 2026-10-28#08 -- Fix: the browser link could hang
 
 - **A connection that stalled while proving its key held up every connection after it**, so the browser, a second start of Accipio, or Accipio's own tests could wait forever (it froze one test run). The key is now checked on each connection's own thread, and a caller gives up after 10 seconds instead of waiting for ever. A test that hangs on the old code pins it.
