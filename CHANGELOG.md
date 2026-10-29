@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-29#03 -- The Windows build
+
+- **`build_exe.bat`** makes `dist\Accipio\Accipio.exe` with PyInstaller (fetching aria2 first if it is missing). Copy the whole `Accipio` folder; the exe needs the `_internal` folder beside it.
+- A folder, not one file, on purpose: every download clicked in the browser starts the exe again as the browser link, and a one-file exe would unpack itself to a temp folder on each click. The link answers in about 0.3 seconds.
+- About 85 MB: the Qt parts Accipio never uses (video codecs, PDF, software OpenGL, translations) are left out.
+- aria2 and its licence texts are inside; ffmpeg is not bundled (one in an `ffmpeg` folder next to the exe, on PATH or in the usual install folders is used).
+- Tested on the built exe: the window, a direct download (aria2), a YouTube video with picture and sound joined (yt-dlp + ffmpeg), the browser link, and a second start handing over to the first.
+
 ## 2026-10-29#02 -- Renaming: filters and pieces of the old name
 
 - **Filters on any token**, after a `|`, run left to right so a messy name can be trimmed step by step: `{name|strip:www.SiteRips.org|dots|cut:\b(1080p|WEB-DL|x264-GRP)\b|trim|title}.{ext}` turns `www.SiteRips.org_-_the_last_ship.2014.1080p.WEB-DL.x264-GRP.mkv` into `The Last Ship 2014.mkv`. The filters: `lower`, `upper`, `title`, `dots` (dots and underscores to spaces), `trim`, `replace:old:new`, `strip:a:b:…`, `cut:regex`, `sub:regex:new` (with `\1`), `before:text`, `after:text`, `max:80`, `default:text`. They work in folders and subfolders too. Hover the Folder, Subfolder or Rename field in the rules editor for the list.

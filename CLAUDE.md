@@ -61,6 +61,12 @@ session does not reopen what is settled. Keep it current when a decision changes
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.
+- Exe: `accipio.spec` + `build_exe.bat` -> `dist\Accipio\` (FOLDER build on purpose: every browser click starts the
+  exe as the native host, and a one-file exe would unpack itself each time). aria2 goes to `_internal\aria2`.
+  The spec does not collect all of redactor_common (its preview players pull in Qt Multimedia/Pdf) and drops
+  opengl32sw, the codecs and translations: 146 MB -> 85 MB. Verified 2026-10-29: window, aria2, yt-dlp + merge,
+  host ping through the windowed exe (0.3 s), single instance. Running the exe re-registers the browser host
+  to it; after testing a dist build with a scratch APPDATA, re-register from the checkout.
 - Engines live in `bin/` (gitignored), fetched by `python tools/fetch_engines.py` with pinned SHA-256s.
   The aria2 tests are skipped where aria2c is missing, so fetch it on a new clone.
 

@@ -18,4 +18,10 @@ Then load the extension: open `chrome://extensions` (or `edge://extensions`), sw
 choose **Load unpacked** and pick the `extension` folder. Clicked downloads now go to Accipio; the toolbar
 button switches that off and on.
 
+## Build the exe
+
+Run `build_exe.bat` (Windows). It installs what the build needs, fetches aria2 if it is missing, and makes
+`dist\Accipio\Accipio.exe`: a folder build (about 85 MB), so copy the whole `Accipio` folder. Starting the exe
+points the browser link at it.
+
 Status: in development. Direct downloads, the rules, the window, video sites and the browser link work (`python -m accipio`, after `python tools/fetch_engines.py`); the Chrome extension is in `extension`. See [docs/design.md](docs/design.md) and [CHANGELOG.md](CHANGELOG.md).
