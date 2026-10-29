@@ -2,6 +2,12 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-10-29#04 -- Accipio's icon
+
+- **The icon:** a white arrow landing in a tray, on a blue tile. It is on the exe, the window, the taskbar, the notification-area icon and the notifications, and on the browser extension's toolbar button and extensions page.
+- `accipio/gui/appicon/accipio.svg` is the master; `python tools/make_icons.py` makes the .ico (seven sizes, each drawn from the SVG so the small ones stay sharp), a 256-pixel PNG and the extension's icons. They are committed, so a build needs no extra step.
+- The exe no longer carries two Qt plugins whose libraries it leaves out.
+
 ## 2026-10-29#03 -- The Windows build
 
 - **`build_exe.bat`** makes `dist\Accipio\Accipio.exe` with PyInstaller (fetching aria2 first if it is missing). Copy the whole `Accipio` folder; the exe needs the `_internal` folder beside it.

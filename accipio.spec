@@ -25,6 +25,7 @@ a = Analysis(
     datas=[
         (ARIA2, "aria2"),                                   # aria2c.exe, COPYING, LICENSE.OpenSSL, AUTHORS
         ("extension", "extension"),                         # the browser extension, to load unpacked from here
+        ("accipio/gui/appicon", "accipio/gui/appicon"),     # the program icon (window, taskbar, tray)
         ("README.md", "."),
         ("CHANGELOG.md", "."),
         ("LICENSE", "."),
@@ -49,7 +50,7 @@ a = Analysis(
 # Qt files the window never uses: the software OpenGL fallback (20 MB; widgets draw without OpenGL), the video codecs
 # and the translations (Accipio is in English).
 UNUSED = ("opengl32sw.dll", "avcodec-", "avformat-", "avutil-", "swscale-", "swresample-", "qt6multimedia", "qt6pdf",
-          "qt6quick", "qt6qml", "qt6svg", "qt6opengl")
+          "qt6quick", "qt6qml", "qt6svg", "qt6opengl", "qpdf", "qsvg")    # the last two: plugins of what is gone
 a.binaries = [b for b in a.binaries if not any(os.path.basename(b[0]).lower().startswith(u.lower()) for u in UNUSED)]
 a.datas = [d for d in a.datas if "translations" not in d[0].replace("\\", "/").split("/")]
 
@@ -71,6 +72,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="accipio/gui/appicon/accipio.ico",
 )
 
 coll = COLLECT(

@@ -41,8 +41,9 @@ def main(argv=None) -> int:
             raise SystemExit(1)
         return MainWindow(services)
 
+    from accipio.gui import appicon
     return run_app(APP_NAME, make_window, crash_log_path=os.path.join(folder, "crash.log"),
-                   app_user_model_id="Erlbon.Accipio", argv=argv)
+                   app_user_model_id="Erlbon.Accipio", icon_path=appicon.ICO, argv=argv)
 
 
 if __name__ == "__main__":
