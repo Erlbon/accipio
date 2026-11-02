@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
-from accipio.core import aria2, browser, ipc, settings
+from accipio.core import aria2, browser, ipc, settings, ytdlp_update
 from accipio.core.version import APP_NAME
 
 
@@ -23,6 +23,7 @@ def main(argv=None) -> int:
     if ipc.is_running(folder):
         ipc.send(folder, {"type": "show"})
         return 0
+    ytdlp_update.activate(folder)              # before anything imports yt-dlp: an update made from Tools wins
     try:
         browser.register(folder)
     except OSError:

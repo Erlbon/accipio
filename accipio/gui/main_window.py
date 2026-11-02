@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass
@@ -18,14 +19,15 @@ from typing import Callable, List, Optional
 
 from PyQt6.QtCore import QModelIndex, QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence, QShortcut
-from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
-                             QMenu, QMessageBox, QPushButton, QStyle, QSystemTrayIcon, QTableView, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                             QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QStyle, QSystemTrayIcon,
+                             QTableView, QVBoxLayout, QWidget)
 
 from redactor_common.core import labels
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
-from accipio.core import aria2, ipc, notices, rules, settings as settings_mod
+from accipio.core import aria2, ipc, notices, rules, settings as settings_mod, ytdlp_update
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -39,6 +41,15 @@ def links_in(text: str) -> List[str]:
     """Every http(s)/ftp link in pasted or dropped text, in order, without repeats."""
     found = [m.group(0).rstrip(".,;)>\"'") for m in LINK.finditer(text or "")]
     return list(dict.fromkeys(found))
+
+
+def ytdlp_version() -> Optional[str]:
+    """The yt-dlp this process runs: the updated one when ytdlp_update.activate chose it, else the bundled one."""
+    try:
+        from yt_dlp.version import __version__
+        return __version__
+    except Exception:
+        return None
 
 
 class Bridge(QObject):
@@ -95,6 +106,7 @@ class MainWindow(QMainWindow):
         self.queue = services.queue
         self.worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="accipio-queue")
         self.failures: List[str] = []
+        self.ytdlp_updater = ytdlp_update.update                   # tests put a fake here
         self._refreshing: Optional[concurrent.futures.Future] = None
         self.setWindowTitle(APP_NAME)
         self.resize(1000, 560)
@@ -185,6 +197,8 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(tick_ms)
+        if services.video_engine is not None:
+            self.run(ytdlp_update.note_in_use, services.folder)     # on the worker: importing yt-dlp takes a moment
         self.reload()
 
     # ---- the browser and a second start ----------------------------------------------------------------------
@@ -292,6 +306,7 @@ class MainWindow(QMainWindow):
                 MenuAction("remove", labels.REMOVE_FROM_LIST, self.remove_selected, shortcut="Delete"),
             ])],
             tools=[MenuAction("rules", "&Rules…", self.open_rules, shortcut="Ctrl+Shift+R"),
+                   MenuAction("update_ytdlp", "&Update yt-dlp…", self.update_ytdlp),
                    Separator(),
                    MenuAction("preferences", labels.PREFERENCES, self.open_settings, shortcut="Ctrl+,")],
             help=standard_help_items(APP_NAME, self.open_changelog, None, self.about),
@@ -524,13 +539,60 @@ class MainWindow(QMainWindow):
             self.services.video_engine.quality = new.video_quality
         self.statusBar().showMessage("Settings saved.", 4000)
 
+    # ---- updating yt-dlp -------------------------------------------------------------------------------------
+
+    def update_ytdlp(self) -> None:
+        """Fetch the newest yt-dlp from PyPI (see ytdlp_update), with a progress box whose Cancel works. The new one
+        is used from the next start, so offer to restart."""
+        from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
+        running = ytdlp_version()
+        box = QProgressDialog("Looking for a newer yt-dlp…", "Cancel", 0, 0, self)
+        box.setWindowTitle("Update yt-dlp")
+        box.setWindowModality(Qt.WindowModality.ApplicationModal)
+        box.setMinimumDuration(0)
+        cancel = threading.Event()
+        box.canceled.connect(cancel.set)
+        box.show()
+        try:
+            result = call_in_background(self.ytdlp_updater, self.services.folder, running, cancel=cancel,
+                                        cancel_signal=box.canceled)
+        except (BackgroundCancelled, ytdlp_update.Cancelled):
+            return
+        except ytdlp_update.UpdateError as error:
+            QMessageBox.warning(self, "Update yt-dlp", str(error))
+            return
+        finally:
+            box.close()
+        if not result.waiting:
+            QMessageBox.information(self, "Update yt-dlp", f"yt-dlp {running or result.latest} is the newest version.")
+            return
+        done = "is installed" if result.installed else "is already downloaded"
+        answer = QMessageBox.question(
+            self, "Update yt-dlp",
+            f"yt-dlp {result.latest} {done}. Accipio uses it from its next start.\n\n"
+            "Restart Accipio now? Downloads in progress carry on after the restart.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        if answer == QMessageBox.StandardButton.Yes:
+            self.restart()
+
+    def restart(self) -> None:
+        """Close the way Exit does (the engines save their state), then start Accipio again once this one is gone."""
+        from accipio import native_host
+        app = QApplication.instance()
+        app.aboutToQuit.connect(native_host.launch_app)
+        if self.close():
+            app.quit()
+        else:
+            app.aboutToQuit.disconnect(native_host.launch_app)
+
     def open_changelog(self) -> None:
         QDesktopServices.openUrl(QUrl(APP_REPO_URL + "/blob/main/CHANGELOG.md"))
 
     def about(self) -> None:
         QMessageBox.about(self, f"About {APP_NAME}",
                           f"<h3>{APP_NAME}</h3><p>Build {APP_VERSION}</p><p>A download manager that puts each file "
-                          f"where your rules say.</p><p><a href='{APP_REPO_URL}'>{APP_REPO_URL}</a></p>"
+                          f"where your rules say.</p><p>yt-dlp {ytdlp_version() or 'not found'}</p>"
+                          f"<p><a href='{APP_REPO_URL}'>{APP_REPO_URL}</a></p>"
                           "<p>MIT licence. Downloads by aria2 (GPL-2.0), run as a separate program.</p>")
 
     # ---- layout memory and closing ---------------------------------------------------------------------------

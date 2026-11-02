@@ -30,7 +30,12 @@ An ordered list. Priority is set by dragging rules up and down. Every download g
 **Actions:** set folder, add subfolder, rename with a template, run a script, then **stop** or **continue**.
 The script action runs **any command line** when the download finishes (decided 2026-10-28), e.g.
 `powershell -File unpack.ps1 "{path}"`; tokens are filled in, and the file path, URL, domain, type, size
-and video details are also passed as `ACCIPIO_*` environment variables. It may land after v1.
+and video details are also passed as `ACCIPIO_*` environment variables. It may land after v1. Until it runs
+(with injection-safe quoting), the rules editor hides the field; a command already saved in rules.json is kept.
+
+**yt-dlp updates** (2026-11-02): Tools > Update yt-dlp fetches the newest wheel (and the yt-dlp-ejs it pins)
+from PyPI, checks the SHA-256, and unpacks it into `%APPDATA%\Accipio\yt-dlp\<version>`. At start it goes
+ahead of the bundled copy on `sys.path`, only when newer; `yt-dlp\in-use.txt` records which one loaded.
 Continue lets rules combine, as in mail filters: a domain rule sets the base folder, a type rule further
 down adds the subfolder.
 

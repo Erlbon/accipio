@@ -10,7 +10,7 @@
 # the exe, on PATH or in the usual install folders is used (see accipio\core\video.py).
 import os
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 block_cipher = None
 
@@ -29,7 +29,7 @@ a = Analysis(
         ("README.md", "."),
         ("CHANGELOG.md", "."),
         ("LICENSE", "."),
-    ],
+    ] + copy_metadata("yt-dlp"),     # its version, read at start to tell whether a yt-dlp update is newer (ytdlp_update)
     # Found by name when they are needed, so the static analysis cannot see them: Accipio's lazily loaded parts and
     # yt-dlp's site extractors (it picks them by name at run time). redactor_common is NOT collected whole: its
     # preview players would drag in Qt Multimedia and Qt Pdf; the parts Accipio imports are found as usual.

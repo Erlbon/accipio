@@ -1,15 +1,18 @@
 [project]
 name = "accipio"
-version = "2026.10.29.5"
+version = "2026.11.2.1"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
     "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-10-25-01",   # pin a tag, never @main
 ]
+
+[tool.setuptools.packages.find]
+include = ["accipio*"]     # only the program: "extension" and "tools" are not Python packages to install
 
 [project.gui-scripts]
 accipio = "accipio.gui.app:main"

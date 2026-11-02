@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-02#01 -- Update yt-dlp from the Tools menu
+
+- **Tools > Update yt-dlp…** fetches the newest yt-dlp from PyPI, so video sites keep working without a new Accipio build. It also fetches the yt-dlp-ejs version that yt-dlp asks for (it handles YouTube's JavaScript checks). Each file is checked against PyPI's SHA-256 before anything is unpacked. A progress box with a working Cancel shows while it runs; a failure is told in plain words and changes nothing.
+- The new yt-dlp goes into `yt-dlp\<version>` in Accipio's folder and is used from the next start; Accipio offers to restart (downloads carry on afterwards). It is used only while it is newer than the copy inside the exe: a later Accipio build with a newer yt-dlp wins, and the old update is deleted.
+- **Help > About** shows the yt-dlp version in use, and `yt-dlp\in-use.txt` says which one was loaded and from where.
+- **The "Run" field in the rules editor is hidden** until commands actually run. A command already saved with a rule is kept.
+- **The build works again:** `build_exe.bat` failed at `pip install .` because setuptools found both `accipio` and `extension` as packages; only `accipio` is installed now. The exe carries yt-dlp's version information so updates can be compared with it.
+
 ## 2026-10-29#05 -- A softer look
 
 - **Rounded corners everywhere:** buttons, the paste bar, text fields, drop-downs and spin boxes, the tables and lists (in a rounded frame with a flat header), the group boxes in the rules editor, menus and tooltips. The filter buttons are pills, filled when chosen.

@@ -380,9 +380,11 @@ class RuleForm(QWidget):
         self.rename.textChanged.connect(self.changed)
         form.addRow("Rename", self.rename)
         self.command = QLineEdit()
-        self.command.setPlaceholderText("Saved with the rule, but not run yet")
         self.command.textChanged.connect(self.changed)
         form.addRow("Run", self.command)
+        form.setRowVisible(self.command, False)    # hidden until commands run (injection-safe quoting first); a
+                                                   # command already saved in rules.json is kept, never wiped
+        self.actions = form
         after = QHBoxLayout()
         self.stop = QRadioButton("Stop")
         self.go_on = QRadioButton("Continue to the rules below")

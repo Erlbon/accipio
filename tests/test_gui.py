@@ -198,6 +198,62 @@ def test_closing_stops_the_engine_and_remembers_the_columns(world):
     assert engine.stopped and os.path.isfile(os.path.join(win.services.folder, "window.ini"))
 
 
+# ---- updating yt-dlp -------------------------------------------------------------------------------------
+
+def ask_ytdlp(win, monkeypatch, updater, answer=QMessageBox.StandardButton.No):
+    """Run Tools > Update yt-dlp with a fake updater; returns the message boxes it showed."""
+    from accipio.core import ytdlp_update
+    shown = []
+    for kind in ("information", "warning"):
+        monkeypatch.setattr(QMessageBox, kind, lambda *a, kind=kind: shown.append((kind, a[2])))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: shown.append(("question", a[2])) or answer)
+    restarts = []
+    monkeypatch.setattr(win, "restart", lambda: restarts.append(1))
+    win.ytdlp_updater = updater
+    win.actions_by_key["update_ytdlp"].trigger()
+    return shown, restarts, ytdlp_update
+
+
+def test_update_ytdlp_says_when_it_is_the_newest(world, monkeypatch):
+    from accipio.core.ytdlp_update import Result
+    win, *_ = world
+    shown, restarts, _ = ask_ytdlp(win, monkeypatch, lambda folder, running, cancel: Result("2026.8.19", False, False))
+    assert shown[0][0] == "information" and "is the newest version" in shown[0][1] and not restarts
+
+
+def test_update_ytdlp_installs_into_the_config_folder_and_offers_a_restart(world, monkeypatch):
+    from accipio.core.ytdlp_update import Result
+    win, *_ = world
+    seen = []
+
+    def updater(folder, running, cancel):
+        seen.append(folder)
+        return Result("2026.10.30", True, True)
+    shown, restarts, _ = ask_ytdlp(win, monkeypatch, updater, answer=QMessageBox.StandardButton.Yes)
+    assert seen == [win.services.folder]
+    assert shown[0][0] == "question" and "2026.10.30 is installed" in shown[0][1] and restarts == [1]
+
+
+def test_update_ytdlp_shows_a_failure_in_words(world, monkeypatch):
+    from accipio.core.ytdlp_update import UpdateError
+    win, *_ = world
+
+    def updater(folder, running, cancel):
+        raise UpdateError("Could not reach PyPI: no network")
+    shown, restarts, _ = ask_ytdlp(win, monkeypatch, updater)
+    assert shown == [("warning", "Could not reach PyPI: no network")] and not restarts
+
+
+def test_update_ytdlp_cancel_says_nothing(world, monkeypatch):
+    from accipio.core.ytdlp_update import Cancelled
+    win, *_ = world
+
+    def updater(folder, running, cancel):
+        raise Cancelled()
+    shown, restarts, _ = ask_ytdlp(win, monkeypatch, updater)
+    assert shown == [] and not restarts
+
+
 # ---- the rules editor ------------------------------------------------------------------------------------
 
 def test_the_dialog_lists_the_rules_with_stop_and_continue_marks(app, tmp_path):
@@ -216,6 +272,16 @@ def test_editing_a_rule_in_the_form(app, tmp_path):
     result = dialog.result_rules()
     assert result[6].subfolder == "Archives/{yyyy}" and result[6].stop is False
     assert dialog.list.item(6).text().endswith("→")
+
+
+def test_the_command_field_is_hidden_until_commands_run_but_a_saved_one_is_kept(app, tmp_path):
+    saved = rules.default_rules()
+    saved[6].command = 'notify "{name}"'
+    dialog = RulesDialog(saved, str(tmp_path))
+    dialog.list.setCurrentRow(6)
+    assert dialog.form.command.isHidden() and not dialog.form.actions.isRowVisible(dialog.form.command)
+    dialog.form.subfolder.setText("Archives/{yyyy}")
+    assert dialog.result_rules()[6].command == 'notify "{name}"'
 
 
 def test_new_duplicate_and_delete(app, tmp_path):
