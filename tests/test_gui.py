@@ -257,7 +257,7 @@ def test_update_ytdlp_cancel_says_nothing(world, monkeypatch):
 # ---- the rules editor ------------------------------------------------------------------------------------
 
 def test_the_dialog_lists_the_rules_with_stop_and_continue_marks(app, tmp_path):
-    rule_list = [Rule("Work", [Condition("domain", ["knowit.no"])], folder="Work", stop=False), Rule("Other", subfolder="Other")]
+    rule_list = [Rule("Work", [Condition("domain", ["work.example"])], folder="Work", stop=False), Rule("Other", subfolder="Other")]
     dialog = RulesDialog(rule_list, str(tmp_path))
     assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work   →", "2  Other   ■"]
     assert dialog.result_rules() == rule_list

@@ -41,11 +41,11 @@ def test_the_first_matching_rule_that_stops_wins(base):
 
 def test_continue_lets_a_domain_rule_and_a_type_rule_combine(base, tmp_path):
     work = str(tmp_path / "Work")
-    rules = [Rule("Work", [Condition("domain", ["knowit.no"])], folder=work, stop=False),
+    rules = [Rule("Work", [Condition("domain", ["work.example"])], folder=work, stop=False),
              Rule("Video sites", [Condition("source", ["video"])], folder="Video"),
              Rule("Archives", [Condition("type", ["Archives"])], subfolder="Archives/{yyyy}-{MM}"),
              Rule("Other", subfolder="Other")]
-    p = r.place(rules, dl("release-2.4.zip", url="https://files.knowit.no/release-2.4.zip"), base)
+    p = r.place(rules, dl("release-2.4.zip", url="https://files.work.example/release-2.4.zip"), base)
     assert p.path == os.path.join(os.path.normpath(os.path.join(work, "Archives", "2026-10")), "release-2.4.zip")
     assert p.rule_numbers == "1+3"
     assert p.why().startswith('rule 1 "Work": set folder ') and ' → rule 3 "Archives": add subfolder ' in p.why()
