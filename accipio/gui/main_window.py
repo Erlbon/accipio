@@ -99,7 +99,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
         video_engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
         video_prober = video_prober or video.make_prober(video_engine)
     library = settings_mod.load_library(folder)
-    if rules.adopt_folders(rule_list, library):            # rules from before Folders: their paths get names
+    if rules.modernize(rule_list, library):            # older rules: named folders, first fit
         settings_mod.save_rules(folder, rule_list, library)
     holder = {"rules": rule_list, "library": library}
     kwargs = {"prober": prober} if prober else {}

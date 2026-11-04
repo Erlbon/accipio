@@ -48,10 +48,11 @@ def test_a_relative_folder_is_under_the_base_folder_and_a_subfolder_is_added():
 def test_old_rules_with_typed_paths_get_named_folders():
     lib = samples.sorting_library()
     rule_list = [Rule("Work stuff", folder="D:/Work"), Rule("More work", folder="D:/Work"), Rule("Plain", subfolder="X")]
-    assert r.adopt_folders(rule_list, lib)
-    assert [x.target for x in rule_list] == ["Work stuff", "Work stuff", ""]
+    assert r.modernize(rule_list, lib)
+    assert [x.target for x in rule_list] == ["Work stuff", "Work stuff", "Plain"]   # a subfolder is a folder too
     assert r.find_named(lib.folders, "Work stuff").path == "D:/Work" and rule_list[0].folder == ""
-    assert not r.adopt_folders(rule_list, lib)                                   # nothing left to move
+    assert r.find_named(lib.folders, "Plain").path == "%default%\\X" and rule_list[2].subfolder == ""
+    assert not r.modernize(rule_list, lib)                                       # nothing left to move
 
 
 def test_renaming_a_folder_or_group_updates_the_rules_and_used_by_says_which():
@@ -237,3 +238,35 @@ def test_folders_are_written_under_percent_default():
         rule = Rule("x", target=target)
         assert r.place([rule], dl("a.zip"), "B", lib).folder == os.path.normpath(expected), target
         assert r.validate(rule, lib) == []
+
+
+# ---- rules as one sentence (2026-11-04#05) --------------------------------------------------------------
+
+def test_the_first_rule_that_fits_wins_even_one_that_said_continue():
+    first = Rule("First", [Condition("type", ["Comics"])], folder="D:/A", stop=False)
+    second = Rule("Second", [Condition("type", ["Comics"])], folder="D:/B")
+    p = r.place([first, second], dl("x.cbz"), "B")
+    assert p.folder == os.path.normpath("D:/A") and [s.name for s in p.steps] == ["First"]
+
+
+def test_older_rules_keep_where_their_files_land():
+    lib = r.default_library()
+    rule_list = [Rule("Shows", [Condition("type", ["Video"], exclude=["ts", "m2ts"])], folder="D:/TV", subfolder="{yyyy}", stop=False),
+                 Rule("Loose", subfolder="Inbox"),
+                 Rule("Again", [Condition("type", ["Video"], exclude=["m2ts", "ts"])])]
+    before = [r.place(rule_list[i:i + 1], dl(n), "B", lib).folder for i, n in ((0, "a.mkv"), (1, "b.zip"))]
+    assert r.modernize(rule_list, lib)
+    shows, loose, again = rule_list
+    assert (shows.folder, shows.subfolder, shows.stop) == ("", "", True)
+    assert r.find_named(lib.folders, shows.target).path == "D:/TV\\{yyyy}"
+    assert shows.target == "Shows" and r.find_named(lib.folders, "Shows (2)") is None   # one folder, not two
+    assert r.find_named(lib.folders, loose.target).path == "%default%\\Inbox"
+    assert shows.conditions[0].values == ["Video without m2ts, ts"] and shows.conditions[0].exclude == []
+    assert again.conditions[0].values == ["Video without m2ts, ts"]                 # one trimmed copy, reused
+    trimmed = r.find_named(lib.groups, "Video without m2ts, ts")
+    assert "ts" not in trimmed.extensions and "mkv" in trimmed.extensions
+    assert "ts" in r.find_named(lib.groups, "Video").extensions                  # the group itself stays
+    after = [r.place([shows], dl("a.mkv"), "B", lib).folder, r.place([loose], dl("b.zip"), "B", lib).folder]
+    assert after == before
+    assert r.place([shows], dl("a.ts"), "B", lib).folder == "B"                   # still left out
+    assert not r.modernize(rule_list, lib)                                        # nothing left to do

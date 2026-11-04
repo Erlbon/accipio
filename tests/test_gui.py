@@ -280,24 +280,45 @@ def test_update_ytdlp_cancel_says_nothing(world, monkeypatch):
 
 # ---- the rules editor ------------------------------------------------------------------------------------
 
-def test_the_dialog_lists_the_rules_with_stop_and_continue_marks(app, tmp_path):
-    rule_list = [Rule("Work", [Condition("domain", ["work.example"])], folder="Work", stop=False), Rule("Other", subfolder="Other")]
+def test_the_dialog_lists_the_rules_and_brings_old_ones_up_to_date(app, tmp_path):
+    rule_list = [Rule("Work", [Condition("domain", ["work.example"])], folder="Work", stop=False),
+                 Rule("Other", subfolder="Other")]
     dialog = RulesDialog(rule_list, str(tmp_path))
-    assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work   →", "2  Other   ■"]
+    assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work", "2  Other"]
     got = dialog.result_rules()
-    assert (got[0].target, got[0].folder) == ("Work", "")                   # a typed path became a named folder
-    assert rules.find_named(dialog.result_library().folders, "Work").path == "Work"
-    assert rule_list[0].folder == "Work" and rule_list[0].target == ""      # the caller's list is untouched until OK
+    assert (got[0].target, got[0].folder, got[0].stop) == ("Work", "", True)    # a typed path became a named folder
+    assert (got[1].target, got[1].subfolder) == ("Other", "")                  # and so did a subfolder
+    assert rules.find_named(dialog.result_library().folders, "Other").path == "%default%\\Other"
+    assert rule_list[0].folder == "Work" and rule_list[0].target == ""          # the caller's list is untouched until OK
 
 
-def test_editing_a_rule_in_the_form(app, tmp_path):
-    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
-    dialog.list.setCurrentRow(7)                                          # Archives
-    dialog.form.subfolder.setText("{yyyy}")
-    dialog.form.go_on.setChecked(True)
-    result = dialog.result_rules()
-    assert result[7].subfolder == "{yyyy}" and result[7].stop is False and result[7].target == "Archives"
-    assert dialog.list.item(7).text().endswith("→")
+def test_editing_a_rule_as_a_sentence(app, tmp_path):
+    library = samples.sorting_library()
+    library.site_groups.append(rules.SiteGroup("Shops", ["gog.com"]))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=library)
+    dialog.list.setCurrentRow(5)                                          # Comics
+    form = dialog.form
+    assert form.types.values() == ["Comics"] and form.sites.values() == [] and form.folder.currentData() == "Comics"
+    form.types.pick("Ebooks")
+    form.sites.pick("Shops")
+    form.folder.setCurrentIndex(form.folder.findData("Books"))
+    got = dialog.result_rules()[5]
+    assert got.conditions == [Condition("sites", ["Shops"]), Condition("type", ["Comics", "Ebooks"])]
+    assert got.target == "Books" and got.subfolder == "" and got.stop is True
+    form.types.drop("Comics")
+    assert dialog.result_rules()[5].conditions[1].values == ["Ebooks"]
+
+
+def test_more_conditions_are_folded_away_until_used(app, tmp_path):
+    rule = Rule("Big", [Condition("type", ["Video"]), Condition("size", min_size=100 * 1024 * 1024)], target="Default")
+    dialog = RulesDialog([rule, Rule("Plain")], str(tmp_path))
+    form = dialog.form
+    assert form.more_button.isChecked() and len(form.rows) == 1 and form.rows[0].kind.currentData() == "size"
+    assert [form.rows[0].kind.itemData(i) for i in range(form.rows[0].kind.count())] == \
+        ["domain", "name", "size", "time", "source", "video"]                  # groups are in the sentence instead
+    dialog.list.setCurrentRow(1)
+    assert not form.more_button.isChecked() and form.more.isHidden()
+    assert dialog.result_rules()[0].conditions == rule.conditions
 
 
 def test_the_command_field_is_hidden_until_commands_run_but_a_saved_one_is_kept(app, tmp_path):
@@ -305,8 +326,8 @@ def test_the_command_field_is_hidden_until_commands_run_but_a_saved_one_is_kept(
     saved[7].command = 'notify "{name}"'
     dialog = RulesDialog(saved, str(tmp_path), library=samples.sorting_library())
     dialog.list.setCurrentRow(7)
-    assert dialog.form.command.isHidden() and not dialog.form.actions.isRowVisible(dialog.form.command)
-    dialog.form.subfolder.setText("{yyyy}")
+    assert dialog.form.command.isHidden()
+    dialog.form.name.setText("Archives!")
     assert dialog.result_rules()[7].command == 'notify "{name}"'
 
 
@@ -332,9 +353,11 @@ def test_dragging_changes_the_order(app, tmp_path):
 
 def test_the_form_shows_what_is_wrong(app, tmp_path):
     dialog = RulesDialog([Rule("A")], str(tmp_path))
-    dialog.form.subfolder.setText("{nope}")
+    row = dialog.form.renamer.add_line()
+    row.pattern.setText("x")
+    row.to.setText("{nope}.{ext}")
     assert "unknown token {nope}" in dialog.form.problems.text()
-    dialog.form.subfolder.setText("{yyyy}")
+    row.to.setText("{yyyy}.{ext}")
     assert dialog.form.problems.text() == ""
 
 
@@ -351,10 +374,10 @@ def test_the_test_box_shows_the_path_and_the_skipped_rules(app, tmp_path):
 
 def test_the_test_box_uses_unsaved_edits(app, tmp_path):
     dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
-    dialog.list.setCurrentRow(4)
-    dialog.form.subfolder.setText("Library")
+    dialog.list.setCurrentRow(4)                                          # Ebooks
+    dialog.form.folder.setCurrentIndex(dialog.form.folder.findData("Documents"))
     dialog.test_url.setText("https://example.com/Dune.epub")
-    assert os.path.join(str(tmp_path), "Books", "Library", "Dune.epub") in dialog.test_result.text()
+    assert os.path.join(str(tmp_path), "Documents", "Dune.epub") in dialog.test_result.text()
 
 
 @pytest.mark.parametrize("condition", [
@@ -648,12 +671,23 @@ def test_the_rule_form_picks_a_folder_and_a_site_group(app, tmp_path):
     library.site_groups.append(rules.SiteGroup("Comic sites", ["getcomics.org"]))
     dialog = RulesDialog([Rule("Comics", [Condition("sites", ["Comic sites"])], target="Comics")], str(tmp_path),
                          library=library)
-    assert dialog.form.folder.currentData() == "Comics"
-    assert dialog.form.rows[0].kind.currentData() == "sites" and dialog.form.rows[0].site_values.text() == "Comic sites"
+    assert dialog.form.folder.currentData() == "Comics" and dialog.form.where.text() == "%default%/Comics"
+    assert dialog.form.sites.values() == ["Comic sites"] and dialog.form.rows == []
     dialog.form.folder.setCurrentIndex(dialog.form.folder.findData("Books"))
     assert dialog.result_rules()[0].target == "Books"
-    dialog.form.rows[0].site_values.setText("Nope")
+    dialog.sites_tab.list.setCurrentRow(0)
+    dialog.sites_tab.delete_item = lambda: None                            # (deleting is refused while in use)
+    dialog.form.sites.set_values(["Nope"])
+    dialog.form.changed.emit()
     assert "no site group called 'Nope'" in dialog.form.problems.text()
+
+
+def test_the_group_lists_offer_only_what_is_not_picked_yet(app, tmp_path):
+    dialog = RulesDialog([Rule("R", [Condition("type", ["Comics"])])], str(tmp_path))
+    picker = dialog.form.types
+    picker._fill_menu()
+    offered = [a.text().split("  —  ")[0] for a in picker.menu.actions()]
+    assert "Comics" not in offered and "Ebooks" in offered and "Video" in offered
 
 
 def test_the_renamer_tries_its_lines_on_a_name(app, tmp_path):
@@ -664,11 +698,16 @@ def test_the_renamer_tries_its_lines_on_a_name(app, tmp_path):
     assert renamer.result.text() == "→ The Expanse S02E05.mkv   (line 1)"
     renamer.sample.setText("holiday.mkv")
     assert "name kept" in renamer.result.text()
-    renamer.add_line()
-    renamer.pattern.setText("holiday")
-    renamer.to.setText("Holiday.{ext}")
+    row = renamer.add_line()
+    row.pattern.setText("holiday")
+    row.to.setText("Holiday.{ext}")
     assert [line.pattern for line in dialog.result_rules()[0].renames] == [r"(.+?)[ .]S(\d\d)E(\d\d)", "holiday"]
     assert renamer.result.text() == "→ Holiday.mkv   (line 2)"
+    row.action.emit(row, "up")                                            # tried first now
+    assert [line.pattern for line in dialog.result_rules()[0].renames] == ["holiday", r"(.+?)[ .]S(\d\d)E(\d\d)"]
+    assert renamer.result.text() == "→ Holiday.mkv   (line 1)"
+    row.action.emit(row, "remove")
+    assert len(dialog.result_rules()[0].renames) == 1
 
 
 def test_importing_rules_adds_them_below_mine(app, tmp_path, monkeypatch):
@@ -753,3 +792,15 @@ def test_a_folder_browsed_inside_default_is_written_under_percent_default(app, t
     assert tab.written(str(tmp_path / "Elsewhere")) == str(tmp_path / "Elsewhere")
     tab.list.setCurrentRow(0)
     assert tab.written(str(tmp_path / "Downloads" / "Sub")) == str(tmp_path / "Downloads" / "Sub")   # Default: as is
+
+
+def test_switching_rules_leaves_no_old_chips_behind(app, tmp_path):
+    from PyQt6.QtWidgets import QPushButton
+    library = rules.default_library()
+    library.site_groups += [rules.SiteGroup("Humble", ["h.com"]), rules.SiteGroup("Comic sites", ["a.org"])]
+    dialog = RulesDialog([Rule("H", [Condition("sites", ["Humble"])]), Rule("C", [Condition("sites", ["Comic sites"])])],
+                         str(tmp_path), library=library)
+    for row in (1, 0, 1):
+        dialog.list.setCurrentRow(row)
+    chips = [c for c in dialog.form.sites.findChildren(QPushButton)]
+    assert [c.text() for c in chips] == ["Comic sites  ✕"]          # the old rule's chips are gone, not just queued

@@ -76,6 +76,12 @@ session does not reopen what is settled. Keep it current when a decision changes
   single rename became a ".*" line). rules.json format 3 holds rules + folders + groups + site_groups; export/import
   use the same format; "add to mine" renames clashing items "Name (imported)". GUI: `gui/library_tabs.py`
   (NamedListTab base), `gui/rules_dialog.py` (RenameEditor = mockup 15B). Rule templates (12A) not built.
+- Rule editor (the user's UX review, 2026-11-04, build #05): a rule is a sentence: name; if downloaded from <site
+  group chips>; files that are <file group chips, several>; go to <folder>; then rename lines. Decisions 24A narrow
+  list + sentence, 25B no "except" (edit the group), 26A no Stop/Continue (first fit wins), 27A rarer conditions
+  behind More conditions. No subfolder on a rule (a separate folder instead). Groups are picked, never typed
+  (`ChipPicker`). `rules.modernize` converts older rules (typed path, subfolder, except, continue) on load.
+  `Rule.folder/subfolder/stop` and `Condition.exclude` are read for that only.
 - Default folder (the user, 2026-11-04): a new setup has ONLY the "Default" folder and NO rules; never prefill
   folders or rules. Default = settings.base_folder, shown and edited as row 0 of the Folders tab (not stored in
   Library.folders), not renamable/deletable, name reserved. Other folders are written `%default%\<name>`

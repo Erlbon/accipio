@@ -25,9 +25,11 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
    - **File Groups**: what a download is (extensions such as `cbz, cbr`, or names such as `*invoice*`).
    - **Site Groups** (optional): where it comes from. A site matches the page you clicked the link on, or the
      file's own address, so a link site such as a comics blog is caught even when its files sit on hosters.
-   - **Rules**: when (in a file group, from a site group, name, size, time…), which folder, and last an optional
-     renamer: lines of "if the name contains *this regular expression*, rename to *that*". The first line that
-     fits renames the file; with none, the name is kept.
+   - **Rules**: each one a sentence. *If downloaded from* site groups (none = anywhere), *files that are* file
+     groups (none = any file; several allowed) *go to* a folder. Rarer conditions (name, size, time of day,
+     source, video channel) are under **More conditions**. Last comes an optional renamer: lines of "if the name
+     contains *this regular expression*, rename to *that*"; the first line that fits renames the file, and with
+     none the name is kept. Rules are tried from the top and **the first rule that fits wins**.
 
    Every download shows which rule placed it (hover it, or **Downloads > Why Here?**). **Export…** and
    **Import…** in the same window move your rules, folders and groups to another PC.

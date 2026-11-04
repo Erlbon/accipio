@@ -45,16 +45,17 @@ def test_the_first_matching_rule_that_stops_wins(base):
     assert p.folder == under(base, "Zips") and p.rule_numbers == "1"
 
 
-def test_continue_lets_a_domain_rule_and_a_type_rule_combine(base, tmp_path):
+def test_the_first_rule_that_fits_places_the_download(base, tmp_path):
     work = str(tmp_path / "Work")
-    rules = [Rule("Work", [Condition("domain", ["work.example"])], folder=work, stop=False),
+    rules = [Rule("Work", [Condition("domain", ["work.example"])], folder=work),
              Rule("Video sites", [Condition("source", ["video"])], folder="Video"),
-             Rule("Archives", [Condition("type", ["Archives"])], subfolder="Archives/{yyyy}-{MM}"),
-             Rule("Other", subfolder="Other")]
+             Rule("Archives", [Condition("type", ["Archives"])], folder="Archives/{yyyy}-{MM}"),
+             Rule("Other", folder="Other")]
     p = r.place(rules, dl("release-2.4.zip", url="https://files.work.example/release-2.4.zip"), base)
-    assert p.path == os.path.join(os.path.normpath(os.path.join(work, "Archives", "2026-10")), "release-2.4.zip")
-    assert p.rule_numbers == "1+3"
-    assert p.why().startswith('rule 1 "Work": set folder ') and ' → rule 3 "Archives": add subfolder ' in p.why()
+    assert p.path == os.path.join(os.path.normpath(work), "release-2.4.zip") and p.rule_numbers == "1"
+    assert p.why().startswith('rule 1 "Work": set folder ')
+    p = r.place(rules, dl("release-2.4.zip"), base)
+    assert p.folder == under(base, "Archives", "2026-10") and p.rule_numbers == "3"
     p = r.place(rules, dl("notes.txt", url="https://example.com/notes.txt"), base)
     assert p.folder == under(base, "Other") and p.rule_numbers == "4"
 
@@ -72,11 +73,11 @@ def test_a_relative_folder_is_under_the_base_and_an_absolute_one_is_kept(base, t
 
 
 def test_rename_and_commands(base):
-    rules = [Rule("Name", renames=always("{yyyy}-{MM}-{dd} {name}.{ext}"), command="unpack.cmd", stop=False),
+    rules = [Rule("Name", renames=always("{yyyy}-{MM}-{dd} {name}.{ext}"), command="unpack.cmd"),
              Rule("Also", command="notify.cmd")]
     p = r.place(rules, dl("Report.PDF"), base)
     assert p.filename == "2026-10-27 Report.pdf"
-    assert p.commands == ["unpack.cmd", "notify.cmd"]
+    assert p.commands == ["unpack.cmd"]                  # the first rule that fits; the next one is not reached
 
 
 # ---- conditions ------------------------------------------------------------------------------------------
@@ -299,11 +300,11 @@ def test_video_fields_give_pieces_too(base):
     assert r.place([rule], video, base).filename == "Band - Song.mp4"
 
 
-def test_a_rename_is_passed_on_to_the_rules_below(base):
-    rules = [Rule("Clean", renames=always("{name|dots|trim}.{ext}"), stop=False),
-             Rule("Date", renames=always("{yyyy}-{MM}-{dd} {name}.{ext}"))]
+def test_a_rename_template_can_clean_and_date_in_one_go(base):
+    """What took two rules with "continue" before 2026-11-04#05 is one template now."""
+    rules = [Rule("Clean and date", renames=always("{yyyy}-{MM}-{dd} {name|dots|trim}.{ext}"))]
     p = r.place(rules, dl("my_report.PDF"), base)
-    assert p.filename == "2026-10-27 my report.pdf" and "rename to my report.pdf" in p.why()
+    assert p.filename == "2026-10-27 my report.pdf"
 
 
 def test_folder_filters_may_hold_slashes_and_backslashes(base):

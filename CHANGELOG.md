@@ -2,6 +2,16 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#05 -- A rule is one sentence
+
+- **The Rules tab reads as a sentence:** *Rule* name; *if downloaded from* site groups; *files that are* file groups; *go to* a folder; then *after downloading, rename*. Site groups and file groups are picked from a list and shown as chips (several allowed, ✕ to remove); nothing is typed. No site group means anywhere, no file group means any file.
+- **More conditions** (name, size, time of day, source, video channel and the like) are folded away until you open them.
+- **Rename lines** sit right in the rule, one row each (pattern → new name, with ↑ ↓ ✕ for their order), with **Try a name** under them.
+- **The first rule that fits wins.** "Stop / Continue to the rules below" is gone, and so are the marks for it in the list.
+- **No more "+ subfolder" or "except" on a rule.** A different place is a folder of its own in the Folders tab; leaving extensions out is done in the file group.
+- **The rule list is narrower**, so the rule itself gets the room.
+- **Older rules are brought up to date** when the Rules window or Accipio opens, keeping where their files land: a subfolder becomes a folder of its own, an "except" list becomes a copy of the file group without those extensions ("Video without ts"), and Continue goes.
+
 ## 2026-11-04#04 -- One Default folder to start with
 
 - **A new setup starts with one folder, Default, and no rules**: everything goes to Default until you write a rule. No folders (Video, Books, Comics...) or rules are filled in for you any more. The built-in file groups are still there to use.

@@ -1,9 +1,11 @@
-"""The rules editor (mockup A): the ordered rule list on the left, the selected rule as a form on the right,
-and a test box at the bottom that shows, as you type, where a link would go.
+"""The rules window: Folders, File Groups, Site Groups and Rules tabs, and a test box under them that shows, as
+you type, where a link would go.
 
-Drag a rule up or down to change its priority. Each list row shows → (continue) or ■ (stop). The time
-condition is edited with weekday buttons and an hour range and read back as a sentence; the raw cron lines
-are in the Advanced field for what the pickers cannot say.
+The Rules tab (mockup 24A, 2026-11-04): a narrow list on the left in the order rules are tried (drag to
+reorder; the first that fits wins), and the selected rule as a sentence: "if downloaded from <site groups>,
+files that are <file groups> go to <folder>", with the rarer conditions under More conditions and the rename
+lines last. Groups are picked as chips, never typed. Under More conditions the time condition is edited with
+weekday buttons and an hour range and read back as a sentence; the raw cron lines are in its Advanced field.
 """
 from __future__ import annotations
 
@@ -14,20 +16,22 @@ from typing import List, Optional
 
 from PyQt6.QtCore import QTime, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                             QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
-                             QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton, QRadioButton,
+from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                             QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+                             QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
                              QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTimeEdit, QToolButton, QVBoxLayout,
                              QWidget)
 
 from accipio.core import cron, probe, rules
 from accipio.core import settings as settings_mod
 from accipio.core.rules import Condition, Download, Rule
+from accipio.gui import style
 from accipio.gui.library_tabs import FileGroupsTab, FoldersTab, SiteGroupsTab
 
 KIND_LABELS = [("type", "In file group"), ("sites", "From site group"), ("domain", "Site"), ("name", "Name"),
-               ("size", "Size"), ("time", "Time"), ("source", "Source"), ("video", "Video field")]
-KEEP_FOLDER = ""            # the folder combo's first entry: the folder so far (base folder, or an earlier rule's)
+               ("size", "Size"), ("time", "Time of day"), ("source", "Source"), ("video", "Video field")]
+# Under "More conditions" (27A); file groups and site groups have their own lines in the rule's sentence.
+MORE_KINDS = [(k, label) for k, label in KIND_LABELS if k not in ("type", "sites")]
 
 
 def group_summary(group: rules.Group, limit: int = 6) -> str:
@@ -194,13 +198,14 @@ class ConditionRow(QFrame):
     changed = pyqtSignal()
     removed = pyqtSignal(object)
 
-    def __init__(self, condition: Optional[Condition] = None, parent=None, library_of=rules.default_library):
+    def __init__(self, condition: Optional[Condition] = None, parent=None, library_of=rules.default_library,
+                 kinds=KIND_LABELS):
         super().__init__(parent)
         self.library_of = library_of
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 2, 0, 2)
         self.kind = QComboBox()
-        for key, label in KIND_LABELS:
+        for key, label in kinds:
             self.kind.addItem(label, key)
         self.kind.currentIndexChanged.connect(self._kind_changed)
         layout.addWidget(self.kind, 0, Qt.AlignmentFlag.AlignTop)
@@ -214,7 +219,7 @@ class ConditionRow(QFrame):
         layout.addWidget(remove, 0, Qt.AlignmentFlag.AlignTop)
         self.pages = {}
         self._build_pages()
-        self.set_condition(condition or Condition("type", []))
+        self.set_condition(condition or Condition(kinds[0][0], []))
 
     def _line(self, placeholder: str) -> QLineEdit:
         edit = QLineEdit()
@@ -248,10 +253,7 @@ class ConditionRow(QFrame):
         self.type_values.setToolTip("File groups by name (see File Groups), single extensions, or MIME types")
         self.type_menu = self._picker("File groups ▾", self.type_values, lambda: [
             (g.name, f"{g.name}  —  {group_summary(g)}") for g in self.library_of().groups])
-        self.type_except = self._line("ts, m2ts")
-        self.type_except.setMaximumWidth(140)
-        self.type_except.setToolTip("Extensions of these groups to leave out of this rule only; the groups stay as they are")
-        page("type", self.type_values, self.type_menu, QLabel("except"), self.type_except)
+        page("type", self.type_values, self.type_menu)
 
         self.site_values = self._line("Comic sites")
         self.site_menu = self._picker("Site groups ▾", self.site_values, lambda: [
@@ -322,7 +324,7 @@ class ConditionRow(QFrame):
         combo.setCurrentIndex(max(position, 0))
 
     def set_condition(self, c: Condition) -> None:
-        self._pick(self.kind, c.kind if c.kind in dict(KIND_LABELS) else "type")
+        self._pick(self.kind, c.kind)
         self.stack.setCurrentWidget(self.pages[self.kind.currentData()])
         joined = ", ".join(c.values)
         if c.kind == "domain":
@@ -330,7 +332,6 @@ class ConditionRow(QFrame):
             self._pick(self.domain_where, c.where or "either")
         elif c.kind == "type":
             self.type_values.setText(joined)
-            self.type_except.setText(", ".join(c.exclude))
         elif c.kind == "sites":
             self.site_values.setText(joined)
         elif c.kind == "name":
@@ -354,8 +355,7 @@ class ConditionRow(QFrame):
             where = self.domain_where.currentData()
             return Condition("domain", split_values(self.domain_values.text()), where="" if where == "either" else where)
         if kind == "type":
-            return Condition("type", split_values(self.type_values.text()),
-                             exclude=[e.lstrip(".").lower() for e in split_values(self.type_except.text())])
+            return Condition("type", split_values(self.type_values.text()))
         if kind == "sites":
             return Condition("sites", split_values(self.site_values.text()))
         if kind == "name":
@@ -375,126 +375,205 @@ class ConditionRow(QFrame):
                          where=self.video_field.currentData(), regex=regex)
 
 
+class ChipPicker(QWidget):
+    """Names picked from a list, shown as removable chips, with "+ add" for the rest (mockup 24A). Nothing is
+    typed, so a name can only be one that exists; a name that no longer exists still shows, marked, until
+    removed."""
+    changed = pyqtSignal()
+
+    def __init__(self, add_text: str, empty_text: str, names_of, parent=None):
+        super().__init__(parent)
+        self.names_of = names_of                # () -> [(name, menu label)] of what can be picked
+        self.empty_text = empty_text
+        self._chosen: List[str] = []
+        self.row = QHBoxLayout(self)
+        self.row.setContentsMargins(0, 0, 0, 0)
+        self.row.setSpacing(6)
+        self.add = QToolButton()
+        self.add.setText(add_text)
+        self.add.setObjectName("chipAdd")
+        self.add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.menu = QMenu(self.add)
+        self.menu.aboutToShow.connect(self._fill_menu)
+        self.add.setMenu(self.menu)
+        self.hint = QLabel(empty_text)
+        self.hint.setEnabled(False)
+        self._redraw()
+
+    def values(self) -> List[str]:
+        return list(self._chosen)
+
+    def set_values(self, names: List[str]) -> None:
+        self._chosen = [n for n in names if n.strip()]
+        self._redraw()
+
+    def pick(self, name: str) -> None:
+        if name.lower() not in {c.lower() for c in self._chosen}:
+            self._chosen.append(name)
+            self._redraw()
+            self.changed.emit()
+
+    def drop(self, name: str) -> None:
+        self._chosen = [c for c in self._chosen if c != name]
+        self._redraw()
+        self.changed.emit()
+
+    def _fill_menu(self):
+        self.menu.clear()
+        taken = {c.lower() for c in self._chosen}
+        offered = [(n, label) for n, label in self.names_of() if n.lower() not in taken]
+        for name, label in offered:
+            self.menu.addAction(label, lambda n=name: self.pick(n))
+        if not offered:
+            self.menu.addAction("(nothing more to add: see the tabs to the left)").setEnabled(False)
+
+    def _redraw(self):
+        while self.row.count():
+            item = self.row.takeAt(0)
+            widget = item.widget()
+            if widget is not None and widget not in (self.add, self.hint):
+                widget.hide()                    # at once: until deleteLater runs it would still be drawn
+                widget.setParent(None)
+                widget.deleteLater()
+        known = {n.lower() for n, _ in self.names_of()}
+        for name in self._chosen:
+            chip = QPushButton()
+            style.make_chip(chip)                # the main window's filter pills, shown filled
+            chip.setCheckable(True)
+            chip.setChecked(True)
+            missing = name.lower() not in known
+            chip.setText(f"{name}  ✕" if not missing else f"{name} (missing)  ✕")
+            chip.setToolTip("Remove" if not missing else "There is no group with this name any more; remove it")
+            chip.clicked.connect(lambda _=False, n=name: self.drop(n))
+            self.row.addWidget(chip)
+        self.row.addWidget(self.add)
+        self.row.addWidget(self.hint)
+        self.hint.setVisible(not self._chosen)
+        self.row.addStretch(1)
+
+
+class RenameRow(QFrame):
+    """One rename line: pattern → template, with ↑ ↓ ✕ (the order is the order they are tried in)."""
+    changed = pyqtSignal()
+    action = pyqtSignal(object, str)             # self, "up" / "down" / "remove"
+
+    def __init__(self, line: rules.Rename, parent=None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        self.number = QLabel()
+        self.number.setMinimumWidth(16)
+        self.pattern = QLineEdit(line.pattern)
+        self.pattern.setPlaceholderText(r"(.+?)[ .]S(\d\d)E(\d\d)")
+        self.pattern.setToolTip("A regular expression, any case. It only has to be somewhere in the name.")
+        self.to = QLineEdit(line.to)
+        self.to.setPlaceholderText("{1|dots|title} S{2}E{3}.{ext}")
+        self.to.setToolTip(rules.FILTER_HELP)
+        for edit in (self.pattern, self.to):
+            edit.textChanged.connect(self.changed)
+        row.addWidget(self.number)
+        row.addWidget(self.pattern, 1)
+        row.addWidget(QLabel("→"))
+        row.addWidget(self.to, 1)
+        for text, what, tip in (("↑", "up", "Try this line earlier"), ("↓", "down", "Try this line later"),
+                                ("✕", "remove", "Remove this line")):
+            button = QToolButton()
+            button.setText(text)
+            button.setToolTip(tip)
+            button.setAutoRaise(True)
+            button.clicked.connect(lambda _=False, w=what: self.action.emit(self, w))
+            row.addWidget(button)
+
+    def line(self) -> rules.Rename:
+        return rules.Rename(self.pattern.text(), self.to.text())
+
+
 class RenameEditor(QWidget):
-    """The renamer, last in a rule (mockup 15B): its lines on the left, in the order they are tried (drag to
-    reorder), the selected line on the right, and a name to try them on."""
+    """"After downloading, rename": the lines in the order they are tried, each pattern → template, and a name
+    to try them on. The first line whose pattern is in the name renames the file; with none, it is kept."""
     changed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        left = QVBoxLayout()
-        self.list = QListWidget()
-        self.list.setMaximumWidth(220)
-        self.list.setMaximumHeight(120)              # a few lines; long lists scroll
-        self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.list.model().rowsMoved.connect(self._renumber)
-        self.list.currentItemChanged.connect(self._select)
-        left.addWidget(self.list, 1)
-        buttons = QHBoxLayout()
-        add = QPushButton("+ Line")
-        add.clicked.connect(self.add_line)
-        remove = QPushButton("Delete")
-        remove.clicked.connect(self.remove_line)
-        buttons.addWidget(add)
-        buttons.addWidget(remove)
-        left.addLayout(buttons)
-        layout.addLayout(left)
-        right = QFormLayout()
-        self.pattern = QLineEdit()
-        self.pattern.setPlaceholderText(r"(.+?)[ .]S(\d\d)E(\d\d)")
-        self.pattern.setToolTip("A regular expression, any case. It only has to be somewhere in the name.")
-        self.to = QLineEdit()
-        self.to.setPlaceholderText("{1|dots|title} S{2}E{3}.{ext}")
-        self.to.setToolTip(rules.FILTER_HELP)
-        for edit in (self.pattern, self.to):
-            edit.textChanged.connect(self._edited)
-        right.addRow("If the name contains", self.pattern)
-        right.addRow("Rename to", self.to)
+        self.rows_layout = QVBoxLayout()
+        self.rows_layout.setSpacing(4)
+        layout.addLayout(self.rows_layout)
+        self.rows: List[RenameRow] = []
+        bottom = QHBoxLayout()
+        self.add_button = QPushButton("+ Rename line")
+        self.add_button.clicked.connect(self.add_line)
+        bottom.addWidget(self.add_button)
+        bottom.addSpacing(12)
+        bottom.addWidget(QLabel("Try a name"))
         self.sample = QLineEdit()
         self.sample.setPlaceholderText("the.expanse.s02e05.1080p.web.mkv")
         self.sample.textChanged.connect(self._try)
-        right.addRow("Try a name", self.sample)
+        bottom.addWidget(self.sample, 1)
+        layout.addLayout(bottom)
         self.result = QLabel()
         self.result.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        right.addRow("", self.result)
-        hint = QLabel("The first line whose pattern is in the name renames the file; with none, the name is kept. "
-                      "The pattern's groups are {1} {2} … (or {show} for (?P<show>…)).")
-        hint.setWordWrap(True)
-        hint.setEnabled(False)
-        right.addRow("", hint)
-        holder = QWidget()
-        holder.setLayout(right)
-        layout.addWidget(holder, 1)
+        layout.addWidget(self.result)
         self._loading = False
-        self._show_selected()
-
-    def _label(self, number: int, line: rules.Rename) -> str:
-        return f"{number} · {line.pattern or '(no pattern)'}"
-
-    def _renumber(self, *_):
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            item.setText(self._label(i + 1, item.data(Qt.ItemDataRole.UserRole)))
-        self._try()
-        if not self._loading:
-            self.changed.emit()
 
     def set_lines(self, lines: List[rules.Rename]) -> None:
         self._loading = True
-        self.list.clear()
+        for row in list(self.rows):
+            self._drop(row)
         for line in lines:
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, copy.deepcopy(line))
-            self.list.addItem(item)
-        self._renumber()
-        if self.list.count():
-            self.list.setCurrentRow(0)
+            self._add(copy.deepcopy(line))
         self._loading = False
-        self._show_selected()
+        self._renumber()
 
     def lines(self) -> List[rules.Rename]:
-        return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())]
+        return [row.line() for row in self.rows]
 
-    def add_line(self):
-        item = QListWidgetItem()
-        item.setData(Qt.ItemDataRole.UserRole, rules.Rename("", "{name}.{ext}"))
-        self.list.insertItem(self.list.currentRow() + 1, item)
+    def add_line(self) -> RenameRow:
+        row = self._add(rules.Rename("", "{name}.{ext}"))
         self._renumber()
-        self.list.setCurrentItem(item)
-        self.pattern.setFocus()
+        row.pattern.setFocus()
+        self.changed.emit()
+        return row
 
-    def remove_line(self):
-        row = self.list.currentRow()
-        if row >= 0:
-            self.list.takeItem(row)
-            self._renumber()
-            self._show_selected()
+    def _add(self, line: rules.Rename) -> RenameRow:
+        row = RenameRow(line)
+        row.changed.connect(self._edited)
+        row.action.connect(self._act)
+        self.rows.append(row)
+        self.rows_layout.addWidget(row)
+        return row
 
-    def _select(self, *_):
-        self._show_selected()
+    def _drop(self, row: RenameRow) -> None:
+        self.rows.remove(row)
+        row.setParent(None)
+        row.deleteLater()
 
-    def _show_selected(self):
-        item = self.list.currentItem()
-        busy, self._loading = self._loading, True
-        for edit in (self.pattern, self.to):
-            edit.setEnabled(item is not None)
-        line = item.data(Qt.ItemDataRole.UserRole) if item else rules.Rename("", "")
-        self.pattern.setText(line.pattern)
-        self.to.setText(line.to)
-        self._loading = busy
+    def _act(self, row: RenameRow, what: str) -> None:
+        at = self.rows.index(row)
+        if what == "remove":
+            self._drop(row)
+        else:
+            to = at - 1 if what == "up" else at + 1
+            if not 0 <= to < len(self.rows):
+                return
+            self.rows[at], self.rows[to] = self.rows[to], self.rows[at]
+            for r in self.rows:
+                self.rows_layout.removeWidget(r)
+            for r in self.rows:
+                self.rows_layout.addWidget(r)
+        self._renumber()
+        self.changed.emit()
+
+    def _renumber(self):
+        for number, row in enumerate(self.rows, 1):
+            row.number.setText(str(number))
         self._try()
 
     def _edited(self, *_):
-        item = self.list.currentItem()
-        if self._loading or item is None:
-            return
-        item.setData(Qt.ItemDataRole.UserRole, rules.Rename(self.pattern.text(), self.to.text()))
-        item.setText(self._label(self.list.row(item) + 1, item.data(Qt.ItemDataRole.UserRole)))
         self._try()
-        self.changed.emit()
+        if not self._loading:
+            self.changed.emit()
 
     def _try(self, *_):
         name = self.sample.text().strip()
@@ -508,7 +587,9 @@ class RenameEditor(QWidget):
 
 
 class RuleForm(QWidget):
-    """The selected rule: name, conditions, where it goes, the renamer, stop or continue, and what is wrong."""
+    """The selected rule as one sentence (mockup 24A): name; if downloaded from <site groups>, files that are
+    <file groups> go to <folder>; more conditions folded away; after downloading, rename. The first rule that
+    fits wins, so there is no stop/continue."""
     changed = pyqtSignal()
 
     def __init__(self, parent=None, library_of=rules.default_library):
@@ -516,66 +597,82 @@ class RuleForm(QWidget):
         self.library_of = library_of
         self._legacy_folder = ""          # a typed path from before Folders, kept as it was until saved
         layout = QVBoxLayout(self)
-        top = QHBoxLayout()
-        self.name = QLineEdit()
-        self.name.setPlaceholderText("Rule name")
-        self.name.textChanged.connect(self.changed)
-        self.enabled = QCheckBox("Enabled")
-        self.enabled.toggled.connect(self.changed)
-        top.addWidget(self.name, 1)
-        top.addWidget(self.enabled)
-        layout.addLayout(top)
+        sentence = QGridLayout()
+        sentence.setHorizontalSpacing(12)
+        sentence.setVerticalSpacing(10)
 
-        when = QGroupBox("When all of these match (no conditions: always)")
-        self.condition_layout = QVBoxLayout(when)
+        def label(text):
+            words = QLabel(text)
+            words.setEnabled(False)
+            return words
+
+        name_row = QHBoxLayout()
+        self.name = QLineEdit()
+        self.name.setPlaceholderText("Comics")
+        self.name.textChanged.connect(self.changed)
+        self.enabled = QCheckBox("On")
+        self.enabled.setToolTip("Switch the rule off without deleting it")
+        self.enabled.toggled.connect(self.changed)
+        name_row.addWidget(self.name, 1)
+        name_row.addWidget(self.enabled)
+        sentence.addWidget(label("Rule"), 0, 0)
+        sentence.addLayout(name_row, 0, 1)
+
+        self.sites = ChipPicker("+ site group", "anywhere", lambda: [
+            (g.name, f"{g.name}  —  {', '.join(g.sites[:4])}{' …' if len(g.sites) > 4 else ''}")
+            for g in self.library_of().site_groups])
+        self.sites.changed.connect(self.changed)
+        sentence.addWidget(label("If downloaded from"), 1, 0)
+        sentence.addWidget(self.sites, 1, 1)
+
+        self.types = ChipPicker("+ file group", "any file", lambda: [
+            (g.name, f"{g.name}  —  {group_summary(g)}") for g in self.library_of().groups])
+        self.types.changed.connect(self.changed)
+        sentence.addWidget(label("files that are"), 2, 0)
+        sentence.addWidget(self.types, 2, 1)
+
+        folder_row = QHBoxLayout()
+        self.folder = QComboBox()
+        self.folder.setToolTip("A folder from the Folders tab")
+        self.folder.currentIndexChanged.connect(self.changed)
+        self.folder.currentIndexChanged.connect(self._show_where)
+        self.where = QLabel()
+        self.where.setEnabled(False)
+        folder_row.addWidget(self.folder)
+        folder_row.addWidget(self.where, 1)
+        sentence.addWidget(label("go to"), 3, 0)
+        sentence.addLayout(folder_row, 3, 1)
+        sentence.setColumnStretch(1, 1)
+        layout.addLayout(sentence)
+
+        self.more_button = QToolButton()
+        self.more_button.setCheckable(True)
+        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.more_button.setArrowType(Qt.ArrowType.RightArrow)
+        self.more_button.setAutoRaise(True)
+        self.more_button.toggled.connect(self._show_more)
+        layout.addWidget(self.more_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.more = QWidget()
+        self.condition_layout = QVBoxLayout(self.more)
+        self.condition_layout.setContentsMargins(18, 0, 0, 0)
         self.rows: List[ConditionRow] = []
         add = QPushButton("+ Add condition")
         add.clicked.connect(lambda: self.add_condition(None))
         self.condition_layout.addWidget(add, 0, Qt.AlignmentFlag.AlignLeft)
         self._add_button = add
-        layout.addWidget(when)
+        layout.addWidget(self.more)
 
-        then = QGroupBox("Put it in")
-        form = QFormLayout(then)
-        folder_row = QHBoxLayout()
-        self.folder = QComboBox()
-        self.folder.setToolTip("A folder from the Folders tab")
-        self.folder.currentIndexChanged.connect(self.changed)
-        folder_row.addWidget(self.folder, 1)
-        folder_row.addWidget(QLabel("+ subfolder"))
-        self.subfolder = QLineEdit()
-        self.subfolder.setPlaceholderText("{domain}   (optional)")
-        self.subfolder.textChanged.connect(self.changed)
-        folder_row.addWidget(self.subfolder, 1)
-        form.addRow("Folder", folder_row)
-        self.command = QLineEdit()
-        self.command.textChanged.connect(self.changed)
-        form.addRow("Run", self.command)
-        form.setRowVisible(self.command, False)    # hidden until commands run (injection-safe quoting first); a
-                                                   # command already saved in rules.json is kept, never wiped
-        self.actions = form
-        layout.addWidget(then)
-        renamer = QGroupBox("Rename (last, optional)")
-        renamer_layout = QVBoxLayout(renamer)
+        rule_line = QFrame()
+        rule_line.setFrameShape(QFrame.Shape.HLine)
+        rule_line.setEnabled(False)
+        layout.addWidget(rule_line)
+        layout.addWidget(label("After downloading, rename (the first line that fits; none fits: the name is kept)"))
         self.renamer = RenameEditor()
         self.renamer.changed.connect(self.changed)
-        renamer_layout.addWidget(self.renamer)
-        layout.addWidget(renamer)
-        after_box = QGroupBox("Then")
-        after_form = QFormLayout(after_box)
-        after = QHBoxLayout()
-        self.stop = QRadioButton("Stop")
-        self.go_on = QRadioButton("Continue to the rules below")
-        group = QButtonGroup(self)
-        group.addButton(self.stop)
-        group.addButton(self.go_on)
-        self.stop.toggled.connect(self.changed)
-        after.addWidget(self.stop)
-        after.addWidget(self.go_on)
-        after.addStretch(1)
-        after_form.addRow(after)
-        layout.addWidget(after_box)
-        self.subfolder.setToolTip(rules.FILTER_HELP)
+        layout.addWidget(self.renamer)
+
+        self.command = QLineEdit()                 # hidden until commands run (injection-safe quoting first); a
+        self.command.hide()                        # command already saved in rules.json is kept, never wiped
         tokens = QLabel("Tokens: " + " ".join("{" + t + "}" for t in rules.TOKENS)
                         + ".  Filters after |, run in order: {name|dots|cut:1080p|trim} (hover a field for the list).")
         tokens.setWordWrap(True)
@@ -587,29 +684,43 @@ class RuleForm(QWidget):
         layout.addWidget(self.problems)
         layout.addStretch(1)
         self._loading = False
+        self._show_more(False)
         self.changed.connect(self._check)
 
+    def _show_more(self, on: bool) -> None:
+        self.more.setVisible(on)
+        self.more_button.setArrowType(Qt.ArrowType.DownArrow if on else Qt.ArrowType.RightArrow)
+        count = len(self.rows)
+        self.more_button.setText("More conditions" + (f" ({count})" if count else "")
+                                 + ("" if on else "   name, size, time of day, source, video channel…"))
+
     def fill_folders(self, chosen: Optional[str] = None) -> None:
-        """The folder drop-down: the folder so far, then every folder of the Folders tab."""
+        """The folder drop-down: Default, then every folder of the Folders tab."""
         chosen = self.folder.currentData() if chosen is None else chosen
         busy, self._loading = self._loading, True
         self.folder.clear()
-        self.folder.addItem("(keep the folder so far)", KEEP_FOLDER)
-        self.folder.addItem(f"{rules.DEFAULT_FOLDER}   —   where everything else goes", rules.DEFAULT_FOLDER)
+        self.folder.addItem(rules.DEFAULT_FOLDER, rules.DEFAULT_FOLDER)
         for f in self.library_of().folders:
-            self.folder.addItem(f"{f.name}   —   {f.path}", f.name)
-        if chosen and self.folder.findData(chosen) < 0:
-            self.folder.addItem(f"{chosen}   (missing: see Folders)", chosen)
-        self.folder.setCurrentIndex(max(self.folder.findData(chosen or KEEP_FOLDER), 0))
+            self.folder.addItem(f.name, f.name)
+        if chosen and not rules.is_default(chosen) and self.folder.findData(chosen) < 0:
+            self.folder.addItem(f"{chosen} (missing: see Folders)", chosen)
+        self.folder.setCurrentIndex(max(self.folder.findData(chosen or rules.DEFAULT_FOLDER), 0))
         self._loading = busy
+        self._show_where()
+
+    def _show_where(self, *_):
+        named = rules.find_named(self.library_of().folders, self.folder.currentData() or "")
+        self.where.setText(named.path if named else "where everything else goes")
 
     def add_condition(self, condition: Optional[Condition]) -> ConditionRow:
-        row = ConditionRow(condition, library_of=self.library_of)
+        row = ConditionRow(condition, library_of=self.library_of, kinds=MORE_KINDS)
         row.changed.connect(self.changed)
         row.removed.connect(self._remove_condition)
         self.rows.append(row)
         self.condition_layout.insertWidget(self.condition_layout.count() - 1, row)
         if not self._loading:
+            self.more_button.setChecked(True)
+            self._show_more(True)
             self.changed.emit()
         return row
 
@@ -617,6 +728,7 @@ class RuleForm(QWidget):
         self.rows.remove(row)
         row.setParent(None)
         row.deleteLater()
+        self._show_more(self.more_button.isChecked())
         self.changed.emit()
 
     def load(self, rule: Rule) -> None:
@@ -627,23 +739,38 @@ class RuleForm(QWidget):
             row.deleteLater()
         self.name.setText(rule.name)
         self.enabled.setChecked(rule.enabled)
+        sites, types, more = [], [], []
         for c in rule.conditions:
+            if c.kind == "sites":
+                sites += [v for v in c.values if v.strip()]
+            elif c.kind == "type":
+                types += [v for v in c.values if v.strip()]
+            else:
+                more.append(c)
+        self.sites.set_values(sites)
+        self.types.set_values(types)
+        for c in more:
             self.add_condition(c)
         self._legacy_folder = rule.folder
-        self.fill_folders(rule.target)
-        self.subfolder.setText(rule.subfolder)
+        self.fill_folders(rule.target or rules.DEFAULT_FOLDER)
         self.renamer.set_lines(rule.renames)
         self.command.setText(rule.command)
-        (self.stop if rule.stop else self.go_on).setChecked(True)
+        self.more_button.setChecked(bool(more))
         self._loading = False
+        self._show_more(bool(more))
         self._check()
 
     def rule(self) -> Rule:
-        target = self.folder.currentData() or ""
-        return Rule(self.name.text().strip() or "Unnamed rule", [r.condition() for r in self.rows],
-                    folder="" if target else self._legacy_folder, subfolder=self.subfolder.text().strip(),
-                    renames=self.renamer.lines(), target=target, command=self.command.text().strip(),
-                    stop=self.stop.isChecked(), enabled=self.enabled.isChecked())
+        conditions = []
+        if self.sites.values():
+            conditions.append(Condition("sites", self.sites.values()))
+        if self.types.values():
+            conditions.append(Condition("type", self.types.values()))
+        conditions += [row.condition() for row in self.rows]
+        target = self.folder.currentData() or rules.DEFAULT_FOLDER
+        return Rule(self.name.text().strip() or "Unnamed rule", conditions,
+                    folder="" if target else self._legacy_folder, renames=self.renamer.lines(), target=target,
+                    command=self.command.text().strip(), enabled=self.enabled.isChecked())
 
     def _check(self):
         if self._loading:
@@ -662,7 +789,7 @@ class RulesDialog(QDialog):
         self.current: Optional[QListWidgetItem] = None
         library = copy.deepcopy(library) if library is not None else rules.default_library()
         rule_list = copy.deepcopy(rule_list)
-        rules.adopt_folders(rule_list, library)          # typed paths from before Folders get a named folder
+        rules.modernize(rule_list, library)          # older rules: named folders, first fit
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -691,14 +818,18 @@ class RulesDialog(QDialog):
         self.list.currentItemChanged.connect(self._select)
         left_layout.addWidget(self.list, 1)
         buttons = QHBoxLayout()
-        for text, slot in (("+ New rule", self.new_rule), ("Duplicate", self.duplicate_rule), ("Delete", self.delete_rule)):
+        for text, slot, tip in (("+", self.new_rule, "New rule"), ("Copy", self.duplicate_rule, "Copy this rule"),
+                                ("−", self.delete_rule, "Delete this rule")):
             button = QPushButton(text)
+            button.setToolTip(tip)
             button.clicked.connect(slot)
             buttons.addWidget(button)
         left_layout.addLayout(buttons)
-        legend = QLabel("→ continue · ■ stop · drag to reorder")
+        legend = QLabel("The first rule that fits wins. Drag to reorder.")
+        legend.setWordWrap(True)
         legend.setEnabled(False)
         left_layout.addWidget(legend)
+        left.setMaximumWidth(200)                        # a few short names; the rule itself needs the room
         split.addWidget(left)
         self.form = RuleForm(library_of=self.result_library)
         self.form.changed.connect(self._form_changed)
@@ -708,7 +839,7 @@ class RulesDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(self.form)
         split.addWidget(scroll)
-        split.setSizes([260, 740])
+        split.setSizes([170, 850])
         rules_layout.addWidget(split, 1)
 
         test = QGroupBox("Test")
@@ -833,7 +964,7 @@ class RulesDialog(QDialog):
         self.load_everything(rule_list, library)
 
     def load_everything(self, rule_list: List[Rule], library: rules.Library) -> None:
-        rules.adopt_folders(rule_list, library)
+        rules.modernize(rule_list, library)
         self.folders_tab.set_items(library.folders)
         self.groups_tab.set_items(library.groups)
         self.sites_tab.set_items(library.site_groups)
@@ -860,7 +991,7 @@ class RulesDialog(QDialog):
         return item
 
     def _label(self, number: int, rule: Rule) -> str:
-        return f"{number}  {rule.name}   {'■' if rule.stop else '→'}"
+        return f"{number}  {rule.name}"
 
     def _renumber(self, *_):
         for position in range(self.list.count()):
@@ -885,7 +1016,7 @@ class RulesDialog(QDialog):
 
     def new_rule(self):
         at = self.list.currentRow() + 1 if self.list.currentRow() >= 0 else self.list.count()
-        item = self._append(Rule("New rule", [Condition("type", [])]), at)
+        item = self._append(Rule("New rule", target=rules.DEFAULT_FOLDER), at)
         self.list.setCurrentItem(item)
         self.form.name.setFocus()
         self.form.name.selectAll()
@@ -933,7 +1064,7 @@ class RulesDialog(QDialog):
         skipped = [str(n) for n in range(1, self.list.count() + 1) if n not in hit]
         text = f"→ {placement.path}\n{placement.why()}"
         if skipped:
-            text += f"\nSkipped: rule {', '.join(skipped)} (not matching, disabled, or after a stop)"
+            text += f"\nSkipped: rule {', '.join(skipped)} (not matching, switched off, or after the first rule that fits)"
         self.test_result.setText(text)
 
     def result_rules_preview(self) -> List[Rule]:

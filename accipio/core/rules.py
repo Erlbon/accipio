@@ -1,9 +1,9 @@
 """Rules: where a download goes, and what happens to it.
 
-A rule set is an ordered list (the editor's drag order). A download goes through it from the top. A rule
-whose conditions ALL match applies its actions, then either stops the walk or lets it go on to the rules
-below. That is how rules combine, as in mail filters: a domain rule sets a base folder and continues, and a
-file-type rule further down adds the subfolder.
+A rule set is an ordered list (the editor's drag order). A download goes through it from the top, and the
+first rule whose conditions ALL match decides: the folder it goes to and how it is renamed. No rule matches:
+the Default folder, name kept. (Until 2026-11-04#05 a rule could "continue" so the next one added a
+subfolder; ``modernize`` turns such rules into ones with a folder of their own.)
 
 Everything here is plain data and functions, with no Qt and no disk access, so the editor's test box, the
 start of a download and the re-check when it finishes all call the same ``place()``.
@@ -294,16 +294,19 @@ class Rename:
 
 @dataclass
 class Rule:
-    """Conditions (none = always) and what to do. ``target`` (a named Folder) or ``folder`` replaces the
-    folder so far (a relative one is under the base folder), ``subfolder`` is added to it, ``renames`` are tried in order and the first whose
-    pattern is in the name renames the file (none = the name is kept), ``command`` runs when the download is
-    finished. Then the walk stops, or goes on when ``stop`` is off."""
+    """Conditions (none = always) and what to do: ``target`` names the Folder the download goes to (none =
+    Default), ``renames`` are tried in order and the first whose pattern is in the name renames the file (none =
+    the name is kept), ``command`` runs when the download is finished. The first rule that fits wins.
+
+    ``folder``, ``subfolder`` and ``stop`` are what older rules files held (a typed path, a subfolder added to
+    it, and "continue to the rules below"); ``modernize`` turns them into named folders and first-fit rules
+    when a rules file is loaded, and nothing writes them any more."""
     name: str
     conditions: List[Condition] = field(default_factory=list)
-    folder: str = ""                     # a path template; the editor sets ``target`` (a Folder's name) instead
+    folder: str = ""
     subfolder: str = ""
     renames: List[Rename] = field(default_factory=list)
-    target: str = ""                     # the name of a Folder in the Library; wins over ``folder``
+    target: str = ""
     command: str = ""
     stop: bool = True
     enabled: bool = True
@@ -691,9 +694,8 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
         if rule.command.strip():
             commands.append(rule.command)
             effects.append("run command")
-        steps.append(Step(number, rule.name, effects, rule.stop))
-        if rule.stop:
-            break
+        steps.append(Step(number, rule.name, effects, True))
+        break                                    # the first rule that fits wins (decided 2026-11-04)
     return Placement(os.path.normpath(folder), safe_part(filename, "download"), commands, steps)
 
 
@@ -839,20 +841,61 @@ def unique_name(wanted: str, taken) -> str:
     return name
 
 
-def adopt_folders(rule_list: List[Rule], library: Library) -> bool:
-    """Rules from before Folders typed their folder as a path; give each such path a named Folder (one per
-    distinct path, named after the first rule using it) and point the rule at it. True when anything moved."""
-    moved = False
+def _folder_for(path: str, wanted_name: str, library: Library) -> Folder:
+    """The Folder with this path, or a new one named after ``wanted_name`` (made unique)."""
+    same = next((f for f in library.folders if f.path == path), None)
+    if same is None:
+        same = Folder(unique_name(wanted_name or "Folder", [DEFAULT_FOLDER] + [f.name for f in library.folders]), path)
+        library.folders.append(same)
+    return same
+
+
+def modernize(rule_list: List[Rule], library: Library) -> bool:
+    """Bring rules from older versions to today's shape, keeping where their files land. True when anything
+    changed (the caller saves).
+
+    - A typed folder path becomes a named Folder (one per distinct path) the rule points at.
+    - A subfolder becomes a Folder of its own: the rule's folder (or Default) with the subfolder under it.
+    - An "except" list on a file-group condition becomes a copy of the group without those extensions
+      ("Video without ts"), which the rule then uses; the group itself is left as it was.
+    - "Continue to the rules below" goes: the first rule that fits wins.
+    """
+    changed = False
     for rule in rule_list:
-        if rule.target.strip() or not rule.folder.strip():
-            continue
-        same = next((f for f in library.folders if f.path == rule.folder), None)
-        if same is None:
-            same = Folder(unique_name(rule.name or "Folder", [f.name for f in library.folders]), rule.folder)
-            library.folders.append(same)
-        rule.target, rule.folder = same.name, ""
-        moved = True
-    return moved
+        typed = rule.folder.strip() if not rule.target.strip() else ""
+        if rule.subfolder.strip():
+            named = None if typed or is_default(rule.target) else find_named(library.folders, rule.target)
+            base = (typed or (named.path if named else DEFAULT_TOKEN)).rstrip("\\/")
+            path = base + "\\" + rule.subfolder.strip().lstrip("\\/")
+            rule.target, rule.folder, rule.subfolder = _folder_for(path, rule.name, library).name, "", ""
+            changed = True
+        elif typed:
+            rule.target, rule.folder = _folder_for(typed, rule.name, library).name, ""
+            changed = True
+        for c in rule.conditions:
+            if c.kind != "type" or not c.exclude:
+                continue
+            gone = {e.strip().lower().lstrip(".") for e in c.exclude if e.strip()}
+            values = []
+            for value in c.values:
+                group = find_named(library.groups, value)
+                if group is None:
+                    values.append(value)
+                    continue
+                kept = [e for e in group.extensions if e.strip().lower().lstrip(".") not in gone]
+                wanted = f"{group.name} without {', '.join(sorted(gone))}"
+                trimmed = find_named(library.groups, wanted)
+                if trimmed is None:
+                    trimmed = Group(unique_name(wanted, [g.name for g in library.groups]), kept, list(group.mimes),
+                                    list(group.names))
+                    library.groups.append(trimmed)
+                values.append(trimmed.name)
+            c.values, c.exclude = values, []
+            changed = True
+        if not rule.stop:
+            rule.stop = True
+            changed = True
+    return changed
 
 
 def rename_references(rule_list: List[Rule], kind: str, old: str, new: str) -> None:
