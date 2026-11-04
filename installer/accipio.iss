@@ -72,6 +72,8 @@ Filename: "{cmd}"; Parameters: "/c winget install --id Gyan.FFmpeg --exact --sil
 ; Chrome will not open its own extensions page for another program, so this opens a page with the steps and copy buttons.
 Filename: "{app}\_internal\accipio\gui\help\connect-browser.html"; Description: "Show how to add the browser extension (one minute, once)"; Check: OfferExtension; Flags: postinstall shellexec nowait
 Filename: "{app}\Accipio.exe"; Description: "Start Accipio"; Flags: postinstall nowait skipifsilent
+; Help > Check for Updates runs this installer quietly with /relaunch=yes after closing Accipio: start it again.
+Filename: "{app}\Accipio.exe"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
 ; Without /F: Accipio closes as if its window were closed, and stops aria2 on the way out.
@@ -137,6 +139,11 @@ begin
   FindManagersIn(HKLM64);
   FindManagersIn(HKLM32);
   Result := True;
+end;
+
+function Relaunch: Boolean;
+begin
+  Result := WizardSilent and (Lowercase(ExpandConstant('{param:relaunch|no}')) = 'yes');
 end;
 
 function OfferExtension: Boolean;

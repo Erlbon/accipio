@@ -83,6 +83,12 @@ session does not reopen what is settled. Keep it current when a decision changes
 - OPEN (2026-11-04): whether video-site downloads get their own rule list (a 5th tab), stay in one list with
   headings, or get only a folder setting. They come only from deliberate actions (popup button, page/link right-click,
   paste), never from a clicked file.
+- Updates (picked 2026-11-04, 21A): `gui/updates.py` AccipioUpdates subclasses redactor_common's UpdateController;
+  the asset is the installer under the fixed name `accipio-setup.exe` (build_exe.bat copies it; **attach it to every
+  release** or the check finds nothing to install). Update Now = download + checksum, run it with
+  `/SILENT ... /relaunch=yes`, close Accipio; the installer's `Relaunch` check starts it again. Only a copy whose
+  folder is the installer's InstallLocation updates itself; zip/source copies get the download page. Daily check is
+  the family's `accipio_updates.json`, switched in Preferences (off by default). Credits = CREDITS.md (bundled).
 - Installer (picked 2026-11-04): Inno Setup, `installer\accipio.iss`, built by `build_exe.bat` when ISCC is found
   (version passed via `tools/installer_defines.py`). Per-user install `{autopf}` = `%LOCALAPPDATA%\Programs\Accipio`,
   no UAC; fixed AppId GUID (never change it, or updates install side by side). The browser link is written by

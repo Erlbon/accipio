@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#03 -- Check for Updates and Credits
+
+- **Help > Check for Updates** works (it was greyed out). It asks GitHub for the newest release and, when there is one, shows what changed with **Update Now**, **Skip This Version** and **Not Now**. Update Now downloads the new installer, checks it against the checksum GitHub lists, and runs it: Accipio closes, is updated and starts again, and downloads carry on. A copy run from the zip or from source gets **Open Download Page** instead.
+- **Preferences > Updates:** "Check for a new version once a day" (off unless you switch it on). Nothing about you or your files is sent.
+- **Help > Credits** works: what Accipio is built on (aria2, yt-dlp, PyQt6 and Qt, Python and the rest) and their licences.
+- Each release also carries the installer as `accipio-setup.exe`, the name the update check looks for. `build_exe.bat` makes that copy.
+
 ## 2026-11-04#02 -- Folders, file groups, site groups and a renamer
 
 - **The Rules window has four tabs**, in the order you set things up: **Folders**, **File Groups**, **Site Groups** and **Rules**. The test box sits under all four and has a new field for the page a link was clicked on.

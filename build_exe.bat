@@ -72,6 +72,14 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+REM The same installer under a fixed name, for Help > Check for Updates (attach both to the release).
+for /f "delims=" %%n in ('python -c "from accipio.core.version import APP_VERSION as v; print('Accipio-' + v.replace('#', '-') + '-windows-x64-setup.exe')"') do copy /y "dist\%%n" dist\accipio-setup.exe >nul
+if errorlevel 1 (
+    echo.
+    echo ERROR: the installer could not be copied to dist\accipio-setup.exe.
+    pause
+    exit /b 1
+)
 echo.
-echo Done: dist\Accipio-*-windows-x64-setup.exe
+echo Done: dist\Accipio-*-windows-x64-setup.exe and dist\accipio-setup.exe (attach both to the release)
 pause

@@ -24,6 +24,8 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QHBo
                              QTableView, QVBoxLayout, QWidget)
 
 from redactor_common.core import labels
+from redactor_common.core.selfupdate import KEY_CHECK_FOR_UPDATES
+from redactor_common.gui.about_dialog import CreditsDialog
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
@@ -32,7 +34,8 @@ from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 from accipio.gui import style
-from accipio.gui.browser_help import BrowserBar, ConnectDialog
+from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
+from accipio.gui.updates import AccipioUpdates
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
 LINK = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
@@ -58,6 +61,9 @@ class Bridge(QObject):
     show_requested = pyqtSignal()
     message = pyqtSignal(str)
     browser_seen = pyqtSignal()
+
+
+UPDATES_FILE = "accipio_updates.json"     # the family's update-check file (on/off, last check, skipped version)
 
 
 @dataclass
@@ -190,6 +196,7 @@ class MainWindow(QMainWindow):
 
         self.build_label = QLabel(f"Build {APP_VERSION}")
         self.statusBar().addPermanentWidget(self.build_label)
+        self.updates = AccipioUpdates(self, os.path.join(services.folder, UPDATES_FILE))
         self._build_menus()
         self._restore_layout()
         self.notices = notices.Notices(services.settings.notice_kinds())
@@ -209,6 +216,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(tick_ms)
+        self.updates.start_auto_check()                 # only when switched on in Preferences, at most once a day
         if services.video_engine is not None:
             self.run(ytdlp_update.note_in_use, services.folder)     # on the worker: importing yt-dlp takes a moment
         self.reload()
@@ -324,7 +332,8 @@ class MainWindow(QMainWindow):
                    MenuAction("connect_browser", "Connect &Browser…", self.connect_browser),
                    Separator(),
                    MenuAction("preferences", labels.PREFERENCES, self.open_settings, shortcut="Ctrl+,")],
-            help=standard_help_items(APP_NAME, self.open_changelog, None, self.about),
+            help=standard_help_items(APP_NAME, self.open_changelog, self.show_credits, self.about,
+                                     updates_slot=self.updates.check_now),
         )
         self.menus = build_standard_menu_bar(self, spec)
         self.actions_by_key = self.action_registry          # key -> QAction, attached by build_standard_menu_bar
@@ -522,6 +531,9 @@ class MainWindow(QMainWindow):
 
     # ---- dialogs ---------------------------------------------------------------------------------------------
 
+    def show_credits(self) -> None:
+        CreditsDialog(os.path.join(resource_dir(), "CREDITS.md"), self).exec()
+
     def connect_browser(self) -> None:
         ConnectDialog(self).exec()
 
@@ -549,8 +561,9 @@ class MainWindow(QMainWindow):
 
     def open_settings(self) -> None:
         from accipio.gui.settings_dialog import SettingsDialog
-        dialog = SettingsDialog(self.services.settings, self)
+        dialog = SettingsDialog(self.services.settings, self, check_updates=self.updates.settings.enabled)
         if dialog.exec():
+            self.updates.settings.update(**{KEY_CHECK_FOR_UPDATES: dialog.check_updates.isChecked()})
             self.apply_settings(dialog.result_settings())
 
     def apply_settings(self, new: settings_mod.Settings) -> None:

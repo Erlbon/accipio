@@ -29,6 +29,7 @@ a = Analysis(
         ("accipio/gui/help", "accipio/gui/help"),           # "Connect your browser", opened by the installer too
         ("README.md", "."),
         ("CHANGELOG.md", "."),
+        ("CREDITS.md", "."),                                # Help > Credits
         ("LICENSE", "."),
     ] + copy_metadata("yt-dlp"),     # its version, read at start to tell whether a yt-dlp update is newer (ytdlp_update)
     # Found by name when they are needed, so the static analysis cannot see them: Accipio's lazily loaded parts and

@@ -13,7 +13,7 @@ from accipio.core.video import QUALITIES, find_ffmpeg
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, current: Settings, parent=None):
+    def __init__(self, current: Settings, parent=None, check_updates: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.current = current
@@ -58,6 +58,12 @@ class SettingsDialog(QDialog):
             notify_row.addWidget(box)
         notify_row.addStretch(1)
         form.addRow("Notify when", notify_row)
+        self.check_updates = QCheckBox("Check for a new version once a day")
+        self.check_updates.setToolTip("At startup, at most once a day, ask GitHub whether a newer version has been "
+                                      "released, and offer it if so. Nothing about you or your files is sent. "
+                                      "Help > Check for Updates works whether this is on or not.")
+        self.check_updates.setChecked(check_updates)
+        form.addRow("Updates", self.check_updates)
         layout.addLayout(form)
         ffmpeg = find_ffmpeg()
         note = QLabel("Connections per file takes effect for downloads started after the next restart.\n"

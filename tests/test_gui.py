@@ -688,3 +688,26 @@ def test_the_connect_box_copies_the_address_and_the_folder(app, tmp_path):
     dialog.copy_folder.click()
     assert QApplication.clipboard().text() == str(tmp_path / "extension")
     assert os.path.isfile(os.path.join(extension_folder(), "manifest.json")) and os.path.isfile(help_page())
+
+
+# ---- Help: updates and credits (2026-11-04#03) ----------------------------------------------------------
+
+def test_check_for_updates_and_credits_can_be_clicked(world, monkeypatch):
+    win, *_ = world
+    assert win.actions_by_key["check_for_updates"].isEnabled()
+    assert win.actions_by_key["credits"].isEnabled()
+    shown = []
+    monkeypatch.setattr(mw.CreditsDialog, "exec", lambda dialog: shown.append(dialog.windowTitle()) or 0)
+    win.actions_by_key["credits"].trigger()
+    assert shown == ["Credits"]
+
+
+def test_the_daily_update_check_is_a_preference(world, monkeypatch):
+    from accipio.gui import settings_dialog
+    win, *_ = world
+    assert win.updates.settings.enabled is False                     # off unless switched on
+    monkeypatch.setattr(settings_dialog.SettingsDialog, "exec",
+                        lambda dialog: dialog.check_updates.setChecked(True) or 1)
+    win.open_settings()
+    assert win.updates.settings.enabled is True
+    assert os.path.isfile(os.path.join(win.services.folder, mw.UPDATES_FILE))
