@@ -67,6 +67,16 @@ session does not reopen what is settled. Keep it current when a decision changes
   opengl32sw, the codecs and translations: 146 MB -> 85 MB. Verified 2026-10-29: window, aria2, yt-dlp + merge,
   host ping through the windowed exe (0.3 s), single instance. Running the exe re-registers the browser host
   to it; after testing a dist build with a scratch APPDATA, re-register from the checkout.
+- Installer (picked 2026-11-04): Inno Setup, `installer\accipio.iss`, built by `build_exe.bat` when ISCC is found
+  (version passed via `tools/installer_defines.py`). Per-user install `{autopf}` = `%LOCALAPPDATA%\Programs\Accipio`,
+  no UAC; fixed AppId GUID (never change it, or updates install side by side). The browser link is written by
+  `Accipio.exe --register` (same `browser.register`), removed by the uninstaller's `uninsdeletekey` entries.
+  Tasks: desktop icon, "start with Windows" (HKCU Run, `--minimized`, off by default), ffmpeg via winget (shown only
+  when no ffmpeg is found; `video.find_ffmpeg` also looks in winget's Links folder). Extension: setup opens the
+  extensions page + the folder on a first install (Web Store install via the HKCU `Extensions` key once listed).
+  Uninstall: graceful `taskkill`, waits for aria2 to exit, asks before deleting `%APPDATA%\Accipio` (default keep).
+  Never remove other download managers; the README tells users to switch off a competing extension.
+  Verified 2026-11-04 silently: install, update over a running Accipio, uninstall while running, all clean.
 - Icon (mockup A, picked 2026-10-29): master `accipio/gui/appicon/accipio.svg`; `tools/make_icons.py` writes the
   .ico, the 256 PNG and `extension/icons/` (all committed). The app loads only the .ico, so the exe needs no QtSvg.
 - Look (mockup 1 "soft", picked 2026-10-29): `gui/style.py` is one stylesheet applied in `app.py` after the

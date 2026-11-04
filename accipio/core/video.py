@@ -35,11 +35,15 @@ FFMPEG_NAME = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
 def find_ffmpeg() -> Optional[str]:
     """ffmpeg the way the Redactor apps find it (redactor_common's ``find_tool``, as videoredactor does): a
     bundled copy (``ffmpeg/`` next to a frozen exe, or the checkout's ``bin/ffmpeg``), then PATH, then the
-    usual Windows install folders."""
+    usual Windows install folders, including winget's Links folder (where the installer's ffmpeg option puts it; a
+    PATH change there reaches only programs started afterwards)."""
     from redactor_common.core.tool_locator import find_tool, windows_program_dirs
     bundled = Path(sys.executable).parent / "ffmpeg" if getattr(sys, "frozen", False) \
         else Path(__file__).resolve().parents[2] / "bin" / "ffmpeg"
-    found = find_tool(FFMPEG_NAME, tools_dir=bundled, install_dirs=windows_program_dirs("ffmpeg/bin"))
+    install_dirs = windows_program_dirs("ffmpeg/bin")
+    if sys.platform == "win32" and os.environ.get("LOCALAPPDATA"):
+        install_dirs.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "WinGet" / "Links")
+    found = find_tool(FFMPEG_NAME, tools_dir=bundled, install_dirs=install_dirs)
     return str(found) if found else None
 
 

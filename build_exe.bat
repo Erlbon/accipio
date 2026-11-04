@@ -50,4 +50,28 @@ if errorlevel 1 (
 
 echo.
 echo Done: dist\Accipio\Accipio.exe  (copy the whole Accipio folder; the exe needs the _internal folder beside it)
+
+REM The installer, when Inno Setup 6 is installed (winget install JRSoftware.InnoSetup).
+set "ISCC="
+if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
+if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
+if not defined ISCC (
+    echo.
+    echo No installer made: Inno Setup 6 is not installed. Get it with:  winget install JRSoftware.InnoSetup
+    pause
+    exit /b 0
+)
+for /f "delims=" %%d in ('python tools\installer_defines.py') do set "DEFINES=%%d"
+echo.
+echo Building the installer...
+"%ISCC%" /Q %DEFINES% installer\accipio.iss
+if errorlevel 1 (
+    echo.
+    echo ERROR: the installer build failed. See above.
+    pause
+    exit /b 1
+)
+echo.
+echo Done: dist\Accipio-*-windows-x64-setup.exe
 pause

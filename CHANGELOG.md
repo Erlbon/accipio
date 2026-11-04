@@ -2,6 +2,17 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#01 -- A Windows installer
+
+- **`Accipio-<build>-windows-x64-setup.exe`** installs Accipio for your user only (`%LOCALAPPDATA%\Programs\Accipio`, no admin rights), with a Start menu entry and an optional desktop icon, and points Chrome and Edge at it. The zip stays for those who would rather not install.
+- **Options in the installer:** start Accipio (minimized) when you sign in to Windows, off unless ticked; and install ffmpeg with winget, offered only when no ffmpeg is found.
+- **The browser extension:** the last page offers to open the extensions page and the extension's folder, and says what to click there. Shown on a first install only.
+- **Updating:** run a newer installer. It closes a running Accipio (and its aria2), replaces the program folder and keeps your rules, settings and downloads.
+- **Uninstalling** (Windows' Settings > Apps) closes Accipio, removes the browser link and the sign-in entry, and asks whether to delete your rules, settings and download list as well (kept unless you say yes).
+- `Accipio.exe --register` points the browsers at Accipio and quits (the installer runs it); `--minimized` starts with the window minimized.
+- ffmpeg installed by winget is found even when Accipio was started before winget changed PATH.
+- `build_exe.bat` also builds the installer when Inno Setup 6 is installed (`installer\accipio.iss`).
+
 ## 2026-11-02#01 -- Update yt-dlp from the Tools menu
 
 - **Tools > Update yt-dlp…** fetches the newest yt-dlp from PyPI, so video sites keep working without a new Accipio build. It also fetches the yt-dlp-ejs version that yt-dlp asks for (it handles YouTube's JavaScript checks). Each file is checked against PyPI's SHA-256 before anything is unpacked. A progress box with a working Cancel shows while it runs; a failure is told in plain words and changes nothing.

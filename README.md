@@ -9,22 +9,31 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
 
 ## Install (Windows)
 
-1. Download `Accipio-<build>-windows-x64.zip` from [Releases](https://github.com/Erlbon/accipio/releases) and
-   unzip it anywhere, for example `C:\Programs\Accipio`. Keep the whole folder: `Accipio.exe` needs the
-   `_internal` folder beside it.
-2. Start `Accipio.exe`. The first start points Chrome and Edge at it (for your user only, no admin rights).
-3. Load the extension: open `chrome://extensions` (or `edge://extensions`), switch on **Developer mode**,
-   choose **Load unpacked** and pick the `_internal\extension` folder inside the Accipio folder. Clicked
-   downloads now go to Accipio; the extension's toolbar button switches that off and on.
-4. Set your rules under **Tools > Rules**. Every download shows which rule placed it (hover it, or
+1. Download `Accipio-<build>-windows-x64-setup.exe` from [Releases](https://github.com/Erlbon/accipio/releases)
+   and run it. It installs for your user only (`%LOCALAPPDATA%\Programs\Accipio`, no admin rights), points
+   Chrome and Edge at Accipio, and can also start Accipio when you sign in and install ffmpeg (below).
+2. Load the extension, once: tick **Add the browser extension now** on the last page of the installer. It
+   opens the extensions page and the extension's folder. Switch on **Developer mode**, choose **Load
+   unpacked** and pick that folder (`_internal\extension` in the Accipio folder). Clicked downloads now go to
+   Accipio; the extension's toolbar button switches that off and on.
+3. Set your rules under **Tools > Rules**. Every download shows which rule placed it (hover it, or
    **Downloads > Why Here?**).
 
-If you move the Accipio folder later, start `Accipio.exe` once from the new place so the browser link follows.
+To update, run the newer installer: it closes Accipio, replaces the program and keeps your rules, settings and
+downloads (they live in `%APPDATA%\Accipio`). Uninstall from Windows' Settings > Apps; it asks whether to delete
+those too.
+
+**Without installing:** `Accipio-<build>-windows-x64.zip` holds the same program. Unzip it anywhere, keep the whole
+folder (`Accipio.exe` needs `_internal` beside it), start `Accipio.exe` and load the extension as above. If you move
+that folder later, start `Accipio.exe` once from the new place so the browser link follows.
+
+If Free Download Manager, Internet Download Manager or another download manager has a browser extension, switch
+that extension off (or Accipio's): both try to take the same downloads.
 
 ### ffmpeg (for video sites)
 
 YouTube and most big video sites send picture and sound separately; ffmpeg joins them. Accipio does not
-bundle it. Without ffmpeg you get the best single file the site offers (often lower quality), and "Audio
+bundle it, but the installer offers to fetch it with winget when none is found. Without ffmpeg you get the best single file the site offers (often lower quality), and "Audio
 only" keeps the site's own sound format instead of mp3. To get full quality, install ffmpeg once, for
 example with `winget install Gyan.FFmpeg`, or put `ffmpeg.exe` in a folder named `ffmpeg` next to
 `Accipio.exe`. Accipio also finds it on PATH and in the usual install folders.
@@ -47,7 +56,8 @@ Then load the `extension` folder unpacked as above.
 
 Run `build_exe.bat` (Windows). It installs what the build needs, fetches aria2 if it is missing, and makes
 `dist\Accipio\Accipio.exe`: a folder build (about 85 MB), so copy the whole `Accipio` folder. Starting the exe
-points the browser link at it.
+points the browser link at it. When Inno Setup 6 is installed (`winget install JRSoftware.InnoSetup`) it also
+makes the installer, `dist\Accipio-<build>-windows-x64-setup.exe`, from `installer\accipio.iss`.
 
 ## Status
 
