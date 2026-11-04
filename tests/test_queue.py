@@ -9,6 +9,7 @@ import pytest
 from accipio.core import aria2, probe, rules, sniff
 from accipio.core.queue import MAX_RESTARTS, Queue
 from accipio.core.rules import Condition, Rule
+from tests import samples
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, Store
 
 TUE_1014 = datetime.datetime(2026, 10, 27, 10, 14)
@@ -87,8 +88,9 @@ def world(tmp_path):
     base = str(tmp_path / "Downloads")
     engine, prober = FakeEngine(), FakeProber()
     store = Store(str(tmp_path / "state" / "queue.db"))
-    rule_list = rules.default_rules()
-    q = Queue(store, engine, lambda: rule_list, base, prober=prober, clock=lambda: TUE_1014)
+    rule_list = samples.sorting_rules()
+    q = Queue(store, engine, lambda: rule_list, base, prober=prober, clock=lambda: TUE_1014,
+              library_set=samples.sorting_library)
     return q, engine, prober, base, rule_list
 
 
@@ -355,7 +357,8 @@ def test_sniff_looks_inside_zips(tmp_path):
 def test_end_to_end_with_aria2(tmp_path, web):
     engine = aria2.Aria2(aria2.find_aria2c(), str(tmp_path / "state" / "session.txt")).start()
     try:
-        q = Queue(Store(str(tmp_path / "state" / "queue.db")), engine, rules.default_rules, str(tmp_path / "Downloads"))
+        q = Queue(Store(str(tmp_path / "state" / "queue.db")), engine, samples.sorting_rules, str(tmp_path / "Downloads"),
+                  library_set=samples.sorting_library)
         ids = [q.add(web + "/redirect"), q.add(web + "/get.php?id=7"), q.add(web + "/nothing")]
         deadline = time.monotonic() + 20
         while any(r.state in (ACTIVE, PROBING) for r in q.rows()) and time.monotonic() < deadline:

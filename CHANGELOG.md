@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#04 -- One Default folder to start with
+
+- **A new setup starts with one folder, Default, and no rules**: everything goes to Default until you write a rule. No folders (Video, Books, Comics...) or rules are filled in for you any more. The built-in file groups are still there to use.
+- **Default is set in Rules > Folders**, at the top. It is the folder that used to be "Base folder" in Preferences (Preferences now just says where it is). It cannot be renamed or deleted, and no other folder may be called Default.
+- **New folders start as `%default%\<name>`**, under Default, so they follow it when Default moves. `%default%` alone is Default itself; a plain relative path still means the same as `%default%\...`. Browsing to a folder inside Default writes it this way too.
+- A rule can pick **Default** as its folder.
+- Setups that already have rules or folders keep them as they are.
+
 ## 2026-11-04#03 -- Check for Updates and Credits
 
 - **Help > Check for Updates** works (it was greyed out). It asks GitHub for the newest release and, when there is one, shows what changed with **Update Now**, **Skip This Version** and **Not Now**. Update Now downloads the new installer, checks it against the checksum GitHub lists, and runs it: Accipio closes, is updated and starts again, and downloads carry on. A copy run from the zip or from source gets **Open Download Page** instead.

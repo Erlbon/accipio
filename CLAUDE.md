@@ -76,6 +76,11 @@ session does not reopen what is settled. Keep it current when a decision changes
   single rename became a ".*" line). rules.json format 3 holds rules + folders + groups + site_groups; export/import
   use the same format; "add to mine" renames clashing items "Name (imported)". GUI: `gui/library_tabs.py`
   (NamedListTab base), `gui/rules_dialog.py` (RenameEditor = mockup 15B). Rule templates (12A) not built.
+- Default folder (the user, 2026-11-04): a new setup has ONLY the "Default" folder and NO rules; never prefill
+  folders or rules. Default = settings.base_folder, shown and edited as row 0 of the Folders tab (not stored in
+  Library.folders), not renamable/deletable, name reserved. Other folders are written `%default%\<name>`
+  (`rules.DEFAULT_TOKEN`, `rules.folder_path`); `Rule.target == "Default"` means the base folder. The old starter
+  folders/rules live on as test data in `tests/samples.py`.
 - Browser connection (18B + 7C): `gui/browser_help.py` bar + ConnectDialog; the native host adds `via: "browser"`
   to what it relays, the window then sets `browser_connected`. Help page `accipio/gui/help/connect-browser.html`
   (finds the extension folder from its own location), opened by the installer. Chrome refuses chrome:// URLs from

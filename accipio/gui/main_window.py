@@ -7,6 +7,7 @@ only reads the store, which is safe from any thread, on a half-second timer.
 from __future__ import annotations
 
 import concurrent.futures
+import dataclasses
 import os
 import re
 import subprocess
@@ -550,6 +551,9 @@ class MainWindow(QMainWindow):
                              library=self.services._holder["library"])
         if dialog.exec():
             self.apply_rules(dialog.result_rules(), dialog.result_library())
+            base = dialog.result_base_folder()
+            if base != self.services.settings.base_folder:          # the Default folder, edited in Folders
+                self.apply_settings(dataclasses.replace(self.services.settings, base_folder=base))
 
     def apply_rules(self, new_rules: List[rules.Rule], library: Optional[rules.Library] = None) -> None:
         self.services._holder["rules"] = new_rules

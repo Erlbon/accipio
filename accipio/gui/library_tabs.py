@@ -227,14 +227,56 @@ class NamedListTab(QWidget):
 
 
 class FoldersTab(NamedListTab):
+    """Default first (the base folder: everything goes there unless a rule picks another), then your folders,
+    written "%default%\\Comics" or as a full path. Default cannot be renamed or deleted."""
     kind = "folder"
     noun = "folder"
-    hint = ("Places downloads go. Rules pick one by name, so moving a folder here moves every rule that uses it. "
-            "A relative path is under the base folder; tokens such as {yyyy} {MM} {domain} {uploader} are allowed.")
+    hint = ("Places downloads go. Everything goes to Default unless a rule picks another folder. Rules pick folders "
+            "by name, so moving a folder here moves every rule that uses it. Write new ones as %default%\\Comics "
+            "(under Default) or as a full path; tokens such as {yyyy} {MM} {domain} {uploader} are allowed.")
 
     def __init__(self, items, rules_of, base_folder: str, parent=None):
         self.base_folder = base_folder
-        super().__init__(items, rules_of, parent)
+        super().__init__([Folder(rules.DEFAULT_FOLDER, base_folder)] + list(items), rules_of, parent)
+
+    def is_default_item(self, item) -> bool:
+        return item is not None and self.list.row(item) == 0
+
+    def items(self):
+        return super().items()[1:]
+
+    def set_items(self, items) -> None:
+        super().set_items([Folder(rules.DEFAULT_FOLDER, self.default_path())] + list(items))
+
+    def default_path(self) -> str:
+        self._store()
+        return self.list.item(0).data(Qt.ItemDataRole.UserRole).path if self.list.count() else self.base_folder
+
+    def _select(self, item, previous):
+        super()._select(item, previous)
+        default = self.is_default_item(item)
+        self.name.setReadOnly(default)
+        self.path.setPlaceholderText("D:\\Downloads" if default else "%default%\\Comics   or   D:\\Comics\\{yyyy}")
+
+    def _name_edited(self, text: str):
+        if not self.is_default_item(self.current) and rules.is_default(text):
+            self.problems.setText("“Default” is the folder everything goes to; give this one another name.")
+            return
+        super()._name_edited(text)
+
+    def delete_item(self):
+        if self.is_default_item(self.list.currentItem()):
+            QMessageBox.information(self, "Default folder", "Default is where everything goes unless a rule says "
+                                    "otherwise, so it cannot be deleted. Point it at another folder instead.")
+            return
+        super().delete_item()
+
+    def refresh(self) -> None:
+        super().refresh()
+        if self.is_default_item(self.current):
+            using = rules.rules_using(self.rules_of(), self.kind, rules.DEFAULT_FOLDER)
+            self.used_by.setText("Everything no rule places goes here"
+                                 + (f", and rule {', '.join(map(str, using))} sends downloads here too." if using else "."))
 
     def build_form(self):
         row = QHBoxLayout()
@@ -252,9 +294,26 @@ class FoldersTab(NamedListTab):
         self.form.addRow("Today this is", self.today)
 
     def _browse(self):
-        chosen = QFileDialog.getExistingDirectory(self, "Folder", self.path.text())
+        start = self.path.text()
+        if start.lower().startswith(rules.DEFAULT_TOKEN):
+            start = os.path.join(self.default_path_quiet(), start[len(rules.DEFAULT_TOKEN):].lstrip("\\/"))
+        chosen = QFileDialog.getExistingDirectory(self, "Folder", start)
         if chosen:
-            self.path.setText(os.path.normpath(chosen))
+            self.path.setText(self.written(os.path.normpath(chosen)))
+
+    def written(self, chosen: str) -> str:
+        """A folder picked inside Default is written "%default%\\..." so it follows Default when that moves."""
+        if self.is_default_item(self.current):
+            return chosen
+        default = os.path.normpath(self.default_path_quiet())
+        try:
+            inside = os.path.commonpath([os.path.normcase(chosen), os.path.normcase(default)]) == os.path.normcase(default)
+        except ValueError:                       # another drive
+            inside = False
+        if not inside:
+            return chosen
+        rest = os.path.relpath(chosen, default)
+        return rules.DEFAULT_TOKEN if rest == "." else f"{rules.DEFAULT_TOKEN}\\{rest}"
 
     def show_item(self, item: Folder):
         self.path.setText(item.path)
@@ -263,16 +322,25 @@ class FoldersTab(NamedListTab):
         return Folder(name, self.path.text().strip())
 
     def blank(self, name: str) -> Folder:
-        return Folder(name, "")
+        return Folder(name, f"{rules.DEFAULT_TOKEN}\\{name}")
 
     def item_problems(self, item: Folder) -> List[str]:
+        if rules.is_default(item.name) and self.list.count() and self.current is self.list.item(0):
+            self.today.setText(item.path)
+            if not item.path.strip():
+                return ["Point Default at a folder: everything goes there unless a rule says otherwise."]
+            return [] if os.path.isabs(item.path) else ["Give Default a full path, such as D:\\Downloads."]
         sample = rules.Download("https://example.com/file.zip", "file.zip", when=datetime.datetime.now(),
                                 video={"uploader": "Uploader", "channel": "Channel"})
-        placement = rules.place([rules.Rule("x", target=item.name)], sample, self.base_folder,
+        placement = rules.place([rules.Rule("x", target=item.name)], sample, self.default_path_quiet(),
                                 rules.Library([item], [], []))
         self.today.setText(placement.folder if item.path.strip() else "(the folder so far)")
         found = [] if item.path.strip() else ["Give the folder a path."]
         return found + [p for p in rules.validate(rules.Rule("x", folder=item.path)) if p.startswith("folder")]
+
+    def default_path_quiet(self) -> str:
+        """Default's path without storing the form first (item_problems runs while the form is being read)."""
+        return self.list.item(0).data(Qt.ItemDataRole.UserRole).path if self.list.count() else self.base_folder
 
 
 class FileGroupsTab(NamedListTab):

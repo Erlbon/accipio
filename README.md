@@ -18,8 +18,10 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
    `_internal\extension` folder in the Accipio folder. Clicked downloads now go to Accipio; the extension's
    toolbar button switches that off and on.
 3. Set up where things go under **Tools > Rules**, in four tabs, in this order:
-   - **Folders**: named places (`Comics inbox` = `D:\Comics\_Inbox\{yyyy}-{MM}`). Rules pick a folder by name,
-     so moving one here moves every rule that uses it.
+   - **Folders**: first **Default**, where everything goes unless a rule picks another folder; point it at a
+     folder of your choice. Then your own named places, written under Default (`Comics` = `%default%\Comics`) or
+     as a full path (`D:\Comics\_Inbox\{yyyy}-{MM}`). Rules pick a folder by name, so moving one here moves every
+     rule that uses it. A new setup has only Default and no rules.
    - **File Groups**: what a download is (extensions such as `cbz, cbr`, or names such as `*invoice*`).
    - **Site Groups** (optional): where it comes from. A site matches the page you clicked the link on, or the
      file's own address, so a link site such as a comics blog is caught even when its files sit on hosters.

@@ -7,6 +7,7 @@ import time
 import pytest
 
 from accipio.core import rules, video
+from tests import samples
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Store
 from accipio.core.video import VideoEngine, VideoProbe
@@ -202,9 +203,9 @@ class FakeVideoProber:
 def world(tmp_path):
     base = str(tmp_path / "Downloads")
     direct, videos, prober, vprober = FakeEngine(), FakeEngine(), FakeProber(), FakeVideoProber()
-    rule_list = rules.default_rules()
+    rule_list = samples.sorting_rules()
     q = Queue(Store(str(tmp_path / "q.db")), direct, lambda: rule_list, base, prober=prober, clock=lambda: TUE_1014,
-              video_engine=videos, video_prober=vprober)
+              video_engine=videos, video_prober=vprober, library_set=samples.sorting_library)
     return q, direct, videos, prober, vprober, base, rule_list
 
 

@@ -8,6 +8,7 @@ import pytest
 
 from accipio.core import rules as r
 from accipio.core import settings
+from tests import samples
 from accipio.core.rules import Condition, Download, Folder, Group, Library, Rename, Rule, SiteGroup
 
 TUE = datetime.datetime(2026, 10, 27, 10, 14)
@@ -19,7 +20,7 @@ def dl(filename, url=None, page_url="", mime=""):
 
 
 def library(folders=(), groups=(), site_groups=()):
-    base = r.default_library()
+    base = samples.sorting_library()
     return Library(base.folders + list(folders), base.groups + list(groups), list(site_groups))
 
 
@@ -45,7 +46,7 @@ def test_a_relative_folder_is_under_the_base_folder_and_a_subfolder_is_added():
 
 
 def test_old_rules_with_typed_paths_get_named_folders():
-    lib = r.default_library()
+    lib = samples.sorting_library()
     rule_list = [Rule("Work stuff", folder="D:/Work"), Rule("More work", folder="D:/Work"), Rule("Plain", subfolder="X")]
     assert r.adopt_folders(rule_list, lib)
     assert [x.target for x in rule_list] == ["Work stuff", "Work stuff", ""]
@@ -95,13 +96,13 @@ def test_file_group_and_site_group_together():
 
 
 def test_an_edited_built_in_group_changes_what_it_catches():
-    lib = r.default_library()
+    lib = samples.sorting_library()
     r.find_named(lib.groups, "archives").extensions.remove("iso")
     lib.groups.append(Group("Disc images", extensions=["iso", "img"]))
     lib.folders.append(Folder("Discs", "Discs"))
-    rule_list = [Rule("Discs", [Condition("type", ["Disc images"])], target="Discs")] + r.default_rules()
+    rule_list = [Rule("Discs", [Condition("type", ["Disc images"])], target="Discs")] + samples.sorting_rules()
     assert folder_of(rule_list, dl("ubuntu.iso"), lib) == os.path.normpath("B/Discs")
-    assert folder_of(r.default_rules(), dl("ubuntu.iso"), lib) == os.path.normpath("B/Other")
+    assert folder_of(samples.sorting_rules(), dl("ubuntu.iso"), lib) == os.path.normpath("B/Other")
 
 
 def test_a_mime_type_counts_only_for_an_extension_no_group_knows():
@@ -115,17 +116,17 @@ def test_extensions_switched_off_for_one_rule_only():
     assert folder_of([video_but_ts], dl("film.mkv")) == os.path.normpath("B/Video")
     assert folder_of([video_but_ts], dl("stream.ts")) == "B"
     assert folder_of([video_but_ts], dl("disc.m2ts")) == "B"
-    assert folder_of(r.default_rules(), dl("stream.ts")) == os.path.normpath("B/Video")
+    assert folder_of(samples.sorting_rules(), dl("stream.ts"), samples.sorting_library()) == os.path.normpath("B/Video")
 
 
-def test_books_and_comics_have_their_own_folders_by_default():
-    assert folder_of(r.default_rules(), dl("Dune.epub")) == os.path.normpath("B/Books")
-    assert folder_of(r.default_rules(), dl("Saga 01.cbz")) == os.path.normpath("B/Comics")
-    assert all(r.validate(rule, r.default_library()) == [] for rule in r.default_rules())
+def test_books_and_comics_have_their_own_folders_in_the_sample_setup():
+    assert folder_of(samples.sorting_rules(), dl("Dune.epub"), samples.sorting_library()) == os.path.normpath("B/Books")
+    assert folder_of(samples.sorting_rules(), dl("Saga 01.cbz"), samples.sorting_library()) == os.path.normpath("B/Comics")
+    assert all(r.validate(rule, samples.sorting_library()) == [] for rule in samples.sorting_rules())
 
 
 def test_validate_names_missing_folders_and_groups():
-    lib = r.default_library()
+    lib = samples.sorting_library()
     rule = Rule("x", [Condition("sites", ["Nope sites"]), Condition("type", ["Comix", "mkv", "video/*"])], target="Gone")
     problems = "\n".join(r.validate(rule, lib))
     assert "no folder called 'Gone'" in problems and "no site group called 'Nope sites'" in problems
@@ -178,9 +179,9 @@ def test_an_old_rename_template_still_renames_every_file():
 
 def test_the_library_is_saved_beside_the_rules(tmp_path):
     folder = str(tmp_path)
-    assert settings.load_library(folder) == r.default_library()                  # nothing saved: built-in
+    assert settings.load_library(folder) == r.default_library() and r.default_library().folders == []                  # nothing saved: built-in
     lib = library([Folder("Work", "D:/Work")], [Group("Work", names=["*invoice*"])], [SiteGroup("Shops", ["gog.com"], "file")])
-    settings.save_rules(folder, r.default_rules(), lib)
+    settings.save_rules(folder, samples.sorting_rules(), lib)
     assert settings.load_library(folder) == lib
     settings.save_rules(folder, [])                                               # without a library: kept
     assert settings.load_library(folder) == lib and settings.load_rules(folder) == []
@@ -219,3 +220,20 @@ def test_adding_imported_rules_keeps_both_sides():
     assert rule_list[1].target == "Work (imported)" and rule_list[1].conditions[0].values == ["Shops (imported)"]
     assert len([g for g in merged.groups if g.name == "Video"]) == 1              # identical: not doubled
     assert mine[1].folders[-1].path == "D:/Work"                                   # mine is not changed in place
+
+
+# ---- one Default folder (2026-11-04#04) -----------------------------------------------------------------
+
+def test_a_new_setup_sends_everything_to_the_default_folder():
+    assert r.default_rules() == [] and r.default_library().folders == []
+    p = r.place(r.default_rules(), dl("Dune.epub"), "B", r.default_library())
+    assert p.folder == "B" and p.why() == "No rule matched: the Default folder."
+
+
+def test_folders_are_written_under_percent_default():
+    lib = Library([Folder("Comics", "%default%/Comics"), Folder("Root", "%DEFAULT%"), Folder("Old style", "Old")],
+                  r.default_groups(), [])
+    for target, expected in (("Comics", "B/Comics"), ("Root", "B"), ("Old style", "B/Old"), ("Default", "B")):
+        rule = Rule("x", target=target)
+        assert r.place([rule], dl("a.zip"), "B", lib).folder == os.path.normpath(expected), target
+        assert r.validate(rule, lib) == []

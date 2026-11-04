@@ -19,13 +19,9 @@ class SettingsDialog(QDialog):
         self.current = current
         layout = QVBoxLayout(self)
         form = QFormLayout()
-        folder_row = QHBoxLayout()
-        self.base_folder = QLineEdit(current.base_folder)
-        browse = QPushButton("Browse…")
-        browse.clicked.connect(self._browse)
-        folder_row.addWidget(self.base_folder, 1)
-        folder_row.addWidget(browse)
-        form.addRow("Base folder", folder_row)
+        where = QLabel(f"{current.base_folder}   (the Default folder: change it under Rules > Folders)")
+        where.setEnabled(False)
+        form.addRow("Downloads go to", where)
         self.max_downloads = QSpinBox()
         self.max_downloads.setRange(1, 20)
         self.max_downloads.setValue(current.max_downloads)
@@ -77,14 +73,8 @@ class SettingsDialog(QDialog):
         box.rejected.connect(self.reject)
         layout.addWidget(box)
 
-    def _browse(self):
-        chosen = QFileDialog.getExistingDirectory(self, "Base folder", self.base_folder.text())
-        if chosen:
-            self.base_folder.setText(os.path.normpath(chosen))
-
     def result_settings(self) -> Settings:
-        return dataclasses.replace(self.current, base_folder=self.base_folder.text().strip() or self.current.base_folder,
-                                   max_downloads=self.max_downloads.value(), connections=self.connections.value(),
+        return dataclasses.replace(self.current, max_downloads=self.max_downloads.value(), connections=self.connections.value(),
                                    speed_limit_kib=self.speed_limit.value(), keep_history=self.keep_history.isChecked(),
                                    video_quality=self.video_quality.currentData(),
                                    notify_added=self.notify_added.isChecked(),

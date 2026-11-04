@@ -6,6 +6,7 @@ import pytest
 
 from accipio.core import rules as r
 from accipio.core.rules import Condition, Download, Rule
+from tests import samples
 
 TUE_1014 = datetime.datetime(2026, 10, 27, 10, 14)      # Tuesday, ISO week 44
 SAT_1014 = datetime.datetime(2026, 10, 31, 10, 14)
@@ -31,10 +32,10 @@ def always(template):
 
 # ---- the walk --------------------------------------------------------------------------------------------
 
-def test_no_rules_means_the_base_folder(base):
+def test_no_rules_means_the_default_folder(base):
     p = r.place([], dl("a.zip"), base)
     assert p.folder == os.path.normpath(base) and p.filename == "a.zip" and p.steps == []
-    assert p.why() == "No rule matched: the base folder."
+    assert p.why() == "No rule matched: the Default folder."
 
 
 def test_the_first_matching_rule_that_stops_wins(base):
@@ -210,7 +211,7 @@ def test_validate_reports_problems_in_words():
 
 
 def test_rules_survive_a_round_trip_and_unknown_keys_are_skipped():
-    rules = r.default_rules() + [Rule("Night", [Condition("time", ["* 22-23 * * *"])], folder="Night", stop=False)]
+    rules = samples.sorting_rules() + [Rule("Night", [Condition("time", ["* 22-23 * * *"])], folder="Night", stop=False)]
     again = r.rules_from_json(r.rules_to_json(rules))
     assert again == rules
     newer = '{"format": 2, "rules": [{"name": "x", "colour": "red", "conditions": [{"kind": "name", "values": ["*"], "fuzzy": true}]}]}'
@@ -231,9 +232,9 @@ def test_rules_survive_a_round_trip_and_unknown_keys_are_skipped():
     (dl("get.php", mime="application/x-msdownload"), ("Programs",)),
 ])
 def test_the_default_rules_sort_by_kind(base, download, sub):
-    rules = r.default_rules()
+    rules = samples.sorting_rules()
     assert all(r.validate(rule) == [] for rule in rules)
-    assert r.place(rules, download, base).folder == under(base, *sub)
+    assert r.place(rules, download, base, samples.sorting_library()).folder == under(base, *sub)
 
 
 # ---- filters and pattern pieces --------------------------------------------------------------------------

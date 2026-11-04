@@ -92,9 +92,10 @@ class Library:
     site_groups: List[SiteGroup] = field(default_factory=list)
 
 
-DEFAULT_FOLDERS = [("Video sites", "Video/{uploader}"), ("Video", "Video"), ("Audio", "Audio"), ("Images", "Images"),
-                   ("Books", "Books"), ("Comics", "Comics"), ("Documents", "Documents"), ("Archives", "Archives"),
-                   ("Programs", "Programs"), ("Other", "Other")]
+# The one folder every setup has (decided 2026-11-04): the base folder, shown as "Default" at the top of the Folders
+# tab. Everything goes there unless a rule says otherwise; other folders are written "%default%\Comics".
+DEFAULT_FOLDER = "Default"
+DEFAULT_TOKEN = "%default%"
 
 
 def default_groups() -> List[Group]:
@@ -102,7 +103,13 @@ def default_groups() -> List[Group]:
 
 
 def default_library() -> Library:
-    return Library([Folder(n, p) for n, p in DEFAULT_FOLDERS], default_groups(), [])
+    """A new setup: no folders but Default (which is the base folder, not stored here), the built-in file
+    groups, no site groups."""
+    return Library([], default_groups(), [])
+
+
+def is_default(name: str) -> bool:
+    return name.strip().lower() == DEFAULT_FOLDER.lower()
 
 
 def find_named(items, text: str):
@@ -329,7 +336,7 @@ class Placement:
 
     def why(self) -> str:
         if not self.steps:
-            return "No rule matched: the base folder."
+            return "No rule matched: the Default folder."
         parts = [f'rule {s.number} "{s.name}": ' + (", ".join(s.effects) or "no change") for s in self.steps]
         return " → ".join(parts)
 
@@ -560,6 +567,18 @@ def _path_parts(template: str) -> List[str]:
     return parts
 
 
+def folder_path(template: str, values: Dict[str, str], base_folder: str) -> str:
+    """Where a folder template points: "%default%\\Comics" and a plain relative path are under the Default (base)
+    folder, "%default%" alone is the Default folder, an absolute path is itself."""
+    text = template.strip()
+    if text.lower().startswith(DEFAULT_TOKEN):
+        text = text[len(DEFAULT_TOKEN):].lstrip("\\/")
+        if not text:
+            return base_folder
+    target = _expand_folder(text, values)
+    return target if os.path.isabs(target) or re.match(r"[A-Za-z]:", target) else os.path.join(base_folder, target)
+
+
 def _expand_folder(template: str, values: Dict[str, str]) -> str:
     parts = _path_parts(template)
     drive = ""
@@ -650,10 +669,11 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
         effects = []
         here = {**values, **captures(rule, d)}             # a pattern's pieces belong to its own rule
         named = find_named(library.folders, rule.target) if rule.target.strip() else None
+        if is_default(rule.target):
+            named = Folder(DEFAULT_FOLDER, DEFAULT_TOKEN)
         template = named.path if named else rule.folder
         if template.strip():
-            target = _expand_folder(template, here)
-            folder = target if os.path.isabs(target) or re.match(r"[A-Za-z]:", target) else os.path.join(base_folder, target)
+            folder = folder_path(template, here, base_folder)
             effects.append(f"folder {named.name}: {folder}" if named else f"set folder {folder}")
         if rule.subfolder.strip():
             sub = _expand_folder(rule.subfolder.lstrip("\\/"), here)
@@ -697,7 +717,7 @@ def validate(rule: Rule, library: Optional[Library] = None) -> List[str]:
     found = []
     known_here = set(TOKENS) | capture_names(rule)
     folder_template = rule.folder
-    if library is not None and rule.target.strip():
+    if library is not None and rule.target.strip() and not is_default(rule.target):
         named = find_named(library.folders, rule.target)
         if named is None:
             found.append(f"folder: there is no folder called {rule.target!r} (see Folders)")
@@ -882,19 +902,5 @@ def rules_from_json(text: str) -> List[Rule]:
 
 
 def default_rules() -> List[Rule]:
-    """The rule set a new installation starts with: one folder (see DEFAULT_FOLDERS) per kind of file, then
-    Other."""
-    def by_type(name: str, groups: List[str], folder: str) -> Rule:
-        return Rule(name, [Condition("type", groups)], target=folder)
-    return [
-        Rule("Video sites", [Condition("source", ["video"])], target="Video sites"),
-        by_type("Video", ["Video"], "Video"),
-        by_type("Audio", ["Audio"], "Audio"),
-        by_type("Images", ["Images"], "Images"),
-        by_type("Ebooks", ["Ebooks"], "Books"),
-        by_type("Comics", ["Comics"], "Comics"),
-        by_type("Documents", ["Documents"], "Documents"),
-        by_type("Archives", ["Archives"], "Archives"),
-        by_type("Programs", ["Programs"], "Programs"),
-        Rule("Other", target="Other"),
-    ]
+    """A new setup has no rules: everything goes to the Default folder until you write some."""
+    return []

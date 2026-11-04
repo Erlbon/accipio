@@ -18,6 +18,7 @@ from accipio.gui import main_window as mw  # noqa: E402
 from accipio.gui.queue_model import COLUMNS, NAME  # noqa: E402
 from accipio.gui.rules_dialog import ConditionRow, RulesDialog, TimeEditor, picker_state  # noqa: E402
 from accipio.gui.settings_dialog import SettingsDialog  # noqa: E402
+from tests import samples  # noqa: E402
 from tests.test_queue import FakeEngine, FakeProber  # noqa: E402
 
 
@@ -43,6 +44,7 @@ def app():
 def world(app, tmp_path):
     folder = str(tmp_path / "config")
     settings.save_settings(folder, settings.Settings(base_folder=str(tmp_path / "Downloads")))
+    settings.save_rules(folder, samples.sorting_rules(), samples.sorting_library())
     engine, prober = Engine(), FakeProber()
     win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober, video_engine=False), tick_ms=60_000)
     yield win, engine, prober, str(tmp_path / "Downloads")
@@ -188,14 +190,29 @@ def test_settings_are_saved_and_reach_the_engine(world, tmp_path):
     dialog.max_downloads.setValue(5)
     dialog.speed_limit.setValue(300)
     dialog.keep_history.setChecked(True)
-    dialog.base_folder.setText(str(tmp_path / "Elsewhere"))
     win.apply_settings(dialog.result_settings())
     win.flush()
     assert engine.limits[-1] == {"max_downloads": 5, "speed_limit": 300 * 1024}
     again = settings.load_settings(win.services.folder)
-    assert (again.max_downloads, again.keep_history, again.base_folder) == (5, True, str(tmp_path / "Elsewhere"))
+    assert (again.max_downloads, again.keep_history, again.base_folder) == (5, True, base)
+
+
+def test_the_default_folder_is_set_in_the_folders_tab(world, tmp_path, monkeypatch):
+    from accipio.gui.rules_dialog import RulesDialog as Dialog
+    win, engine, prober, base = world
+    elsewhere = str(tmp_path / "Elsewhere")
+
+    def edit(dialog):
+        tab = dialog.folders_tab
+        tab.list.setCurrentRow(0)
+        assert tab.name.text() == "Default" and tab.name.isReadOnly() and tab.path.text() == base
+        tab.path.setText(elsewhere)
+        return 1
+    monkeypatch.setattr(Dialog, "exec", edit)
+    win.open_rules()
+    assert settings.load_settings(win.services.folder).base_folder == elsewhere
     add(win, prober, "https://a.org/a.zip", "a.zip")
-    assert win.model.rows[0].folder == os.path.join(str(tmp_path / "Elsewhere"), "Archives")
+    assert win.model.rows[0].folder == os.path.join(elsewhere, "Archives")       # %default%\Archives follows
 
 
 def test_closing_stops_the_engine_and_remembers_the_columns(world):
@@ -274,7 +291,7 @@ def test_the_dialog_lists_the_rules_with_stop_and_continue_marks(app, tmp_path):
 
 
 def test_editing_a_rule_in_the_form(app, tmp_path):
-    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     dialog.list.setCurrentRow(7)                                          # Archives
     dialog.form.subfolder.setText("{yyyy}")
     dialog.form.go_on.setChecked(True)
@@ -284,9 +301,9 @@ def test_editing_a_rule_in_the_form(app, tmp_path):
 
 
 def test_the_command_field_is_hidden_until_commands_run_but_a_saved_one_is_kept(app, tmp_path):
-    saved = rules.default_rules()
+    saved = samples.sorting_rules()
     saved[7].command = 'notify "{name}"'
-    dialog = RulesDialog(saved, str(tmp_path))
+    dialog = RulesDialog(saved, str(tmp_path), library=samples.sorting_library())
     dialog.list.setCurrentRow(7)
     assert dialog.form.command.isHidden() and not dialog.form.actions.isRowVisible(dialog.form.command)
     dialog.form.subfolder.setText("{yyyy}")
@@ -323,7 +340,7 @@ def test_the_form_shows_what_is_wrong(app, tmp_path):
 
 def test_the_test_box_shows_the_path_and_the_skipped_rules(app, tmp_path):
     base = str(tmp_path / "Downloads")
-    dialog = RulesDialog(rules.default_rules(), base)
+    dialog = RulesDialog(samples.sorting_rules(), base, library=samples.sorting_library())
     dialog.test_url.setText("https://example.com/files/Dune.epub")
     assert os.path.join(base, "Books", "Dune.epub") in dialog.test_result.text()
     assert 'rule 5 "Ebooks"' in dialog.test_result.text() and "Skipped: rule 1, 2, 3, 4, 6" in dialog.test_result.text()
@@ -333,7 +350,7 @@ def test_the_test_box_shows_the_path_and_the_skipped_rules(app, tmp_path):
 
 
 def test_the_test_box_uses_unsaved_edits(app, tmp_path):
-    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     dialog.list.setCurrentRow(4)
     dialog.form.subfolder.setText("Library")
     dialog.test_url.setText("https://example.com/Dune.epub")
@@ -592,15 +609,15 @@ def test_the_progress_bars_paint_in_every_state(world):
 # ---- the rules window's tabs (2026-11-04#02) ------------------------------------------------------------
 
 def test_the_window_has_the_four_tabs_in_setup_order(app, tmp_path):
-    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     assert [dialog.tabs.tabText(i) for i in range(4)] == ["1 · Folders", "2 · File Groups", "3 · Site Groups", "4 · Rules"]
-    assert dialog.result_library() == rules.default_library()
+    assert dialog.result_library() == samples.sorting_library()
 
 
 def test_renaming_a_folder_renames_it_in_the_rules(app, tmp_path):
-    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     tab = dialog.folders_tab
-    tab.list.setCurrentRow([f.name for f in tab.items()].index("Comics"))
+    tab.list.setCurrentRow(1 + [f.name for f in tab.items()].index("Comics"))      # Default is row 0
     tab.name.setText("Comics inbox")
     tab.name.textEdited.emit("Comics inbox")
     tab.path.setText("D:/Comics/_Inbox")
@@ -612,19 +629,22 @@ def test_renaming_a_folder_renames_it_in_the_rules(app, tmp_path):
 def test_a_folder_a_rule_uses_cannot_be_deleted(app, tmp_path, monkeypatch):
     told = []
     monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
-    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     tab = dialog.folders_tab
-    tab.list.setCurrentRow(0)                                            # Video sites, used by rule 1
+    tab.list.setCurrentRow(0)                                            # Default: never deleted
+    tab.delete_item()
+    assert "cannot be deleted" in told[0] and tab.list.item(0).text() == "Default"
+    tab.list.setCurrentRow(1)                                            # Video sites, used by rule 1
     assert tab.used_by.text() == "Used by rule 1"
     tab.delete_item()
-    assert "Rule 1 uses" in told[0] and len(tab.items()) == len(rules.DEFAULT_FOLDERS)
+    assert "Rule 1 uses" in told[1] and len(tab.items()) == len(samples.FOLDERS)
     tab.new_item()
     tab.delete_item()                                                    # a new, unused one goes
-    assert len(tab.items()) == len(rules.DEFAULT_FOLDERS)
+    assert len(tab.items()) == len(samples.FOLDERS)
 
 
 def test_the_rule_form_picks_a_folder_and_a_site_group(app, tmp_path):
-    library = rules.default_library()
+    library = samples.sorting_library()
     library.site_groups.append(rules.SiteGroup("Comic sites", ["getcomics.org"]))
     dialog = RulesDialog([Rule("Comics", [Condition("sites", ["Comic sites"])], target="Comics")], str(tmp_path),
                          library=library)
@@ -653,7 +673,7 @@ def test_the_renamer_tries_its_lines_on_a_name(app, tmp_path):
 
 def test_importing_rules_adds_them_below_mine(app, tmp_path, monkeypatch):
     path = str(tmp_path / "theirs.json")
-    theirs = rules.default_library()
+    theirs = samples.sorting_library()
     theirs.folders.append(rules.Folder("Work", "E:/Job"))
     settings.export_rules(path, [Rule("Theirs", target="Work")], theirs)
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (path, ""))
@@ -711,3 +731,25 @@ def test_the_daily_update_check_is_a_preference(world, monkeypatch):
     win.open_settings()
     assert win.updates.settings.enabled is True
     assert os.path.isfile(os.path.join(win.services.folder, mw.UPDATES_FILE))
+
+
+def test_a_new_folder_starts_under_default_and_default_is_a_reserved_name(app, tmp_path):
+    dialog = RulesDialog([], str(tmp_path))
+    tab = dialog.folders_tab
+    assert [tab.list.item(i).text() for i in range(tab.list.count())] == ["Default"]    # nothing else filled in
+    tab.new_item()
+    assert tab.path.text() == "%default%\\New folder"
+    tab.name.setText("default")
+    tab.name.textEdited.emit("default")
+    assert "Default" in tab.problems.text() and tab.items()[0].name == "New folder"
+
+
+def test_a_folder_browsed_inside_default_is_written_under_percent_default(app, tmp_path):
+    dialog = RulesDialog([], str(tmp_path / "Downloads"))
+    tab = dialog.folders_tab
+    tab.new_item()
+    assert tab.written(str(tmp_path / "Downloads" / "Comics" / "Inbox")) == "%default%\\Comics\\Inbox"
+    assert tab.written(str(tmp_path / "Downloads")) == "%default%"
+    assert tab.written(str(tmp_path / "Elsewhere")) == str(tmp_path / "Elsewhere")
+    tab.list.setCurrentRow(0)
+    assert tab.written(str(tmp_path / "Downloads" / "Sub")) == str(tmp_path / "Downloads" / "Sub")   # Default: as is

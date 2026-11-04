@@ -595,6 +595,7 @@ class RuleForm(QWidget):
         busy, self._loading = self._loading, True
         self.folder.clear()
         self.folder.addItem("(keep the folder so far)", KEEP_FOLDER)
+        self.folder.addItem(f"{rules.DEFAULT_FOLDER}   —   where everything else goes", rules.DEFAULT_FOLDER)
         for f in self.library_of().folders:
             self.folder.addItem(f"{f.name}   —   {f.path}", f.name)
         if chosen and self.folder.findData(chosen) < 0:
@@ -768,6 +769,10 @@ class RulesDialog(QDialog):
     def result_library(self) -> rules.Library:
         return rules.Library(self.folders_tab.items(), self.groups_tab.items(), self.sites_tab.items())
 
+    def result_base_folder(self) -> str:
+        """The Default folder's path (the base folder in the settings)."""
+        return self.folders_tab.default_path().strip() or self.base_folder
+
     def _library_changed(self):
         self.update_test()
 
@@ -923,7 +928,7 @@ class RulesDialog(QDialog):
                      page_url=page if not page or "://" in page else "https://" + page,
                      source="video" if self.test_video.isChecked() else "direct",
                      video={k: v for k, v in video.items() if v}, when=datetime.datetime.now())
-        placement = rules.place(self.result_rules_preview(), d, self.base_folder, self.result_library())
+        placement = rules.place(self.result_rules_preview(), d, self.result_base_folder(), self.result_library())
         hit = {s.number for s in placement.steps}
         skipped = [str(n) for n in range(1, self.list.count() + 1) if n not in hit]
         text = f"→ {placement.path}\n{placement.why()}"
