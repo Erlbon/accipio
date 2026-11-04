@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect your browser to Accipio</title>
+<style>
+  :root { --bg: #f7f7f5; --text: #1f1f1d; --dim: #5f5e5a; --box: #ffffff; --line: #d3d1c7; --accent: #185fa5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1e1e1d; --text: #ecebe6; --dim: #b4b2a9; --box: #2a2a28; --line: #444441; --accent: #85b7eb; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 8px; }
+  p.lead { color: var(--dim); margin: 0 0 28px; }
+  ol { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+  li { counter-increment: step; background: var(--box); border: 1px solid var(--line); border-radius: 10px;
+       padding: 16px 18px 16px 60px; margin: 0 0 12px; position: relative; }
+  li::before { content: counter(step); position: absolute; left: 18px; top: 14px; width: 28px; height: 28px;
+               border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 600;
+               display: flex; align-items: center; justify-content: center; }
+  .copy { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  code { font: 14px Consolas, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+         padding: 6px 8px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  button { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--box); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .note { color: var(--dim); font-size: 14px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect your browser to Accipio</h1>
+  <p class="lead">One step is left, once: add Accipio's extension to Chrome or Edge. Then the downloads you click
+    there come to Accipio. It takes about a minute.</p>
+  <ol>
+    <li>Open the extensions page: copy this address and paste it into the address bar of a new tab.
+      (In Edge it is <b>edge://extensions</b>.)
+      <div class="copy"><code id="page">chrome://extensions</code><button data-copy="page">Copy</button></div></li>
+    <li>Switch on <b>Developer mode</b>, the switch at the top right of that page.</li>
+    <li>Click <b>Load unpacked</b> (top left). In the folder box that opens, paste this folder and choose
+      <b>Select Folder</b>:
+      <div class="copy"><code id="folder">(the extension folder)</code><button data-copy="folder">Copy</button></div></li>
+    <li>Accipio now appears in the list of extensions. Its button in the toolbar (pin it from the puzzle-piece
+      menu) switches the hand-over to Accipio off and on.</li>
+  </ol>
+  <p class="note">If Free Download Manager, Internet Download Manager or another download manager has a browser
+    extension, switch that one off in the same page: both would try to take the same downloads.</p>
+  <p class="note">Why by hand? Until Accipio is in the Chrome Web Store, Chrome only accepts it this way.
+    Accipio's own window also shows these steps (Tools &gt; Connect Browser).</p>
+</main>
+<script>
+  // This page sits in accipio\gui\help inside Accipio's folder; the extension is in "extension" beside "accipio".
+  (function () {
+    var path = decodeURIComponent(location.pathname).replace(/^\/([A-Za-z]:)/, "$1");
+    var parts = path.split("/");
+    parts.splice(parts.length - 4, 4, "extension");
+    var folder = parts.join(navigator.platform.indexOf("Win") === 0 ? "\\" : "/");
+    document.getElementById("folder").textContent = folder;
+  })();
+  document.querySelectorAll("button[data-copy]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var text = document.getElementById(button.getAttribute("data-copy")).textContent;
+      var done = function () { button.textContent = "Copied"; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+      } else { fallback(text); done(); }
+    });
+  });
+  function fallback(text) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+</script>
+</body>
+</html>

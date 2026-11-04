@@ -21,6 +21,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -144,6 +145,24 @@ def _tidy(root: str, keep: Optional[str]) -> None:
             pass
 
 
+SWAP_TRIES = 10
+
+
+def _swap_in(work: str, target: str, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Move the unpacked folder into place. Right after unpacking, a virus scanner or the search indexer may
+    still hold a file in it (or in an old copy being removed), and Windows then refuses the move for a moment:
+    try again for a few seconds before giving up."""
+    for attempt in range(SWAP_TRIES):
+        shutil.rmtree(target, ignore_errors=True)
+        try:
+            os.replace(work, target)
+            return
+        except PermissionError:
+            if attempt == SWAP_TRIES - 1:
+                raise
+            sleep(0.1 * (attempt + 1))
+
+
 def install(folder: str, release: Release, fetch: Fetch = _fetch, cancel: Optional[threading.Event] = None) -> None:
     root = os.path.join(folder, FOLDER)
     work = os.path.join(root, f".{release.version}.part")
@@ -159,9 +178,7 @@ def install(folder: str, release: Release, fetch: Fetch = _fetch, cancel: Option
             _unpack(blob, work)
         if cancel is not None and cancel.is_set():
             raise Cancelled()
-        target = os.path.join(root, release.version)
-        shutil.rmtree(target, ignore_errors=True)
-        os.replace(work, target)
+        _swap_in(work, os.path.join(root, release.version))
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)
         raise

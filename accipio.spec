@@ -26,6 +26,7 @@ a = Analysis(
         (ARIA2, "aria2"),                                   # aria2c.exe, COPYING, LICENSE.OpenSSL, AUTHORS
         ("extension", "extension"),                         # the browser extension, to load unpacked from here
         ("accipio/gui/appicon", "accipio/gui/appicon"),     # the program icon (window, taskbar, tray)
+        ("accipio/gui/help", "accipio/gui/help"),           # "Connect your browser", opened by the installer too
         ("README.md", "."),
         ("CHANGELOG.md", "."),
         ("LICENSE", "."),

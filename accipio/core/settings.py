@@ -6,11 +6,12 @@ saved session. Files are written to a temporary name and swapped in, so a crash 
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import sys
 from dataclasses import asdict, dataclass, fields
-from typing import List
+from typing import Dict, List, Optional, Tuple
 
 from accipio.core import rules
 
@@ -36,6 +37,7 @@ class Settings:
     notify_added: bool = True             # Windows notifications (see notices.py)
     notify_finished: bool = True
     notify_failed: bool = True
+    browser_connected: bool = False       # the extension has talked to Accipio once; until then a start shows how
 
     def notice_kinds(self) -> List[str]:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),
@@ -82,5 +84,72 @@ def load_rules(folder: str) -> List[rules.Rule]:
         return rules.default_rules()
 
 
-def save_rules(folder: str, rule_list: List[rules.Rule]) -> None:
-    write_atomically(os.path.join(folder, "rules.json"), rules.rules_to_json(rule_list))
+def load_library(folder: str) -> rules.Library:
+    """The folders, file groups and site groups saved beside the rules, or the built-in ones (an older
+    rules.json has none)."""
+    try:
+        with open(os.path.join(folder, "rules.json"), encoding="utf-8") as f:
+            saved = rules.library_from_json(f.read())
+    except (OSError, ValueError, TypeError):
+        saved = None
+    return rules.default_library() if saved is None else saved
+
+
+def save_rules(folder: str, rule_list: List[rules.Rule], library: Optional[rules.Library] = None) -> None:
+    """Rules, folders and groups share rules.json. Without ``library`` the one already there is kept."""
+    library = load_library(folder) if library is None else library
+    write_atomically(os.path.join(folder, "rules.json"), rules.rules_to_json(rule_list, library))
+
+
+def export_rules(path: str, rule_list: List[rules.Rule], library: rules.Library) -> None:
+    """A copy of the rules, folders and groups for another PC or another person; the same format as rules.json."""
+    write_atomically(path, rules.rules_to_json(rule_list, library))
+
+
+def import_rules(path: str) -> Tuple[List[rules.Rule], Optional[rules.Library]]:
+    """The rules and the library in an exported file (None when it has none). Raises ValueError, in words,
+    for a file that is not one."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        data = json.loads(text)
+    except (OSError, UnicodeDecodeError) as error:
+        raise ValueError(f"The file cannot be read: {error}") from error
+    except ValueError as error:
+        raise ValueError("This is not an Accipio rules file (it is not JSON).") from error
+    if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+        raise ValueError("This is not an Accipio rules file (it has no rules).")
+    try:
+        return rules.rules_from_json(text), rules.library_from_json(text)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"The rules in this file cannot be read: {error}") from error
+
+
+# (attribute of Library, Rule reference kind for rename_references)
+_LIBRARY_PARTS = (("folders", "folder"), ("groups", "type"), ("site_groups", "sites"))
+
+
+def merge_imported(mine: Tuple[List[rules.Rule], rules.Library],
+                   theirs: Tuple[List[rules.Rule], Optional[rules.Library]]) -> Tuple[List[rules.Rule], rules.Library]:
+    """"Add to mine": their rules go below mine. A folder or group of theirs whose name I already use, with
+    different content, is added as "<name> (imported)" and their rules are pointed at that name, so nothing of
+    mine changes; an identical one is not doubled."""
+    my_rules, my_library = mine
+    their_rules, their_library = theirs
+    merged = dataclasses.replace(my_library, folders=list(my_library.folders), groups=list(my_library.groups),
+                                 site_groups=list(my_library.site_groups))
+    for attribute, kind in _LIBRARY_PARTS:
+        target_list = getattr(merged, attribute)
+        for item in getattr(their_library, attribute) if their_library else []:
+            same_name = rules.find_named(target_list, item.name)
+            if same_name == item:
+                continue
+            if same_name is None:
+                target_list.append(item)
+                continue
+            new = rules.unique_name(f"{item.name} (imported)", [x.name for x in target_list])
+            rules.rename_references(their_rules, kind, item.name, new)
+            target_list.append(dataclasses.replace(item, name=new))
+    return my_rules + their_rules, merged
+
+

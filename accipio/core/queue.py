@@ -48,12 +48,14 @@ class Queue:
     def __init__(self, store: Store, engine: aria2.Aria2, rule_set: Callable[[], List[Rule]], base_folder: str, *,
                  prober: Callable[..., probe.Probe] = probe.probe, exists: Callable[[str], bool] = os.path.exists,
                  keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now,
-                 video_engine=None, video_prober: Optional[Callable[..., Optional[VideoProbe]]] = None):
+                 video_engine=None, video_prober: Optional[Callable[..., Optional[VideoProbe]]] = None,
+                 library_set: Optional[Callable[[], rules.Library]] = None):
         self.store = store
         self.engine = engine
         self.engines = {"direct": engine, "video": video_engine}
         self.video_prober = video_prober if video_engine is not None else None
         self.rule_set = rule_set
+        self.library_set = library_set or rules.default_library
         self.base_folder = base_folder
         self.prober = prober
         self.exists = exists
@@ -85,6 +87,9 @@ class Queue:
 
     # ---- adding ----------------------------------------------------------------------------------------------
 
+    def _place(self, d: Download) -> Placement:
+        return rules.place(self.rule_set(), d, self.base_folder, self.library_set())
+
     def _download(self, found: probe.Probe, page_url: str, when: datetime.datetime, filename: str = "") -> Download:
         return Download(url=found.url, filename=filename or found.filename, page_url=page_url, mime=found.mime,
                         size=found.size, when=when)
@@ -98,13 +103,13 @@ class Queue:
             video = {"playlist": found_video.playlist} if found_video.playlist else {}
             d = Download(url=url, filename=found_video.filename, page_url=page_url, source="video", video=video, when=when)
             return Preview(url, f"Playlist: {len(found_video.entries)} videos", None, "playlist",
-                           rules.place(self.rule_set(), d, self.base_folder), len(found_video.entries))
+                           self._place(d), len(found_video.entries))
         if found_video is not None:
             d = Download(url=found_video.url, filename=found_video.filename, page_url=page_url, size=found_video.size,
                          source="video", video=found_video.fields, when=when)
-            return Preview(url, found_video.filename, found_video.size, "video", rules.place(self.rule_set(), d, self.base_folder))
+            return Preview(url, found_video.filename, found_video.size, "video", self._place(d))
         found = self.prober(url, headers=headers)
-        placement = rules.place(self.rule_set(), self._download(found, page_url, when), self.base_folder)
+        placement = self._place(self._download(found, page_url, when))
         return Preview(url, placement.filename, found.size, "file", placement)
 
     def add(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None,
@@ -129,7 +134,7 @@ class Queue:
         except probe.ProbeError as error:
             self.store.update(row_id, state=ERROR, error=str(error))
             return
-        placement = rules.place(self.rule_set(), self._download(found, row.page_url, row.added_at, filename), self.base_folder)
+        placement = self._place(self._download(found, row.page_url, row.added_at, filename))
         target = os.path.normpath(folder) if folder else placement.folder
         name = rules.safe_part(filename, placement.filename) if filename else placement.filename
         name = self._free(target, name, row_id)
@@ -162,7 +167,7 @@ class Queue:
         row = self.store.get(row_id)
         d = Download(url=found.url, filename=filename or found.filename, page_url=row.page_url, size=found.size,
                      source="video", video=found.fields, when=row.added_at)
-        placement = rules.place(self.rule_set(), d, self.base_folder)
+        placement = self._place(d)
         target = os.path.normpath(folder) if folder else placement.folder
         name = rules.safe_part(filename, placement.filename) if filename else placement.filename
         name = self._free(target, name, row_id)
@@ -225,7 +230,7 @@ class Queue:
                 renamed = f"{stem}.{real}" if ext in probe.SCRIPT_EXTENSIONS else f"{name}.{real}"
                 d = Download(url=row.url, filename=renamed, page_url=row.page_url, mime=row.mime, size=status.total,
                              source=row.source, video=row.video, when=row.added_at)
-                placement = rules.place(self.rule_set(), d, self.base_folder)
+                placement = self._place(d)
                 target = folder if row.pinned else placement.folder
                 final = rules.free_name(target, placement.filename, self.exists)
                 os.makedirs(target, exist_ok=True)

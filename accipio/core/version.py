@@ -7,7 +7,7 @@ check-in as the code change and a matching CHANGELOG.md entry.
 from __future__ import annotations
 
 APP_NAME = "Accipio"
-APP_VERSION = "2026-11-04#01"
+APP_VERSION = "2026-11-04#02"
 APP_REPO_URL = "https://github.com/Erlbon/accipio"
 
 

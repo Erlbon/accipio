@@ -67,13 +67,30 @@ session does not reopen what is settled. Keep it current when a decision changes
   opengl32sw, the codecs and translations: 146 MB -> 85 MB. Verified 2026-10-29: window, aria2, yt-dlp + merge,
   host ping through the windowed exe (0.3 s), single instance. Running the exe re-registers the browser host
   to it; after testing a dist build with a scratch APPDATA, re-register from the checkout.
+- Rules window (picked 2026-11-04, build #02): tabs **Folders → File Groups → Site Groups → Rules** (setup order;
+  the names are the user's). `rules.Library` = folders + file groups (`Group`: extensions, names, MIME) + site groups
+  (`SiteGroup`: sites, where = page/file/either). Sites never go in a file group (decided: different content). Rules
+  point at a `Folder` by name (`Rule.target`; `Rule.folder` is the old typed path, turned into a named folder by
+  `adopt_folders`). Condition kinds: "type" = in file group (+ `exclude` extensions for this rule only), "sites" =
+  from site group. Renamer = `Rule.renames`, lines of regex → template, first match wins, none = name kept (format 1's
+  single rename became a ".*" line). rules.json format 3 holds rules + folders + groups + site_groups; export/import
+  use the same format; "add to mine" renames clashing items "Name (imported)". GUI: `gui/library_tabs.py`
+  (NamedListTab base), `gui/rules_dialog.py` (RenameEditor = mockup 15B). Rule templates (12A) not built.
+- Browser connection (18B + 7C): `gui/browser_help.py` bar + ConnectDialog; the native host adds `via: "browser"`
+  to what it relays, the window then sets `browser_connected`. Help page `accipio/gui/help/connect-browser.html`
+  (finds the extension folder from its own location), opened by the installer. Chrome refuses chrome:// URLs from
+  other programs, so nothing may try to open the extensions page.
+- OPEN (2026-11-04): whether video-site downloads get their own rule list (a 5th tab), stay in one list with
+  headings, or get only a folder setting. They come only from deliberate actions (popup button, page/link right-click,
+  paste), never from a clicked file.
 - Installer (picked 2026-11-04): Inno Setup, `installer\accipio.iss`, built by `build_exe.bat` when ISCC is found
   (version passed via `tools/installer_defines.py`). Per-user install `{autopf}` = `%LOCALAPPDATA%\Programs\Accipio`,
   no UAC; fixed AppId GUID (never change it, or updates install side by side). The browser link is written by
   `Accipio.exe --register` (same `browser.register`), removed by the uninstaller's `uninsdeletekey` entries.
   Tasks: desktop icon, "start with Windows" (HKCU Run, `--minimized`, off by default), ffmpeg via winget (shown only
-  when no ffmpeg is found; `video.find_ffmpeg` also looks in winget's Links folder). Extension: setup opens the
-  extensions page + the folder on a first install (Web Store install via the HKCU `Extensions` key once listed).
+  when no ffmpeg is found; `video.find_ffmpeg` also looks in winget's Links folder). Extension: setup offers the
+  help page on a first install (Web Store install via the HKCU `Extensions` key once listed), and names other
+  download managers it finds (FDM, IDM...) on its last page.
   Uninstall: graceful `taskkill`, waits for aria2 to exit, asks before deleting `%APPDATA%\Accipio` (default keep).
   Never remove other download managers; the README tells users to switch off a competing extension.
   Verified 2026-11-04 silently: install, update over a running Accipio, uninstall while running, all clean.

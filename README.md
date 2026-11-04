@@ -12,12 +12,23 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
 1. Download `Accipio-<build>-windows-x64-setup.exe` from [Releases](https://github.com/Erlbon/accipio/releases)
    and run it. It installs for your user only (`%LOCALAPPDATA%\Programs\Accipio`, no admin rights), points
    Chrome and Edge at Accipio, and can also start Accipio when you sign in and install ffmpeg (below).
-2. Load the extension, once: tick **Add the browser extension now** on the last page of the installer. It
-   opens the extensions page and the extension's folder. Switch on **Developer mode**, choose **Load
-   unpacked** and pick that folder (`_internal\extension` in the Accipio folder). Clicked downloads now go to
-   Accipio; the extension's toolbar button switches that off and on.
-3. Set your rules under **Tools > Rules**. Every download shows which rule placed it (hover it, or
-   **Downloads > Why Here?**).
+2. Load the extension, once. The installer's last page offers a help page with the steps; Accipio shows a bar
+   with the same steps (**Connect your browser…**, also under **Tools > Connect Browser**) until it is done: open
+   `chrome://extensions`, switch on **Developer mode**, choose **Load unpacked** and pick the
+   `_internal\extension` folder in the Accipio folder. Clicked downloads now go to Accipio; the extension's
+   toolbar button switches that off and on.
+3. Set up where things go under **Tools > Rules**, in four tabs, in this order:
+   - **Folders**: named places (`Comics inbox` = `D:\Comics\_Inbox\{yyyy}-{MM}`). Rules pick a folder by name,
+     so moving one here moves every rule that uses it.
+   - **File Groups**: what a download is (extensions such as `cbz, cbr`, or names such as `*invoice*`).
+   - **Site Groups** (optional): where it comes from. A site matches the page you clicked the link on, or the
+     file's own address, so a link site such as a comics blog is caught even when its files sit on hosters.
+   - **Rules**: when (in a file group, from a site group, name, size, time…), which folder, and last an optional
+     renamer: lines of "if the name contains *this regular expression*, rename to *that*". The first line that
+     fits renames the file; with none, the name is kept.
+
+   Every download shows which rule placed it (hover it, or **Downloads > Why Here?**). **Export…** and
+   **Import…** in the same window move your rules, folders and groups to another PC.
 
 To update, run the newer installer: it closes Accipio, replaces the program and keeps your rules, settings and
 downloads (they live in `%APPDATA%\Accipio`). Uninstall from Windows' Settings > Apps; it asks whether to delete

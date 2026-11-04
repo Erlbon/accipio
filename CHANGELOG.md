@@ -2,6 +2,21 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#02 -- Folders, file groups, site groups and a renamer
+
+- **The Rules window has four tabs**, in the order you set things up: **Folders**, **File Groups**, **Site Groups** and **Rules**. The test box sits under all four and has a new field for the page a link was clicked on.
+- **Folders** are named places, with tokens (`D:\Comics\_Inbox\{yyyy}-{MM}`); a relative one is under the base folder. A rule picks a folder from a list, so changing a folder moves every rule that uses it. Each folder shows where it points today and which rules use it. A folder still in use cannot be deleted.
+- **File Groups** are what a download is: extensions (`cbz, cbr`) and name wildcards (`*invoice*`); any one is enough. The built-in groups (Video, Audio, Images, Documents, Ebooks, Comics, Archives, Programs) can be edited (move `iso` out of Archives, say), and **Reset to built-in** puts them back.
+- **Site Groups** (optional) are where a download comes from. A site matches the page you clicked on, the file's own address, or either, so a link site whose files sit on hosters is caught through its page.
+- **Rules** say "in file group Comics, except cbt", "from site group Comic sites", and so on. Renaming a folder or group renames it in every rule.
+- **The renamer** is the last part of a rule: lines of "if the name contains *regular expression*, rename to *template*", with the pattern's groups as `{1}`, `{2}`… The first line that fits renames the file; with none, the name is kept (before, a rule's rename changed every file it caught). A **Try a name** field shows the result as you type. A rename from an older version becomes a line that fits every name, so it keeps working.
+- **Books and comics have their own folders** by default (Books and Comics).
+- **Export… and Import…** in the Rules window save the rules, folders and groups to a file and load them on another PC. Importing can add to yours (a folder or group of theirs with a name you use arrives as "Name (imported)") or replace yours.
+- Rules from older versions that typed a folder path get a named folder for it the first time this version starts.
+- **Connecting the browser:** until the extension has talked to Accipio once, a bar across the window says so and opens a box with the three steps and buttons that copy `chrome://extensions` and the extension folder. **Tools > Connect Browser** opens it any time. The extension now greets Accipio when it is installed and when the browser starts, so the bar goes by itself.
+- **The installer** no longer tries to open Chrome's extensions page (Chrome refuses that to other programs, so it opened a plain window): it offers a help page with the steps and copy buttons instead. When Free Download Manager, Internet Download Manager or a similar program is installed, its last page says to switch one of the two browser extensions off. It never changes the other program.
+- **Tools > Update yt-dlp** tries again for a few seconds when Windows briefly refuses to move the new copy into place (a virus scanner still reading the fresh files); it used to fail at once.
+
 ## 2026-11-04#01 -- A Windows installer
 
 - **`Accipio-<build>-windows-x64-setup.exe`** installs Accipio for your user only (`%LOCALAPPDATA%\Programs\Accipio`, no admin rights), with a Start menu entry and an optional desktop icon, and points Chrome and Edge at it. The zip stays for those who would rather not install.

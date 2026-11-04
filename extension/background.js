@@ -59,6 +59,11 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     for (const menu of MENUS) chrome.contextMenus.create(menu);
   });
+  send({ type: "ping" });          // tells a running Accipio the extension is in, so it stops showing how to add it
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  send({ type: "ping" });
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

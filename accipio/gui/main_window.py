@@ -32,6 +32,7 @@ from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 from accipio.gui import style
+from accipio.gui.browser_help import BrowserBar, ConnectDialog
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
 LINK = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
@@ -56,6 +57,7 @@ class Bridge(QObject):
     """Carries requests from the pipe's thread to the window's thread."""
     show_requested = pyqtSignal()
     message = pyqtSignal(str)
+    browser_seen = pyqtSignal()
 
 
 @dataclass
@@ -89,10 +91,14 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
                                          quality=current.video_quality)
         video_engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
         video_prober = video_prober or video.make_prober(video_engine)
-    holder = {"rules": rule_list}
+    library = settings_mod.load_library(folder)
+    if rules.adopt_folders(rule_list, library):            # rules from before Folders: their paths get names
+        settings_mod.save_rules(folder, rule_list, library)
+    holder = {"rules": rule_list, "library": library}
     kwargs = {"prober": prober} if prober else {}
     queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history,
-                  video_engine=video_engine or None, video_prober=video_prober, **kwargs)
+                  video_engine=video_engine or None, video_prober=video_prober,
+                  library_set=lambda: holder["library"], **kwargs)
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
@@ -115,6 +121,11 @@ class MainWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 4)
+
+        self.browser_bar = BrowserBar()
+        self.browser_bar.connect_clicked.connect(self.connect_browser)
+        self.browser_bar.setVisible(not services.settings.browser_connected)
+        layout.addWidget(self.browser_bar)
 
         bar = QHBoxLayout()
         self.paste = QLineEdit()
@@ -188,6 +199,7 @@ class MainWindow(QMainWindow):
         self.bridge = Bridge(self)
         self.bridge.show_requested.connect(self.bring_to_front)
         self.bridge.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
+        self.bridge.browser_seen.connect(self.browser_connected)
         try:
             self.ipc: Optional[ipc.Server] = ipc.Server(services.folder, self.handle_message).start()
         except OSError as error:
@@ -206,6 +218,8 @@ class MainWindow(QMainWindow):
     def handle_message(self, message: dict) -> dict:
         """A message from the extension's native host or a second Accipio. Runs on the pipe's thread."""
         kind = message.get("type")
+        if message.get("via") == "browser":
+            self.bridge.browser_seen.emit()
         if kind == "ping":
             return {"ok": True, "version": APP_VERSION}
         if kind == "show":
@@ -307,6 +321,7 @@ class MainWindow(QMainWindow):
             ])],
             tools=[MenuAction("rules", "&Rules…", self.open_rules, shortcut="Ctrl+Shift+R"),
                    MenuAction("update_ytdlp", "&Update yt-dlp…", self.update_ytdlp),
+                   MenuAction("connect_browser", "Connect &Browser…", self.connect_browser),
                    Separator(),
                    MenuAction("preferences", labels.PREFERENCES, self.open_settings, shortcut="Ctrl+,")],
             help=standard_help_items(APP_NAME, self.open_changelog, None, self.about),
@@ -507,16 +522,29 @@ class MainWindow(QMainWindow):
 
     # ---- dialogs ---------------------------------------------------------------------------------------------
 
+    def connect_browser(self) -> None:
+        ConnectDialog(self).exec()
+
+    def browser_connected(self) -> None:
+        """The extension talked to Accipio: the bar goes, for good."""
+        self.browser_bar.hide()
+        if not self.services.settings.browser_connected:
+            self.services.settings.browser_connected = True
+            settings_mod.save_settings(self.services.folder, self.services.settings)
+
     def open_rules(self) -> None:
         from accipio.gui.rules_dialog import RulesDialog
-        dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self)
+        dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self,
+                             library=self.services._holder["library"])
         if dialog.exec():
-            self.apply_rules(dialog.result_rules())
+            self.apply_rules(dialog.result_rules(), dialog.result_library())
 
-    def apply_rules(self, new_rules: List[rules.Rule]) -> None:
+    def apply_rules(self, new_rules: List[rules.Rule], library: Optional[rules.Library] = None) -> None:
         self.services._holder["rules"] = new_rules
         self.services.rules = new_rules
-        settings_mod.save_rules(self.services.folder, new_rules)
+        if library is not None:
+            self.services._holder["library"] = library
+        settings_mod.save_rules(self.services.folder, new_rules, self.services._holder["library"])
         self.statusBar().showMessage("Rules saved. They apply to downloads added from now on.", 5000)
 
     def open_settings(self) -> None:

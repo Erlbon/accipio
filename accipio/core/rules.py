@@ -55,6 +55,84 @@ _COMPOUND = sorted((e for exts in GROUPS.values() for e in exts if "." in e), ke
 KNOWN_EXTENSIONS = {e for exts in GROUPS.values() for e in exts}
 
 
+@dataclass
+class Group:
+    """What a download is: a named group the user can edit, which a file belongs to when ANY one entry fits
+    (an extension, a name wildcard such as "*invoice*", or a MIME type). A MIME type only counts when the
+    file's extension is in no group, so "report.php" sent as a PDF is a document but "film.mkv" sent as
+    text/plain is still video. Where a download comes from is a SiteGroup, never part of a Group."""
+    name: str
+    extensions: List[str] = field(default_factory=list)
+    mimes: List[str] = field(default_factory=list)
+    names: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SiteGroup:
+    """Where a download comes from: sites (``example.com`` covers its subdomains, wildcards allowed), matched
+    against the page the link was clicked on, the file's own host, or either (``where``). Link sites such as
+    a comics blog hand out files from hosters, so "page" or "either" is what catches them."""
+    name: str
+    sites: List[str] = field(default_factory=list)
+    where: str = "either"
+
+
+@dataclass
+class Folder:
+    """A named place downloads go: an absolute path, or one relative to the base folder; tokens allowed."""
+    name: str
+    path: str
+
+
+@dataclass
+class Library:
+    """What rules point at by name: the folders, the groups and the site groups."""
+    folders: List[Folder] = field(default_factory=list)
+    groups: List[Group] = field(default_factory=list)
+    site_groups: List[SiteGroup] = field(default_factory=list)
+
+
+DEFAULT_FOLDERS = [("Video sites", "Video/{uploader}"), ("Video", "Video"), ("Audio", "Audio"), ("Images", "Images"),
+                   ("Books", "Books"), ("Comics", "Comics"), ("Documents", "Documents"), ("Archives", "Archives"),
+                   ("Programs", "Programs"), ("Other", "Other")]
+
+
+def default_groups() -> List[Group]:
+    return [Group(name, list(exts), list(GROUP_MIMES.get(name, []))) for name, exts in GROUPS.items()]
+
+
+def default_library() -> Library:
+    return Library([Folder(n, p) for n, p in DEFAULT_FOLDERS], default_groups(), [])
+
+
+def find_named(items, text: str):
+    """The folder, group or site group called ``text`` (any case), or None."""
+    wanted = text.strip().lower()
+    return next((item for item in items if item.name.lower() == wanted), None)
+
+
+find_group = find_named
+
+
+def group_matches(group: Group, d: "Download", known_extensions: set) -> bool:
+    ext = split_name(d.filename)[1]
+    if ext and ext in {e.strip().lower().lstrip(".") for e in group.extensions}:
+        return True
+    mime = _mime(d.mime)
+    if mime and ext not in known_extensions and any(fnmatch.fnmatchcase(mime, p.strip().lower()) for p in group.mimes if p.strip()):
+        return True
+    return _text_matches([n for n in group.names if n.strip()], d.filename, False)
+
+
+def site_group_matches(group: SiteGroup, d: "Download") -> bool:
+    hosts = {"file": [host_of(d.url)], "page": [host_of(d.page_url)]}.get(group.where, [host_of(d.url), host_of(d.page_url)])
+    return any(domain_matches(s, h) for s in group.sites if s.strip() for h in hosts if h)
+
+
+def known_extensions(groups: List[Group]) -> set:
+    return {e.strip().lower().lstrip(".") for g in groups for e in g.extensions if e.strip()}
+
+
 def split_name(filename: str):
     """("release-2.4", "tar.gz") for "release-2.4.tar.gz"; the extension is lower case and has no dot."""
     lower = filename.lower()
@@ -70,24 +148,6 @@ def split_name(filename: str):
 def _mime(text: str) -> str:
     return text.split(";")[0].strip().lower()
 
-
-def in_group(group: str, filename: str, mime: str = "") -> bool:
-    """Whether a file belongs to a type group. A known extension decides; the MIME type only counts without one."""
-    group = _group_name(group)
-    if group is None:
-        return False
-    ext = split_name(filename)[1]
-    if ext in KNOWN_EXTENSIONS:
-        return ext in GROUPS[group]
-    mime = _mime(mime)
-    return bool(mime) and any(fnmatch.fnmatchcase(mime, pattern) for pattern in GROUP_MIMES.get(group, []))
-
-
-def _group_name(text: str) -> Optional[str]:
-    for name in GROUPS:
-        if name.lower() == text.strip().lower():
-            return name
-    return None
 
 
 # ---- what a rule sees ------------------------------------------------------------------------------------
@@ -129,7 +189,7 @@ def domain_matches(pattern: str, host: str) -> bool:
 
 # ---- conditions ------------------------------------------------------------------------------------------
 
-KINDS = ("domain", "type", "name", "size", "time", "source", "video")
+KINDS = ("domain", "type", "sites", "name", "size", "time", "source", "video")
 DOMAIN_WHERE = ("either", "file", "page")
 VIDEO_FIELDS = ("channel", "uploader", "playlist", "title")
 
@@ -140,8 +200,10 @@ class Condition:
 
     kind and values:
       domain  host patterns; ``where`` says whose host: the file's, the page's, or either
-      type    type groups ("Video"), extensions ("mkv"), MIME types ("video/*")
-      name    wildcards on the file name, or regular expressions when ``regex`` is set (case-insensitive)
+      type    groups ("Video", or one of your own), extensions ("mkv"), MIME types ("video/*"); an extension
+              in ``exclude`` never matches here, even when its group would (switched off for this rule only)
+      sites   site group names; the download comes from one of their sites
+      name   wildcards on the file name, or regular expressions when ``regex`` is set (case-insensitive)
       size    ``min_size`` and/or ``max_size`` in bytes; an unknown size never matches
       time    cron lines (see ``cron``); any line fitting the start moment is enough
       source  "direct" or "video"
@@ -153,6 +215,7 @@ class Condition:
     regex: bool = False
     min_size: Optional[int] = None
     max_size: Optional[int] = None
+    exclude: List[str] = field(default_factory=list)
 
 
 def _text_matches(patterns: List[str], text: str, regex: bool) -> bool:
@@ -162,7 +225,8 @@ def _text_matches(patterns: List[str], text: str, regex: bool) -> bool:
     return any(fnmatch.fnmatchcase(lower, p.lower()) for p in patterns)
 
 
-def condition_matches(c: Condition, d: Download, when: datetime.datetime) -> bool:
+def condition_matches(c: Condition, d: Download, when: datetime.datetime,
+                      library: Optional[Library] = None) -> bool:
     if c.kind == "size":
         if d.size is None or (c.min_size is None and c.max_size is None):
             return False
@@ -173,13 +237,21 @@ def condition_matches(c: Condition, d: Download, when: datetime.datetime) -> boo
     if c.kind == "domain":
         hosts = {"file": [host_of(d.url)], "page": [host_of(d.page_url)]}.get(c.where, [host_of(d.url), host_of(d.page_url)])
         return any(domain_matches(p, h) for p in values for h in hosts)
+    library = default_library() if library is None else library
+    if c.kind == "sites":
+        return any(site_group_matches(g, d) for g in (find_named(library.site_groups, v) for v in values) if g)
     if c.kind == "type":
+        groups = library.groups
         ext = split_name(d.filename)[1]
+        if ext and ext in {e.strip().lower().lstrip(".") for e in c.exclude}:
+            return False
         mime = _mime(d.mime)
+        known = known_extensions(groups)
         for value in values:
             v = value.strip().lower()
-            if _group_name(v):
-                if in_group(v, d.filename, d.mime):
+            group = find_group(groups, v)
+            if group is not None:
+                if group_matches(group, d, known):
                     return True
             elif "/" in v:
                 if mime and fnmatch.fnmatchcase(mime, v):
@@ -205,15 +277,26 @@ def condition_matches(c: Condition, d: Download, when: datetime.datetime) -> boo
 # ---- rules -----------------------------------------------------------------------------------------------
 
 @dataclass
+class Rename:
+    """One rename line: when ``pattern`` (a regular expression, any case) is found somewhere in the name, the
+    file is renamed to the template ``to``, in which the pattern's groups are {1}, {2}... (or {show} for
+    (?P<show>...)), with the usual tokens and filters."""
+    pattern: str
+    to: str
+
+
+@dataclass
 class Rule:
-    """Conditions (none = always) and what to do. ``folder`` replaces the folder so far (a relative one is
-    under the base folder), ``subfolder`` is added to it, ``rename`` is a name template, ``command`` runs
-    when the download is finished. Then the walk stops, or goes on when ``stop`` is off."""
+    """Conditions (none = always) and what to do. ``target`` (a named Folder) or ``folder`` replaces the
+    folder so far (a relative one is under the base folder), ``subfolder`` is added to it, ``renames`` are tried in order and the first whose
+    pattern is in the name renames the file (none = the name is kept), ``command`` runs when the download is
+    finished. Then the walk stops, or goes on when ``stop`` is off."""
     name: str
     conditions: List[Condition] = field(default_factory=list)
-    folder: str = ""
+    folder: str = ""                     # a path template; the editor sets ``target`` (a Folder's name) instead
     subfolder: str = ""
-    rename: str = ""
+    renames: List[Rename] = field(default_factory=list)
+    target: str = ""                     # the name of a Folder in the Library; wins over ``folder``
     command: str = ""
     stop: bool = True
     enabled: bool = True
@@ -510,51 +593,81 @@ def captures(rule: Rule, d: Download) -> Dict[str, str]:
             except re.error:
                 continue
             if m:
-                found.update({str(n): g or "" for n, g in enumerate(m.groups(), 1)})
-                found.update({k: g or "" for k, g in m.groupdict().items()})
+                found.update(_pieces(m))
                 break
     return found
 
 
-def capture_names(rule: Rule) -> set:
+def _group_names_of(patterns) -> set:
     names = set()
-    for c in _regex_conditions(rule):
-        for pattern in c.values:
-            try:
-                compiled = re.compile(pattern)
-            except re.error:
-                continue
-            names.update(str(n) for n in range(1, compiled.groups + 1))
-            names.update(compiled.groupindex)
+    for pattern in patterns:
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            continue
+        names.update(str(n) for n in range(1, compiled.groups + 1))
+        names.update(compiled.groupindex)
     return names
 
 
-def place(rules: List[Rule], d: Download, base_folder: str) -> Placement:
+def capture_names(rule: Rule) -> set:
+    return _group_names_of(v for c in _regex_conditions(rule) for v in c.values)
+
+
+def _pieces(m: "re.Match") -> Dict[str, str]:
+    found = {str(n): g or "" for n, g in enumerate(m.groups(), 1)}
+    found.update({k: g or "" for k, g in m.groupdict().items()})
+    return found
+
+
+def rename_by_lines(lines: List[Rename], filename: str, values: Dict[str, str]) -> Tuple[Optional[str], int]:
+    """The new name from the first line whose pattern is in ``filename``, and that line's number (1-based);
+    (None, 0) when no pattern is found, so the name is kept."""
+    for number, line in enumerate(lines, 1):
+        if not line.pattern.strip():
+            continue
+        try:
+            m = re.search(line.pattern, filename, re.IGNORECASE)
+        except re.error:
+            continue
+        if m:
+            return safe_part(expand(line.to, {**values, **_pieces(m)}), filename), number
+    return None, 0
+
+
+def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Library] = None) -> Placement:
     """Walk the rules for one download: the folder, the file name, the commands, and which rules did it."""
     when = d.when or datetime.datetime.now()
+    library = default_library() if library is None else library
     values = token_values(d, when)
     folder = base_folder
     filename = d.filename
     commands: List[str] = []
     steps: List[Step] = []
     for number, rule in enumerate(rules, 1):
-        if not rule.enabled or not all(condition_matches(c, d, when) for c in rule.conditions):
+        if not rule.enabled or not all(condition_matches(c, d, when, library) for c in rule.conditions):
             continue
         effects = []
         here = {**values, **captures(rule, d)}             # a pattern's pieces belong to its own rule
-        if rule.folder.strip():
-            target = _expand_folder(rule.folder, here)
+        named = find_named(library.folders, rule.target) if rule.target.strip() else None
+        template = named.path if named else rule.folder
+        if template.strip():
+            target = _expand_folder(template, here)
             folder = target if os.path.isabs(target) or re.match(r"[A-Za-z]:", target) else os.path.join(base_folder, target)
-            effects.append(f"set folder {folder}")
+            effects.append(f"folder {named.name}: {folder}" if named else f"set folder {folder}")
         if rule.subfolder.strip():
             sub = _expand_folder(rule.subfolder.lstrip("\\/"), here)
             if sub:
                 folder = os.path.join(folder, sub)
                 effects.append(f"add subfolder {sub}")
-        if rule.rename.strip():
-            filename = safe_part(expand(rule.rename, here), filename)
-            effects.append(f"rename to {filename}")
-            values["name"], values["ext"] = split_name(filename)   # a rule below trims on from here
+        if rule.renames:
+            renamed, line = rename_by_lines(rule.renames, filename, here)
+            if renamed is None:
+                effects.append("name kept (no rename pattern in the name)")
+            else:
+                filename = renamed
+                effects.append(f"rename to {filename} (line {line})")
+                values["name"], values["ext"] = split_name(filename)   # a rule below trims on from here
         if rule.command.strip():
             commands.append(rule.command)
             effects.append("run command")
@@ -578,16 +691,48 @@ def free_name(folder: str, filename: str, exists: Callable[[str], bool]) -> str:
 
 # ---- checking a rule in the editor -----------------------------------------------------------------------
 
-def validate(rule: Rule) -> List[str]:
-    """What is wrong with a rule, in words for the editor; empty when it is fine."""
+def validate(rule: Rule, library: Optional[Library] = None) -> List[str]:
+    """What is wrong with a rule, in words for the editor; empty when it is fine. With the ``library`` the
+    names it points at (folder, file groups, site groups) are checked too."""
     found = []
-    known = set(TOKENS) | capture_names(rule)
-    for label, template in (("folder", rule.folder), ("subfolder", rule.subfolder), ("rename", rule.rename)):
+    known_here = set(TOKENS) | capture_names(rule)
+    folder_template = rule.folder
+    if library is not None and rule.target.strip():
+        named = find_named(library.folders, rule.target)
+        if named is None:
+            found.append(f"folder: there is no folder called {rule.target!r} (see Folders)")
+        else:
+            folder_template = named.path
+    if library is not None:
+        for n, c in enumerate(rule.conditions, 1):
+            if c.kind == "sites":
+                found.extend(f"condition {n}: there is no site group called {v!r} (see Site Groups)"
+                             for v in c.values if v.strip() and find_named(library.site_groups, v) is None)
+            elif c.kind == "type":
+                found.extend(f"condition {n}: {v!r} is not a file group, an extension or a MIME type"
+                             for v in c.values if v.strip() and find_named(library.groups, v) is None
+                             and (" " in v.strip() or (v.strip()[:1].isupper() and "/" not in v)))
+    checks = [("folder", folder_template, known_here), ("subfolder", rule.subfolder, known_here)]
+    for n, line in enumerate(rule.renames, 1):
+        label = f"rename line {n}"
+        if not line.pattern.strip():
+            found.append(f"{label}: give a pattern to look for in the name")
+        else:
+            try:
+                re.compile(line.pattern)
+            except re.error as error:
+                found.append(f"{label}: {line.pattern!r} is not a regular expression ({error})")
+        if not line.to.strip():
+            found.append(f"{label}: give the new name")
+        elif re.search(r"[\\/]", "".join(p for p in parse_template(line.to) if isinstance(p, str))):
+            found.append(f"{label}: a file name cannot contain \\ or /; use the folder for that")
+        checks.append((label, line.to, known_here | _group_names_of([line.pattern])))
+    for label, template, known in checks:
         for part in parse_template(template):
             if isinstance(part, str):
                 continue
             if part.key not in known:
-                hint = (" (a piece needs a regular expression in a name or video condition with that group)"
+                hint = (" (a piece needs a group in the line's pattern, or in a name or video condition)"
                         if part.key.isdigit() or part.key not in TOKENS else "")
                 found.append(f"{label}: unknown token {{{part.key}}}{hint}")
             for name, args in part.filters:
@@ -607,9 +752,6 @@ def validate(rule: Rule) -> List[str]:
                         found.append(f"{label}: {name}: {args[0]!r} is not a regular expression ({error})")
                 elif name == "max" and not args[0].strip().isdigit():
                     found.append(f"{label}: max needs a number, not {args[0]!r}")
-    rename_text = "".join(p for p in parse_template(rule.rename) if isinstance(p, str))
-    if rule.rename.strip() and re.search(r"[\\/]", rename_text):
-        found.append("rename: a file name cannot contain \\ or /; use the folder for that")
     for n, c in enumerate(rule.conditions, 1):
         where = f"condition {n} ({c.kind})"
         if c.kind not in KINDS:
@@ -623,7 +765,7 @@ def validate(rule: Rule) -> List[str]:
             continue
         if not [v for v in c.values if v.strip()]:
             found.append(f"{where}: no values yet")
-        if c.kind == "domain" and c.where not in ("",) + DOMAIN_WHERE:
+        if c.kind in ("domain", "sites") and c.where not in ("",) + DOMAIN_WHERE:
             found.append(f"{where}: 'where' must be one of {', '.join(DOMAIN_WHERE)}")
         if c.kind == "video" and c.where not in VIDEO_FIELDS:
             found.append(f"{where}: pick a video field ({', '.join(VIDEO_FIELDS)})")
@@ -642,11 +784,82 @@ def validate(rule: Rule) -> List[str]:
 
 # ---- storage ---------------------------------------------------------------------------------------------
 
-FORMAT = 1
+FORMAT = 3          # 3: folders, file groups and site groups beside the rules; rename lines; rules point at folders
+MATCH_ANY = ".*"    # the pattern an old single rename template becomes, so it still renames every file
 
 
-def rules_to_json(rules: List[Rule]) -> str:
-    return json.dumps({"format": FORMAT, "rules": [asdict(r) for r in rules]}, indent=2, ensure_ascii=False)
+def rules_to_json(rules: List[Rule], library: Optional[Library] = None) -> str:
+    data = {"format": FORMAT, "rules": [asdict(r) for r in rules]}
+    if library is not None:
+        data["folders"] = [asdict(f) for f in library.folders]
+        data["groups"] = [asdict(g) for g in library.groups]
+        data["site_groups"] = [asdict(g) for g in library.site_groups]
+    return json.dumps(data, indent=2, ensure_ascii=False)
+
+
+def library_from_json(text: str) -> Optional[Library]:
+    """The folders and groups saved with the rules, or None when the file has none (an older file)."""
+    data = json.loads(text)
+    if not any(key in data for key in ("folders", "groups", "site_groups")):
+        return None
+    defaults = default_library()
+    return Library(
+        [Folder(**_known(Folder, f)) for f in data["folders"]] if "folders" in data else defaults.folders,
+        [Group(**_known(Group, g)) for g in data["groups"]] if "groups" in data else defaults.groups,
+        [SiteGroup(**_known(SiteGroup, g)) for g in data.get("site_groups", [])])
+
+
+def unique_name(wanted: str, taken) -> str:
+    """``wanted``, or "wanted (2)", "wanted (3)"... when a name in ``taken`` (any case) has it."""
+    lowered = {t.lower() for t in taken}
+    name, n = wanted, 1
+    while name.lower() in lowered:
+        n += 1
+        name = f"{wanted} ({n})"
+    return name
+
+
+def adopt_folders(rule_list: List[Rule], library: Library) -> bool:
+    """Rules from before Folders typed their folder as a path; give each such path a named Folder (one per
+    distinct path, named after the first rule using it) and point the rule at it. True when anything moved."""
+    moved = False
+    for rule in rule_list:
+        if rule.target.strip() or not rule.folder.strip():
+            continue
+        same = next((f for f in library.folders if f.path == rule.folder), None)
+        if same is None:
+            same = Folder(unique_name(rule.name or "Folder", [f.name for f in library.folders]), rule.folder)
+            library.folders.append(same)
+        rule.target, rule.folder = same.name, ""
+        moved = True
+    return moved
+
+
+def rename_references(rule_list: List[Rule], kind: str, old: str, new: str) -> None:
+    """A folder, file group or site group was renamed: every rule pointing at ``old`` now points at ``new``.
+    ``kind`` is "folder", "type" (file groups) or "sites"."""
+    for rule in rule_list:
+        if kind == "folder":
+            if rule.target.strip().lower() == old.lower():
+                rule.target = new
+            continue
+        for c in rule.conditions:
+            if c.kind == kind:
+                c.values = [new if v.strip().lower() == old.lower() else v for v in c.values]
+
+
+def rules_using(rule_list: List[Rule], kind: str, name: str) -> List[int]:
+    """The (1-based) numbers of the rules that point at a folder, file group or site group."""
+    wanted = name.strip().lower()
+    used = []
+    for number, rule in enumerate(rule_list, 1):
+        if kind == "folder":
+            hit = rule.target.strip().lower() == wanted
+        else:
+            hit = any(c.kind == kind and wanted in {v.strip().lower() for v in c.values} for c in rule.conditions)
+        if hit:
+            used.append(number)
+    return used
 
 
 def _known(cls, data: dict) -> dict:
@@ -658,24 +871,30 @@ def rules_from_json(text: str) -> List[Rule]:
     data = json.loads(text)
     rules = []
     for item in data.get("rules", []):
+        old_rename = str(item.get("rename") or "").strip()
         item = _known(Rule, item)
         item["conditions"] = [Condition(**_known(Condition, c)) for c in item.get("conditions", [])]
+        item["renames"] = [Rename(**_known(Rename, r)) for r in item.get("renames", [])]
+        if old_rename and not item["renames"]:
+            item["renames"] = [Rename(MATCH_ANY, old_rename)]      # format 1 renamed every file the rule caught
         rules.append(Rule(**item))
     return rules
 
 
 def default_rules() -> List[Rule]:
-    """The rule set a new installation starts with: one subfolder per kind of file, then Other."""
-    def by_type(name: str, groups: List[str], sub: str) -> Rule:
-        return Rule(name, [Condition("type", groups)], subfolder=sub)
+    """The rule set a new installation starts with: one folder (see DEFAULT_FOLDERS) per kind of file, then
+    Other."""
+    def by_type(name: str, groups: List[str], folder: str) -> Rule:
+        return Rule(name, [Condition("type", groups)], target=folder)
     return [
-        Rule("Video sites", [Condition("source", ["video"])], subfolder="Video/{uploader}"),
+        Rule("Video sites", [Condition("source", ["video"])], target="Video sites"),
         by_type("Video", ["Video"], "Video"),
         by_type("Audio", ["Audio"], "Audio"),
         by_type("Images", ["Images"], "Images"),
-        by_type("Ebooks and comics", ["Ebooks", "Comics"], "Books"),
+        by_type("Ebooks", ["Ebooks"], "Books"),
+        by_type("Comics", ["Comics"], "Comics"),
         by_type("Documents", ["Documents"], "Documents"),
         by_type("Archives", ["Archives"], "Archives"),
         by_type("Programs", ["Programs"], "Programs"),
-        Rule("Other", subfolder="Other"),
+        Rule("Other", target="Other"),
     ]

@@ -24,6 +24,11 @@ def under(base, *parts):
     return os.path.normpath(os.path.join(base, *parts))
 
 
+def always(template):
+    """A rename line that fits every name: what a format-1 rename template became."""
+    return [r.Rename(r.MATCH_ANY, template)]
+
+
 # ---- the walk --------------------------------------------------------------------------------------------
 
 def test_no_rules_means_the_base_folder(base):
@@ -66,7 +71,7 @@ def test_a_relative_folder_is_under_the_base_and_an_absolute_one_is_kept(base, t
 
 
 def test_rename_and_commands(base):
-    rules = [Rule("Name", rename="{yyyy}-{MM}-{dd} {name}.{ext}", command="unpack.cmd", stop=False),
+    rules = [Rule("Name", renames=always("{yyyy}-{MM}-{dd} {name}.{ext}"), command="unpack.cmd", stop=False),
              Rule("Also", command="notify.cmd")]
     p = r.place(rules, dl("Report.PDF"), base)
     assert p.filename == "2026-10-27 Report.pdf"
@@ -194,7 +199,7 @@ def test_validate_reports_problems_in_words():
     bad = Rule("Bad", [Condition("time", ["* 25 * * *"]), Condition("name", ["("], regex=True),
                        Condition("domain", []), Condition("size"), Condition("video", ["x"]),
                        Condition("source", ["torrent"]), Condition("colour", ["red"])],
-               folder="{yyyy}/{nope}", rename="a/b")
+               folder="{yyyy}/{nope}", renames=always("a/b"))
     problems = r.validate(bad)
     text = "\n".join(problems)
     assert "unknown token {nope}" in text and "cannot contain" in text
@@ -218,7 +223,7 @@ def test_rules_survive_a_round_trip_and_unknown_keys_are_skipped():
     (dl("song.flac"), ("Audio",)),
     (dl("photo.JPG"), ("Images",)),
     (dl("Dune.epub"), ("Books",)),
-    (dl("Saga 01.cbz"), ("Books",)),
+    (dl("Saga 01.cbz"), ("Comics",)),
     (dl("report.pdf"), ("Documents",)),
     (dl("src.tar.gz"), ("Archives",)),
     (dl("setup.exe"), ("Programs",)),
@@ -234,7 +239,7 @@ def test_the_default_rules_sort_by_kind(base, download, sub):
 # ---- filters and pattern pieces --------------------------------------------------------------------------
 
 def name_of(template, filename, conditions=(), base="unused"):
-    return r.place([Rule("t", list(conditions), rename=template)], dl(filename), base).filename
+    return r.place([Rule("t", list(conditions), renames=always(template))], dl(filename), base).filename
 
 
 @pytest.mark.parametrize("template, expected", [
@@ -274,7 +279,7 @@ def test_default_fills_an_empty_value_and_title_keeps_apostrophes():
 
 def test_pattern_pieces_become_tokens(base):
     show = Condition("name", [r"^(?P<show>.+?)[ ._]S(?P<season>\d+)E(\d+)"], regex=True)
-    rule = Rule("TV", [show], folder="TV/{show|dots}/Season {season}", rename="{show|dots} - S{season}E{3}.{ext}")
+    rule = Rule("TV", [show], folder="TV/{show|dots}/Season {season}", renames=always("{show|dots} - S{season}E{3}.{ext}"))
     assert r.validate(rule) == []
     p = r.place([rule], dl("The.Show.S01E05.1080p.WEB.mkv"), base)
     assert p.filename == "The Show - S01E05.mkv"
@@ -288,14 +293,14 @@ def test_the_first_matching_pattern_gives_the_pieces_and_a_missing_piece_is_empt
 
 def test_video_fields_give_pieces_too(base):
     cond = Condition("video", [r"^(?P<artist>.+?) - (?P<song>.+?)( \(Official.*\))?$"], where="title", regex=True)
-    rule = Rule("Music", [cond], rename="{artist} - {song}.{ext}")
+    rule = Rule("Music", [cond], renames=always("{artist} - {song}.{ext}"))
     video = dl("x.mp4", source="video", video={"title": "Band - Song (Official Video)"})
     assert r.place([rule], video, base).filename == "Band - Song.mp4"
 
 
 def test_a_rename_is_passed_on_to_the_rules_below(base):
-    rules = [Rule("Clean", rename="{name|dots|trim}.{ext}", stop=False),
-             Rule("Date", rename="{yyyy}-{MM}-{dd} {name}.{ext}")]
+    rules = [Rule("Clean", renames=always("{name|dots|trim}.{ext}"), stop=False),
+             Rule("Date", renames=always("{yyyy}-{MM}-{dd} {name}.{ext}"))]
     p = r.place(rules, dl("my_report.PDF"), base)
     assert p.filename == "2026-10-27 my report.pdf" and "rename to my report.pdf" in p.why()
 
@@ -307,13 +312,13 @@ def test_folder_filters_may_hold_slashes_and_backslashes(base):
 
 
 def test_validate_names_the_trouble_with_tokens_and_filters():
-    problems = r.validate(Rule("x", rename="{1} {show} {name|shout} {name|replace:a} {name|cut:(} {name|max:x}.{ext}"))
+    problems = r.validate(Rule("x", renames=always("{1} {show} {name|shout} {name|replace:a} {name|cut:(} {name|max:x}.{ext}")))
     text = "\n".join(problems)
-    assert "unknown token {1}" in text and "unknown token {show}" in text and "regular expression in a name" in text
+    assert "unknown token {1}" in text and "unknown token {show}" in text and "group in the line's pattern" in text
     assert "unknown filter 'shout'" in text and "replace takes 2 arguments, not 1" in text
     assert "cut: '(' is not a regular expression" in text and "max needs a number" in text
-    assert r.validate(Rule("x", rename="{name|replace:/:-}.{ext}")) == []      # a / inside a filter is fine
-    assert r.validate(Rule("x", rename="a/{name}")) != []
+    assert r.validate(Rule("x", renames=always("{name|replace:/:-}.{ext}"))) == []      # a / inside a filter is fine
+    assert r.validate(Rule("x", renames=always("a/{name}"))) != []
 
 
 def test_text_that_is_not_a_token_is_kept():

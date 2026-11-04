@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt6")
 
 from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QHeaderView, QMessageBox  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QFileDialog, QHeaderView, QMessageBox  # noqa: E402
 
 from accipio.core import cron, rules, settings  # noqa: E402
 from accipio.core.rules import Condition, Rule  # noqa: E402
@@ -46,7 +46,14 @@ def world(app, tmp_path):
     engine, prober = Engine(), FakeProber()
     win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober, video_engine=False), tick_ms=60_000)
     yield win, engine, prober, str(tmp_path / "Downloads")
+    try:
+        win.flush()
+    except RuntimeError:
+        pass                               # the test closed the window itself
+    QApplication.processEvents()           # what this test left queued goes to this window, not to a later test
     win.close()
+    QApplication.sendPostedEvents(None, 0)
+    QApplication.processEvents()
 
 
 def add(win, prober, url, filename, **kw):
@@ -123,7 +130,7 @@ def test_why_here_is_the_tooltip(world):
     win, engine, prober, base = world
     add(win, prober, "https://a.org/a.zip", "a.zip")
     tip = win.proxy.index(0, NAME).data(Qt.ItemDataRole.ToolTipRole)
-    assert "https://a.org/a.zip" in tip and 'Why here: rule 7 "Archives"' in tip
+    assert "https://a.org/a.zip" in tip and 'Why here: rule 8 "Archives"' in tip
 
 
 def test_space_pauses_and_resumes_the_selection(world):
@@ -260,28 +267,30 @@ def test_the_dialog_lists_the_rules_with_stop_and_continue_marks(app, tmp_path):
     rule_list = [Rule("Work", [Condition("domain", ["work.example"])], folder="Work", stop=False), Rule("Other", subfolder="Other")]
     dialog = RulesDialog(rule_list, str(tmp_path))
     assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work   →", "2  Other   ■"]
-    assert dialog.result_rules() == rule_list
-    assert rule_list[0].name == "Work"                                    # the caller's list is untouched until OK
+    got = dialog.result_rules()
+    assert (got[0].target, got[0].folder) == ("Work", "")                   # a typed path became a named folder
+    assert rules.find_named(dialog.result_library().folders, "Work").path == "Work"
+    assert rule_list[0].folder == "Work" and rule_list[0].target == ""      # the caller's list is untouched until OK
 
 
 def test_editing_a_rule_in_the_form(app, tmp_path):
     dialog = RulesDialog(rules.default_rules(), str(tmp_path))
-    dialog.list.setCurrentRow(6)                                          # Archives
-    dialog.form.subfolder.setText("Archives/{yyyy}")
+    dialog.list.setCurrentRow(7)                                          # Archives
+    dialog.form.subfolder.setText("{yyyy}")
     dialog.form.go_on.setChecked(True)
     result = dialog.result_rules()
-    assert result[6].subfolder == "Archives/{yyyy}" and result[6].stop is False
-    assert dialog.list.item(6).text().endswith("→")
+    assert result[7].subfolder == "{yyyy}" and result[7].stop is False and result[7].target == "Archives"
+    assert dialog.list.item(7).text().endswith("→")
 
 
 def test_the_command_field_is_hidden_until_commands_run_but_a_saved_one_is_kept(app, tmp_path):
     saved = rules.default_rules()
-    saved[6].command = 'notify "{name}"'
+    saved[7].command = 'notify "{name}"'
     dialog = RulesDialog(saved, str(tmp_path))
-    dialog.list.setCurrentRow(6)
+    dialog.list.setCurrentRow(7)
     assert dialog.form.command.isHidden() and not dialog.form.actions.isRowVisible(dialog.form.command)
-    dialog.form.subfolder.setText("Archives/{yyyy}")
-    assert dialog.result_rules()[6].command == 'notify "{name}"'
+    dialog.form.subfolder.setText("{yyyy}")
+    assert dialog.result_rules()[7].command == 'notify "{name}"'
 
 
 def test_new_duplicate_and_delete(app, tmp_path):
@@ -306,9 +315,9 @@ def test_dragging_changes_the_order(app, tmp_path):
 
 def test_the_form_shows_what_is_wrong(app, tmp_path):
     dialog = RulesDialog([Rule("A")], str(tmp_path))
-    dialog.form.folder.setText("{nope}")
+    dialog.form.subfolder.setText("{nope}")
     assert "unknown token {nope}" in dialog.form.problems.text()
-    dialog.form.folder.setText("{yyyy}")
+    dialog.form.subfolder.setText("{yyyy}")
     assert dialog.form.problems.text() == ""
 
 
@@ -317,7 +326,7 @@ def test_the_test_box_shows_the_path_and_the_skipped_rules(app, tmp_path):
     dialog = RulesDialog(rules.default_rules(), base)
     dialog.test_url.setText("https://example.com/files/Dune.epub")
     assert os.path.join(base, "Books", "Dune.epub") in dialog.test_result.text()
-    assert 'rule 5 "Ebooks and comics"' in dialog.test_result.text() and "Skipped: rule 1, 2, 3, 4, 6" in dialog.test_result.text()
+    assert 'rule 5 "Ebooks"' in dialog.test_result.text() and "Skipped: rule 1, 2, 3, 4, 6" in dialog.test_result.text()
     dialog.test_video.setChecked(True)
     dialog.test_channel.setText("XYZ")
     assert os.path.join(base, "Video", "XYZ") in dialog.test_result.text()
@@ -328,7 +337,7 @@ def test_the_test_box_uses_unsaved_edits(app, tmp_path):
     dialog.list.setCurrentRow(4)
     dialog.form.subfolder.setText("Library")
     dialog.test_url.setText("https://example.com/Dune.epub")
-    assert os.path.join(str(tmp_path), "Library", "Dune.epub") in dialog.test_result.text()
+    assert os.path.join(str(tmp_path), "Books", "Library", "Dune.epub") in dialog.test_result.text()
 
 
 @pytest.mark.parametrize("condition", [
@@ -435,7 +444,7 @@ def test_the_add_box_checks_every_link_and_shows_where_it_goes(world):
         seen["error_checkable"] = bool(dialog.table.item(2, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable)
         return False
     open_box(win, "https://a.org/tool.zip https://a.org/Dune.epub https://gone.org/x", look)
-    assert seen["rows"][0] == ["tool.zip", "Archives", "7", "Ready · 88.0 MB"]
+    assert seen["rows"][0] == ["tool.zip", "Archives", "8","Ready · 88.0 MB"]
     assert seen["rows"][1][:3] == ["Dune.epub", "Books", "5"]
     assert seen["rows"][2][0] == "https://gone.org/x" and "404" in seen["rows"][2][3]
     assert seen["button"] == "Add 2" and seen["error_checkable"] is False
@@ -578,3 +587,104 @@ def test_the_progress_bars_paint_in_every_state(world):
     win.table.selectRow(0)
     win.resize(900, 300)
     assert not win.table.viewport().grab().isNull()
+
+
+# ---- the rules window's tabs (2026-11-04#02) ------------------------------------------------------------
+
+def test_the_window_has_the_four_tabs_in_setup_order(app, tmp_path):
+    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    assert [dialog.tabs.tabText(i) for i in range(4)] == ["1 · Folders", "2 · File Groups", "3 · Site Groups", "4 · Rules"]
+    assert dialog.result_library() == rules.default_library()
+
+
+def test_renaming_a_folder_renames_it_in_the_rules(app, tmp_path):
+    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    tab = dialog.folders_tab
+    tab.list.setCurrentRow([f.name for f in tab.items()].index("Comics"))
+    tab.name.setText("Comics inbox")
+    tab.name.textEdited.emit("Comics inbox")
+    tab.path.setText("D:/Comics/_Inbox")
+    assert dialog.result_rules()[5].target == "Comics inbox"
+    dialog.test_url.setText("https://example.com/Saga 01.cbz")
+    assert os.path.join(os.path.normpath("D:/Comics/_Inbox"), "Saga 01.cbz") in dialog.test_result.text()
+
+
+def test_a_folder_a_rule_uses_cannot_be_deleted(app, tmp_path, monkeypatch):
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
+    dialog = RulesDialog(rules.default_rules(), str(tmp_path))
+    tab = dialog.folders_tab
+    tab.list.setCurrentRow(0)                                            # Video sites, used by rule 1
+    assert tab.used_by.text() == "Used by rule 1"
+    tab.delete_item()
+    assert "Rule 1 uses" in told[0] and len(tab.items()) == len(rules.DEFAULT_FOLDERS)
+    tab.new_item()
+    tab.delete_item()                                                    # a new, unused one goes
+    assert len(tab.items()) == len(rules.DEFAULT_FOLDERS)
+
+
+def test_the_rule_form_picks_a_folder_and_a_site_group(app, tmp_path):
+    library = rules.default_library()
+    library.site_groups.append(rules.SiteGroup("Comic sites", ["getcomics.org"]))
+    dialog = RulesDialog([Rule("Comics", [Condition("sites", ["Comic sites"])], target="Comics")], str(tmp_path),
+                         library=library)
+    assert dialog.form.folder.currentData() == "Comics"
+    assert dialog.form.rows[0].kind.currentData() == "sites" and dialog.form.rows[0].site_values.text() == "Comic sites"
+    dialog.form.folder.setCurrentIndex(dialog.form.folder.findData("Books"))
+    assert dialog.result_rules()[0].target == "Books"
+    dialog.form.rows[0].site_values.setText("Nope")
+    assert "no site group called 'Nope'" in dialog.form.problems.text()
+
+
+def test_the_renamer_tries_its_lines_on_a_name(app, tmp_path):
+    rule = Rule("TV", renames=[rules.Rename(r"(.+?)[ .]S(\d\d)E(\d\d)", "{1|dots|title} S{2}E{3}.{ext}")])
+    dialog = RulesDialog([rule], str(tmp_path))
+    renamer = dialog.form.renamer
+    renamer.sample.setText("the.expanse.s02e05.1080p.web.mkv")
+    assert renamer.result.text() == "→ The Expanse S02E05.mkv   (line 1)"
+    renamer.sample.setText("holiday.mkv")
+    assert "name kept" in renamer.result.text()
+    renamer.add_line()
+    renamer.pattern.setText("holiday")
+    renamer.to.setText("Holiday.{ext}")
+    assert [line.pattern for line in dialog.result_rules()[0].renames] == [r"(.+?)[ .]S(\d\d)E(\d\d)", "holiday"]
+    assert renamer.result.text() == "→ Holiday.mkv   (line 2)"
+
+
+def test_importing_rules_adds_them_below_mine(app, tmp_path, monkeypatch):
+    path = str(tmp_path / "theirs.json")
+    theirs = rules.default_library()
+    theirs.folders.append(rules.Folder("Work", "E:/Job"))
+    settings.export_rules(path, [Rule("Theirs", target="Work")], theirs)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (path, ""))
+    monkeypatch.setattr(QMessageBox, "exec", lambda box: box.setProperty("picked", True) or 0)
+    monkeypatch.setattr(QMessageBox, "clickedButton", lambda box: box.buttons()[0])    # "Add to mine"
+    dialog = RulesDialog([Rule("Mine")], str(tmp_path))
+    dialog.import_rules()
+    assert [r.name for r in dialog.result_rules()] == ["Mine", "Theirs"]
+    assert rules.find_named(dialog.result_library().folders, "Work").path == "E:/Job"
+
+
+# ---- connecting the browser (2026-11-04#02) -------------------------------------------------------------
+
+def test_the_browser_bar_shows_until_the_extension_talks_to_accipio(world):
+    from accipio.core import ipc
+    win, *_ = world
+    assert not win.browser_bar.isHidden()
+    ipc.send(win.services.folder, {"type": "ping"})                     # a second Accipio start: not the browser
+    QApplication.processEvents()
+    assert not win.browser_bar.isHidden() and not win.services.settings.browser_connected
+    ipc.send(win.services.folder, {"type": "ping", "via": "browser"})   # what the native host passes on
+    QApplication.processEvents()
+    assert win.browser_bar.isHidden() and win.services.settings.browser_connected
+    assert settings.load_settings(win.services.folder).browser_connected   # and it stays gone
+
+
+def test_the_connect_box_copies_the_address_and_the_folder(app, tmp_path):
+    from accipio.gui.browser_help import ConnectDialog, EXTENSIONS_PAGE, extension_folder, help_page
+    dialog = ConnectDialog(folder=str(tmp_path / "extension"))
+    dialog.copy_page.click()
+    assert QApplication.clipboard().text() == EXTENSIONS_PAGE and dialog.copy_page.text() == "Copied"
+    dialog.copy_folder.click()
+    assert QApplication.clipboard().text() == str(tmp_path / "extension")
+    assert os.path.isfile(os.path.join(extension_folder(), "manifest.json")) and os.path.isfile(help_page())

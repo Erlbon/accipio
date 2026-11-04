@@ -88,6 +88,7 @@ def test_the_host_relays_to_the_running_app(server):
     out = io.BytesIO()
     assert native_host.main(io.BytesIO(frame({"type": "add", "url": "https://a.org/f.zip"})), out, folder) == 0
     assert native_host.read_message(io.BytesIO(out.getvalue()))["ok"] and seen[-1]["url"] == "https://a.org/f.zip"
+    assert seen[-1]["via"] == "browser"                  # how Accipio tells the extension from a second start
 
 
 def test_a_ping_does_not_start_the_app(tmp_path):

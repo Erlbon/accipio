@@ -69,7 +69,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\{#HostKey}"; F
 [Run]
 Filename: "{app}\Accipio.exe"; Parameters: "--register"; StatusMsg: "Connecting Chrome and Edge to Accipio..."; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/c winget install --id Gyan.FFmpeg --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity"; StatusMsg: "Installing ffmpeg with winget (this can take a minute)..."; Tasks: ffmpeg; Flags: runhidden waituntilterminated
-Filename: "{cmd}"; Parameters: "/c start """" ""{code:BrowserExe}"" ""{code:ExtensionsPage}"" & start """" explorer ""{app}\_internal\extension"""; Description: "Add the browser extension now (opens the extensions page and the extension's folder)"; Check: OfferExtension; Flags: postinstall runhidden nowait
+; Chrome will not open its own extensions page for another program, so this opens a page with the steps and copy buttons.
+Filename: "{app}\_internal\accipio\gui\help\connect-browser.html"; Description: "Show how to add the browser extension (one minute, once)"; Check: OfferExtension; Flags: postinstall shellexec nowait
 Filename: "{app}\Accipio.exe"; Description: "Start Accipio"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
@@ -83,12 +84,12 @@ Type: files; Name: "{userappdata}\Accipio\native-host.cmd"
 Type: files; Name: "{userappdata}\Accipio\{#HostKey}.json"
 
 [Messages]
-FinishedLabel=Accipio is installed.%n%nOne step is left, once: the browser extension. In the extensions page that opens, switch on Developer mode, choose Load unpacked and pick the extension folder that opens beside it. Clicked downloads then go to Accipio.
+FinishedLabel=Accipio is installed.%n%nOne step is left, once: adding the browser extension, so the downloads you click in Chrome or Edge come to Accipio. The help page below shows how; Accipio shows the same steps until it is done.
 
 [Code]
 var
-  Browser: String;
   IsUpdate: Boolean;
+  OtherManagers: String;
 
 function FfmpegPresent: Boolean;
 begin
@@ -104,48 +105,56 @@ begin
   Result := (not FfmpegPresent) and FileExists(ExpandConstant('{localappdata}\Microsoft\WindowsApps\winget.exe'));
 end;
 
-function AppPath(Exe: String): String;
+{ Other download managers whose browser extensions also take clicked downloads. Accipio never removes
+  them; setup only says so, once, on the last page. }
+procedure FindManagersIn(RootKey: Integer);
 var
-  Key: String;
+  Names: TArrayOfString;
+  I, J: Integer;
+  Shown: String;
+  Known: array of String;
 begin
-  Key := 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\' + Exe;
-  if not RegQueryStringValue(HKCU, Key, '', Result) then
-    if not RegQueryStringValue(HKLM, Key, '', Result) then
-      Result := '';
+  Known := ['Free Download Manager', 'Internet Download Manager', 'EagleGet', 'Xtreme Download Manager', 'Motrix',
+            'Neat Download Manager', 'Download Accelerator Plus', 'Gopeed', 'JDownloader'];
+  if not RegGetSubkeyNames(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Uninstall', Names) then
+    exit;
+  for I := 0 to GetArrayLength(Names) - 1 do
+    if RegQueryStringValue(RootKey, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + Names[I], 'DisplayName', Shown) then
+      for J := 0 to GetArrayLength(Known) - 1 do
+        if (Pos(Lowercase(Known[J]), Lowercase(Shown)) > 0) and (Pos(Known[J], OtherManagers) = 0) then
+        begin
+          if OtherManagers <> '' then
+            OtherManagers := OtherManagers + ', ';
+          OtherManagers := OtherManagers + Known[J];
+        end;
 end;
 
 function InitializeSetup: Boolean;
 begin
-  Browser := AppPath('chrome.exe');
-  if Browser = '' then
-    Browser := AppPath('msedge.exe');
   IsUpdate := RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6C0E5D8A-3F7B-4B8E-9A51-2D4C7E1A9B30}_is1');
+  OtherManagers := '';
+  FindManagersIn(HKCU);
+  FindManagersIn(HKLM64);
+  FindManagersIn(HKLM32);
   Result := True;
-end;
-
-function BrowserExe(Param: String): String;
-begin
-  Result := Browser;
-end;
-
-function ExtensionsPage(Param: String): String;
-begin
-  if Pos('msedge', Lowercase(Browser)) > 0 then
-    Result := 'edge://extensions'
-  else
-    Result := 'chrome://extensions';
 end;
 
 function OfferExtension: Boolean;
 begin
   { Only on a first install: after an update the extension is already loaded from the same folder. }
-  Result := (Browser <> '') and not WizardSilent and not IsUpdate;
+  Result := not WizardSilent and not IsUpdate;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if (CurPageID = wpFinished) and IsUpdate then
+  if CurPageID <> wpFinished then
+    exit;
+  if IsUpdate then
     WizardForm.FinishedLabel.Caption := 'Accipio is updated. Your rules, settings and downloads are kept.';
+  if OtherManagers <> '' then
+    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
+      OtherManagers + ' is also installed here. If its browser extension is on, switch it off (or Accipio''s) ' +
+      'in the extensions page: both would try to take the same downloads. Nothing of it was changed.';
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

@@ -168,3 +168,28 @@ def test_the_yt_dlp_in_use_is_written_down(tmp_path, clean_path):
     text = (tmp_path / "yt-dlp" / up.IN_USE).read_text(encoding="utf-8")
     import yt_dlp.version
     assert text.startswith(f"yt-dlp {yt_dlp.version.__version__} from ") and os.path.dirname(yt_dlp.__file__) in text
+
+
+def test_a_folder_held_for_a_moment_is_moved_in_after_a_retry(tmp_path, monkeypatch):
+    """A virus scanner holding a freshly unpacked file made Windows refuse the move (seen in a test run)."""
+    work, target = tmp_path / "work", tmp_path / "target"
+    work.mkdir()
+    (work / "a.txt").write_text("x")
+    real_replace, refusals, waits = os.replace, [2], []
+
+    def held(src, dst):
+        if refusals[0]:
+            refusals[0] -= 1
+            raise PermissionError(5, "Access is denied")
+        real_replace(src, dst)
+    monkeypatch.setattr(up.os, "replace", held)
+    up._swap_in(str(work), str(target), sleep=waits.append)
+    assert (target / "a.txt").is_file() and len(waits) == 2
+
+
+def test_a_folder_held_for_good_still_fails_in_the_end(tmp_path, monkeypatch):
+    def never(src, dst):
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(up.os, "replace", never)
+    with pytest.raises(PermissionError):
+        up._swap_in(str(tmp_path / "w"), str(tmp_path / "t"), sleep=lambda s: None)

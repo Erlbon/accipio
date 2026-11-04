@@ -88,6 +88,7 @@ def main(stdin: Optional[BinaryIO] = None, stdout: Optional[BinaryIO] = None, fo
         return 1
     if message is None:
         return 0
+    message = dict(message, via="browser")     # only the extension comes this way; a second Accipio pings directly
     write_message(stdout, relay(message, folder or settings.config_dir()))
     return 0
 

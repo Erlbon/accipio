@@ -104,7 +104,7 @@ def test_a_link_is_probed_placed_and_started(world):
     row_id = q.add("https://x.org/get?id=1", page_url="https://x.org/books", headers={"Cookie": "a=1"})
     row = q.store.get(row_id)
     assert (row.state, row.folder, row.filename, row.rules) == (ACTIVE, under(base, "Books"), "Dune.epub", "5")
-    assert row.total == 2000 and row.resumable and 'rule 5 "Ebooks and comics"' in row.why
+    assert row.total == 2000 and row.resumable and 'rule 5 "Ebooks"' in row.why
     job = engine.jobs[row.gid]
     assert job["url"] == "https://x.org/get?id=1" and job["folder"] == row.folder and job["headers"] == ["Cookie: a=1"]
     assert prober.seen_headers[-1] == {"Cookie": "a=1"}
@@ -188,7 +188,7 @@ def test_a_file_with_no_known_type_is_sniffed_renamed_and_placed_again(world):
     engine.finish(row.gid, b"%PDF-1.7 rest of it")
     q.refresh()
     row = q.store.get(row_id)
-    assert (row.folder, row.filename, row.rules) == (under(base, "Documents"), "download.pdf", "6")
+    assert (row.folder, row.filename, row.rules) == (under(base, "Documents"), "download.pdf", "7")
     assert os.path.isfile(row.path) and not os.path.exists(under(base, "Other", "download"))
     assert "turned out to be PDF" in row.why
 
