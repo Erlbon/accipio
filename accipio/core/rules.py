@@ -867,7 +867,11 @@ def modernize(rule_list: List[Rule], library: Library) -> bool:
             named = None if typed or is_default(rule.target) else find_named(library.folders, rule.target)
             base = (typed or (named.path if named else DEFAULT_TOKEN)).rstrip("\\/")
             path = base + "\\" + rule.subfolder.strip().lstrip("\\/")
-            rule.target, rule.folder, rule.subfolder = _folder_for(path, rule.name, library).name, "", ""
+            if named is not None and [r for r in rule_list if r.target.strip().lower() == named.name.lower()] == [rule]:
+                named.path = path                # its own folder (made from its typed path): extend it, no second one
+            else:
+                rule.target = _folder_for(path, rule.name, library).name
+            rule.folder, rule.subfolder = "", ""
             changed = True
         elif typed:
             rule.target, rule.folder = _folder_for(typed, rule.name, library).name, ""

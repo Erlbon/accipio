@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-04#06 -- One folder per older rule, whichever version it came through
+
+- A rule with a typed folder and a subfolder that already went through 2026-11-04#04 (which named the folder but kept the subfolder) now ends with one folder, the named one extended by the subfolder, instead of that folder plus a second one beside it. A folder another rule also uses is left alone and the rule gets a folder of its own.
+
 ## 2026-11-04#05 -- A rule is one sentence
 
 - **The Rules tab reads as a sentence:** *Rule* name; *if downloaded from* site groups; *files that are* file groups; *go to* a folder; then *after downloading, rename*. Site groups and file groups are picked from a list and shown as chips (several allowed, ✕ to remove); nothing is typed. No site group means anywhere, no file group means any file.

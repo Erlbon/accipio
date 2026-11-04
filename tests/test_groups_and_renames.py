@@ -270,3 +270,16 @@ def test_older_rules_keep_where_their_files_land():
     assert after == before
     assert r.place([shows], dl("a.ts"), "B", lib).folder == "B"                   # still left out
     assert not r.modernize(rule_list, lib)                                        # nothing left to do
+
+
+def test_a_rule_that_came_through_04_still_ends_with_one_folder():
+    """#04 already turned the typed path into a named folder and kept the subfolder; #05 must extend that folder,
+    not make a second one beside it. A folder another rule also uses is left alone."""
+    lib = r.default_library()
+    lib.folders += [Folder("Shows", "TV"), Folder("Shared", "D:/S")]
+    rule_list = [Rule("Shows", target="Shows", subfolder="{yyyy}"),
+                 Rule("A", target="Shared", subfolder="a"), Rule("B", target="Shared")]
+    assert r.modernize(rule_list, lib)
+    assert rule_list[0].target == "Shows" and r.find_named(lib.folders, "Shows").path == "TV\\{yyyy}"
+    assert [f.name for f in lib.folders] == ["Shows", "Shared", "A"]
+    assert r.find_named(lib.folders, "Shared").path == "D:/S" and r.find_named(lib.folders, "A").path == "D:/S\\a"
