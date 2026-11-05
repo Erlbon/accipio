@@ -2,6 +2,17 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#05 -- Release
+
+Everything since 2026-11-04#06, in one release:
+
+- No Save As box for downloads Accipio takes (#01).
+- Series of links, such as `saga-[001-150].cbz`, in the Add box (#02).
+- A download Chrome hands over is checked before Chrome lets go of it; downloaded files carry Windows' "from the internet" mark; the speed limit is a real total (#03).
+- Archives: look inside, then decide, as a trial switched on under Settings > Archives (#04).
+
+After updating, press the reload button on Accipio's card in `chrome://extensions` so Chrome picks up extension 0.1.2.
+
 ## 2026-11-05#04 -- Archives: look inside, then decide (trial)
 
 - **A trial, off until you switch it on:** Settings > Archives, "Look inside downloaded zips and tars and ask what to do".
