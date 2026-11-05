@@ -592,7 +592,7 @@ class RuleForm(QWidget):
     fits wins, so there is no stop/continue."""
     changed = pyqtSignal()
 
-    def __init__(self, parent=None, library_of=rules.default_library):
+    def __init__(self, parent=None, library_of=rules.default_library, archives: bool = False):
         super().__init__(parent)
         self.library_of = library_of
         self._legacy_folder = ""          # a typed path from before Folders, kept as it was until saved
@@ -642,6 +642,16 @@ class RuleForm(QWidget):
         folder_row.addWidget(self.where, 1)
         sentence.addWidget(label("go to"), 3, 0)
         sentence.addLayout(folder_row, 3, 1)
+        self.archives = QComboBox()                # the archive trial: what happens to a zip or tar this rule takes
+        for key, words in rules.UNPACK_CHOICES.items():
+            self.archives.addItem(words.removeprefix("archives "), key)
+        self.archives.setToolTip("Only for .zip and .tar files (Preferences > Archives). \"Sorted\" sends each file "
+                                 "inside through your rules; what no rule fits goes to this rule's folder.")
+        self.archives.currentIndexChanged.connect(self.changed)
+        self.archives_label = label("and archives are")
+        sentence.addWidget(self.archives_label, 4, 0)
+        sentence.addWidget(self.archives, 4, 1, Qt.AlignmentFlag.AlignLeft)
+        self.show_archives = archives
         sentence.setColumnStretch(1, 1)
         layout.addLayout(sentence)
 
@@ -754,6 +764,9 @@ class RuleForm(QWidget):
         self._legacy_folder = rule.folder
         self.fill_folders(rule.target or rules.DEFAULT_FOLDER)
         self.renamer.set_lines(rule.renames)
+        self.archives.setCurrentIndex(max(self.archives.findData(rule.unpack), 0))
+        for widget in (self.archives, self.archives_label):         # only with the trial on, or a rule that uses it
+            widget.setVisible(self.show_archives or bool(rule.unpack))
         self.command.setText(rule.command)
         self.more_button.setChecked(bool(more))
         self._loading = False
@@ -770,7 +783,8 @@ class RuleForm(QWidget):
         target = self.folder.currentData() or rules.DEFAULT_FOLDER
         return Rule(self.name.text().strip() or "Unnamed rule", conditions,
                     folder="" if target else self._legacy_folder, renames=self.renamer.lines(), target=target,
-                    command=self.command.text().strip(), enabled=self.enabled.isChecked())
+                    command=self.command.text().strip(), enabled=self.enabled.isChecked(),
+                    unpack=self.archives.currentData() or "")
 
     def _check(self):
         if self._loading:
@@ -781,7 +795,8 @@ class RuleForm(QWidget):
 class RulesDialog(QDialog):
     """Folders, File Groups, Site Groups and Rules, in the order you set them up; the test box under them all."""
 
-    def __init__(self, rule_list: List[Rule], base_folder: str, parent=None, library: Optional[rules.Library] = None):
+    def __init__(self, rule_list: List[Rule], base_folder: str, parent=None, library: Optional[rules.Library] = None,
+                 archives: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Rules")
         self.resize(1020, 760)
@@ -831,7 +846,7 @@ class RulesDialog(QDialog):
         left_layout.addWidget(legend)
         left.setMaximumWidth(200)                        # a few short names; the rule itself needs the room
         split.addWidget(left)
-        self.form = RuleForm(library_of=self.result_library)
+        self.form = RuleForm(library_of=self.result_library, archives=archives)
         self.form.changed.connect(self._form_changed)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

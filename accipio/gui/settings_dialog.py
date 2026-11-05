@@ -60,6 +60,21 @@ class SettingsDialog(QDialog):
                                       "Help > Check for Updates works whether this is on or not.")
         self.check_updates.setChecked(check_updates)
         form.addRow("Updates", self.check_updates)
+        archives = QHBoxLayout()
+        self.unpack_archives = QCheckBox("Look inside downloaded zips and tars and ask what to do (trial)")
+        self.unpack_archives.setToolTip("A finished .zip or .tar shows what is inside and offers to unpack it as a "
+                                        "folder, sort the files by your rules, or keep it packed. Formats that are "
+                                        "zips underneath (.cbz, .epub, .docx) are never opened.")
+        self.unpack_archives.setChecked(current.unpack_archives)
+        self.after_unpack = QComboBox()
+        self.after_unpack.addItem("Keep the archive", "keep")
+        self.after_unpack.addItem("Move the archive to the Recycle Bin", "delete")
+        self.after_unpack.setCurrentIndex(max(self.after_unpack.findData(current.after_unpack), 0))
+        self.after_unpack.setToolTip("What happens to the archive once its files are out")
+        archives.addWidget(self.unpack_archives)
+        archives.addWidget(self.after_unpack)
+        archives.addStretch(1)
+        form.addRow("Archives", archives)
         layout.addLayout(form)
         ffmpeg = find_ffmpeg()
         note = QLabel("Connections per file takes effect for downloads started after the next restart.\n"
@@ -79,4 +94,6 @@ class SettingsDialog(QDialog):
                                    video_quality=self.video_quality.currentData(),
                                    notify_added=self.notify_added.isChecked(),
                                    notify_finished=self.notify_finished.isChecked(),
-                                   notify_failed=self.notify_failed.isChecked())
+                                   notify_failed=self.notify_failed.isChecked(),
+                                   unpack_archives=self.unpack_archives.isChecked(),
+                                   after_unpack=self.after_unpack.currentData())

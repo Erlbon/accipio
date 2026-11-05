@@ -29,6 +29,8 @@ QPushButton { border: 1px solid @border; border-radius: 6px; padding: 4px 14px; 
 QPushButton:hover { background: @hover; }
 QPushButton:pressed { background: @pressed; }
 QPushButton:default { border: 1px solid palette(highlight); }
+QPushButton[suggested="true"] { background: palette(highlight); color: palette(highlighted-text);
+    border: 1px solid palette(highlight); }
 QPushButton:disabled { color: @handle; }
 QPushButton[chip="true"] { border: none; border-radius: 11px; padding: 3px 12px; min-height: 16px;
     background: transparent; }

@@ -44,6 +44,23 @@ def human_time(seconds: Optional[float]) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
+def files(n: int) -> str:
+    return f"{n} file{'' if n == 1 else 's'}"
+
+
+def archive_status(info: dict) -> str:
+    """The Status column for a finished archive (the unpack trial)."""
+    state = info.get("state")
+    if state == "waiting":
+        return f"{files(info.get('count', 0))} inside: what now?"
+    if state == "done":
+        how = "as a folder" if info.get("mode") == "folder" else "sorted"
+        return f"Unpacked {files(info.get('count', 0))}, {how}"
+    if state == "failed":
+        return info.get("message") or "Could not look inside"
+    return info.get("message") or STATE_TEXT[COMPLETE]
+
+
 class QueueModel(QAbstractTableModel):
     def __init__(self, base_folder: str = "", parent=None):
         super().__init__(parent)
@@ -131,6 +148,8 @@ class QueueModel(QAbstractTableModel):
             if column == RULE:
                 return row.rules
             if column == STATUS:
+                if row.state == COMPLETE and row.unpack:
+                    return archive_status(row.unpack)
                 return row.error if row.state == ERROR and row.error else STATE_TEXT.get(row.state, row.state)
         if role == SORT_ROLE:
             return {NAME: (row.filename or row.url).lower(), SIZE: row.total or row.size or 0,

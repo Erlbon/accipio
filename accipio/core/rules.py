@@ -310,6 +310,7 @@ class Rule:
     command: str = ""
     stop: bool = True
     enabled: bool = True
+    unpack: str = ""                    # for an archive (trial): "" keep packed, "folder" or "sort" (see unpack.py)
 
 
 @dataclass
@@ -327,6 +328,7 @@ class Placement:
     filename: str
     commands: List[str]
     steps: List[Step]
+    unpack: str = ""                     # the rule's choice for an archive: "", "folder" or "sort"
 
     @property
     def path(self) -> str:
@@ -666,6 +668,7 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
     filename = d.filename
     commands: List[str] = []
     steps: List[Step] = []
+    unpack = ""
     for number, rule in enumerate(rules, 1):
         if not rule.enabled or not all(condition_matches(c, d, when, library) for c in rule.conditions):
             continue
@@ -694,9 +697,27 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
         if rule.command.strip():
             commands.append(rule.command)
             effects.append("run command")
+        if rule.unpack in UNPACK_CHOICES and rule.unpack:
+            unpack = rule.unpack
+            effects.append(UNPACK_CHOICES[unpack])
         steps.append(Step(number, rule.name, effects, True))
         break                                    # the first rule that fits wins (decided 2026-11-04)
-    return Placement(os.path.normpath(folder), safe_part(filename, "download"), commands, steps)
+    return Placement(os.path.normpath(folder), safe_part(filename, "download"), commands, steps, unpack)
+
+
+# what a rule does with an archive (trial, decision 43E); the words are the editor's and "why here?"'s
+UNPACK_CHOICES = {"": "archives kept packed", "folder": "archives unpacked as a folder there",
+                  "sort": "archives sorted by the rules (the rest stays there)"}
+
+
+def remembered_rule(file_group: str, site_group: str, choice: str, folder: str) -> Rule:
+    """The rule the archive row's "do this every time" tick writes: files of ``file_group`` (from ``site_group``,
+    empty = anywhere) go to ``folder`` and are unpacked as ``choice``."""
+    conditions = [Condition("sites", [site_group])] if site_group else []
+    conditions.append(Condition("type", [file_group]))
+    where = f" from {site_group}" if site_group else ""
+    return Rule(f"{file_group}{where}", conditions, target=folder or DEFAULT_FOLDER,
+                unpack="" if choice == "keep" else choice)
 
 
 def free_name(folder: str, filename: str, exists: Callable[[str], bool]) -> str:
@@ -734,6 +755,8 @@ def validate(rule: Rule, library: Optional[Library] = None) -> List[str]:
                 found.extend(f"condition {n}: {v!r} is not a file group, an extension or a MIME type"
                              for v in c.values if v.strip() and find_named(library.groups, v) is None
                              and (" " in v.strip() or (v.strip()[:1].isupper() and "/" not in v)))
+    if rule.unpack not in UNPACK_CHOICES:
+        found.append(f"archives: {rule.unpack!r} is not a choice (keep, folder or sort)")
     checks = [("folder", folder_template, known_here), ("subfolder", rule.subfolder, known_here)]
     for n, line in enumerate(rule.renames, 1):
         label = f"rename line {n}"

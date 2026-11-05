@@ -2,6 +2,17 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#04 -- Archives: look inside, then decide (trial)
+
+- **A trial, off until you switch it on:** Settings > Archives, "Look inside downloaded zips and tars and ask what to do".
+- **A finished .zip or .tar shows what is inside**, in a box under the list: "tool.zip: 3 files inside. What now?", where each file would go, and three buttons: **Unpack as a folder in** (a folder you pick; everything stays together in `<folder>\<archive name>\`, a program with its readme), **Sort them** (each file goes through your rules as if downloaded on its own; what no rule fits goes to `Default\<archive name>\`) and **Keep packed**. Hover a button to see where the files would go.
+- **The suggested button comes first**, chosen from the contents: a program inside means "as a folder" (in the folder your rules give the program); files your rules all know mean "sort them"; anything else stays packed until you say.
+- **"Do this every time for Archives from <site group>"** turns your choice into an ordinary rule at the top of your rules. A rule can also say it in the Rules tab: *go to* a folder *and archives are* kept packed / unpacked as a folder there / sorted by the rules. Such archives are unpacked at once, and the box then says what happened, with **Undo**.
+- **Undo** (also in the row's right-click menu) removes the unpacked files and the folders it made, and the archive waits for a choice again. A file you changed since is kept.
+- **After unpacking** the archive is kept, or moved to the Recycle Bin (Settings > Archives).
+- **Only real archive endings are opened**: .zip, .tar, .tar.gz/.tgz, .tar.bz2, .tar.xz. Files that are zips underneath (.cbz, .epub, .docx, .jar, .apk) never are. rar and 7z come later, through 7-Zip.
+- **Safe by design:** no file inside can land outside its folder (`..\`, absolute paths and drive letters are taken apart), nothing is overwritten, an archive that would unpack to more than 50 GB or 20,000 files is left packed, a password-protected or damaged one says so on its row, a failure halfway leaves nothing behind, and every unpacked file carries Windows' "from the internet" mark as the archive did.
+
 ## 2026-11-05#03 -- Safer hand-over from Chrome, Windows' download warning, one speed limit
 
 - **Downloaded files carry Windows' "from the internet" mark**, as files Chrome saves do. A program downloaded through Accipio now gets the SmartScreen warning before it runs, and a downloaded Office document opens in Protected View. Before this, a program Accipio took from Chrome ran without any warning. Drives that cannot hold the mark (FAT32 sticks, some network shares) keep the file as it is, as with Chrome.

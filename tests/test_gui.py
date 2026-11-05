@@ -2,6 +2,7 @@
 import datetime
 import json
 import os
+import re
 import threading
 
 import pytest
@@ -16,7 +17,7 @@ from accipio.core import cron, rules, settings  # noqa: E402
 from accipio.core.rules import Condition, Rule  # noqa: E402
 from accipio.core.store import ACTIVE, COMPLETE, PAUSED  # noqa: E402
 from accipio.gui import main_window as mw  # noqa: E402
-from accipio.gui.queue_model import COLUMNS, NAME  # noqa: E402
+from accipio.gui.queue_model import COLUMNS, NAME, STATUS  # noqa: E402
 from accipio.gui.rules_dialog import ConditionRow, RulesDialog, TimeEditor, picker_state  # noqa: E402
 from accipio.gui.settings_dialog import SettingsDialog  # noqa: E402
 from tests import samples  # noqa: E402
@@ -904,3 +905,100 @@ def test_a_huge_series_is_only_expanded_after_asking(world):
         add_dialog.AddDialog.confirm_many = original
     assert asked == [10_000] and dialog.entries == {}                     # nothing checked against the site
     assert dialog.table.item(0, 4).text() == "10,000 links: not expanded" and dialog.chosen() == []
+
+
+# ---- archives (trial, 2026-11-05, decision 43E) ----------------------------------------------------------------
+
+def archive_arrives(win, engine, prober, url, files):
+    from tests.test_unpack import zip_bytes
+    add(win, prober, url, url.rsplit("/", 1)[1])
+    row = win.queue.rows()[-1]
+    engine.finish(row.gid, zip_bytes(files))
+    win.queue.refresh()
+    win.reload()
+    return win.queue.store.get(row.id)
+
+
+def test_the_archive_trial_is_switched_on_in_preferences(world):
+    win, *_ = world
+    dialog = SettingsDialog(win.services.settings, win)
+    assert not dialog.unpack_archives.isChecked()                       # off until he tries it
+    dialog.unpack_archives.setChecked(True)
+    dialog.after_unpack.setCurrentIndex(dialog.after_unpack.findData("delete"))
+    win.apply_settings(dialog.result_settings())
+    assert win.queue.unpack_on and win.queue.after_unpack == "delete"
+    again = settings.load_settings(win.services.folder)
+    assert (again.unpack_archives, again.after_unpack) == (True, "delete")
+
+
+def test_a_waiting_archive_shows_its_box_with_the_suggestion_first(world):
+    win, engine, prober, base = world
+    win.queue.unpack_on = True
+    row = archive_arrives(win, engine, prober, "https://a.org/tool.zip", {"tool/setup.exe": b"MZ", "tool/readme.pdf": b"%PDF"})
+    assert win.model.data(win.model.index(0, STATUS)) == "2 files inside: what now?"
+    box = win.archive_box
+    assert not box.isHidden() and box.row_id == row.id
+    assert box.title.text() == "tool.zip: 2 files inside. What now?"
+    assert box.buttons[0] is box.folder_button and box.folder_button.isDefault()   # a program inside
+    assert box.folder_choice.currentData() == "Programs"               # where the program itself would go
+    assert "setup.exe → Programs\\tool" in re.sub(r"\s+→\s+", " → ", box.preview.text().replace("/", "\\"))
+
+
+def test_hovering_a_button_previews_where_the_files_would_go(world):
+    win, engine, prober, base = world
+    win.queue.unpack_on = True
+    archive_arrives(win, engine, prober, "https://a.org/tool.zip", {"tool/setup.exe": b"MZ", "tool/readme.pdf": b"%PDF"})
+    box = win.archive_box
+    box.show_plan("sort")
+    text = re.sub(r"\s+→\s+", " → ", box.preview.text())                 # names are padded into a column
+    assert "setup.exe → Programs" in text and "readme.pdf → Documents" in text
+
+
+def test_choosing_unpacks_and_the_tick_writes_a_rule_on_top(world):
+    win, engine, prober, base = world
+    win.queue.unpack_on = True
+    row = archive_arrives(win, engine, prober, "https://a.org/tool.zip", {"tool/setup.exe": b"MZ"})
+    box = win.archive_box
+    box.remember.setChecked(True)
+    box.folder_button.click()
+    win.flush()
+    assert os.path.isfile(os.path.join(base, "Programs", "tool", "setup.exe"))
+    assert win.queue.store.get(row.id).unpack["state"] == "done"
+    first = win.services._holder["rules"][0]
+    assert (first.name, first.target, first.unpack) == ("Archives", "Programs", "folder")
+    saved = settings.load_rules(win.services.folder)
+    assert saved[0].unpack == "folder"
+    assert box.isHidden()
+
+
+def test_a_rule_that_unpacked_by_itself_offers_undo(world):
+    win, engine, prober, base = world
+    win.queue.unpack_on = True
+    win.services._holder["rules"].insert(0, rules.remembered_rule("Archives", "", "sort", "Archives"))
+    row = archive_arrives(win, engine, prober, "https://a.org/pack.zip", {"Saga 001.cbz": b"PK"})
+    box = win.archive_box
+    assert not box.isHidden() and "its rule unpacked 1 file" in box.title.text()
+    box.undo_button.click()
+    win.flush()
+    assert not os.path.exists(os.path.join(base, "Comics", "Saga 001.cbz"))
+    assert win.queue.store.get(row.id).unpack["state"] == "waiting"
+
+
+def test_keep_packed_closes_the_box(world):
+    win, engine, prober, base = world
+    win.queue.unpack_on = True
+    row = archive_arrives(win, engine, prober, "https://a.org/pack.zip", {"a.nfo": b"x"})
+    win.archive_box.keep_button.click()
+    win.flush()
+    assert win.queue.store.get(row.id).unpack == {"state": "kept"} and win.archive_box.isHidden()
+
+
+def test_a_rule_can_say_what_happens_to_archives(world):
+    win, *_ = world
+    dialog = RulesDialog(win.services._holder["rules"], win.services.settings.base_folder, win,
+                         library=win.services._holder["library"], archives=True)
+    form = dialog.form
+    form.load(rules.Rule("Packs", [Condition("type", ["Archives"])], target="Comics", unpack="sort"))
+    assert not form.archives.isHidden() and form.archives.currentData() == "sort"
+    form.archives.setCurrentIndex(form.archives.findData("folder"))
+    assert form.rule().unpack == "folder"

@@ -19,18 +19,25 @@ The probe makes a network request, so ``add`` and ``preview`` belong on a worker
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import os
 import shutil
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from accipio.core import aria2, probe, rules, sniff, zone
+from accipio.core import aria2, probe, rules, sniff, unpack, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
 MAX_RESTARTS = 3
+
+
+def trash(path: str) -> None:
+    """To the Recycle Bin (an unpacked archive, when Preferences say so)."""
+    from redactor_common.core.trash import move_to_trash
+    move_to_trash(path)
 
 
 def share_speed(total: int, direct: int, video: int) -> Tuple[int, int]:
@@ -73,6 +80,8 @@ class Queue:
         self.speeds: Dict[int, int] = {}
         self.speed_limit = speed_limit                   # the total for both engines; refresh() shares it out
         self._shares: Dict[str, int] = {}
+        self.unpack_on = False                           # the archive trial (Preferences); off: archives are files
+        self.after_unpack = "keep"                       # or "delete": the archive goes to the Recycle Bin
         if not keep_history:
             store.forget_finished()
         self._reconcile()
@@ -267,6 +276,142 @@ class Queue:
                           finished=self.clock().isoformat(timespec="seconds"))
         self.speeds.pop(row.id, None)
         self.engine_of(row).remove(row.gid)               # forget the result in the engine; the row keeps it
+        if self.unpack_on and unpack.is_archive(name):
+            self._archive_arrived(row.id)
+
+    # ---- archives (a trial since 2026-11-05, decision 43E; see unpack.py) ---------------------------------------
+
+    def _archive_arrived(self, row_id: int) -> None:
+        """A finished archive: unpacked at once when its rule says how, else it waits for the user's choice with a
+        suggested one."""
+        row = self.store.get(row_id)
+        try:
+            entries = unpack.contents(row.path)
+        except unpack.UnpackError as error:
+            self.store.update(row_id, unpack={"state": "failed", "message": str(error)})
+            return
+        placement = self._place(Download(url=row.url, filename=row.filename, page_url=row.page_url, mime=row.mime,
+                                         size=row.size, when=row.added_at))
+        if placement.unpack and not row.pinned:
+            try:
+                self.unpack_archive(row_id, placement.unpack, folder=placement.folder, entries=entries, by_rule=True)
+            except unpack.UnpackError as error:
+                self.store.update(row_id, unpack={"state": "failed", "message": str(error)})
+            return
+        self._wait_for_choice(row, entries)
+
+    def _wait_for_choice(self, row: Row, entries: List[unpack.Entry]) -> None:
+        suggestion = unpack.suggest(entries, lambda name: self._fits_a_rule(row, name))
+        self.store.update(row.id, unpack={"state": "waiting", "count": len(entries), "suggest": suggestion})
+
+    def _inner(self, row: Row, name: str) -> Placement:
+        """Where a file from inside the archive would go if it had been downloaded on its own, from the same link."""
+        return self._place(Download(url=row.url, filename=name, page_url=row.page_url, when=row.added_at))
+
+    def _fits_a_rule(self, row: Row, name: str) -> bool:
+        """For the suggestion: a rule with conditions knows this file (a catch-all rule does not count)."""
+        steps = self._inner(row, name).steps
+        rule_list = self.rule_set()
+        return bool(steps) and bool(rule_list[steps[0].number - 1].conditions)
+
+    def archive_plan(self, row_id: int, mode: str, folder: str = "",
+                     entries: Optional[List[unpack.Entry]] = None) -> List[unpack.Move]:
+        """Where each file would go: "folder" into ``folder`` (default: the archive's own folder), "sort" by the
+        rules with the rest in ``folder`` (default: Default). Raises UnpackError."""
+        row = self.store.get(row_id)
+        entries = unpack.contents(row.path) if entries is None else entries
+        if mode == unpack.FOLDER:
+            return unpack.plan_folder(entries, folder or row.folder, row.filename, exists=self.exists)
+
+        def placed(name: str):
+            p = self._inner(row, name)
+            return (p.folder, p.filename, p.why()) if p.steps else None
+        return unpack.plan_sort(entries, placed, folder or self.base_folder, row.filename, exists=self.exists)
+
+    def unpack_archive(self, row_id: int, mode: str, folder: str = "", *,
+                       entries: Optional[List[unpack.Entry]] = None, by_rule: bool = False) -> None:
+        """Do the user's (or the rule's) choice. Raises UnpackError; nothing is left behind then."""
+        if mode == unpack.KEEP:
+            self.keep_packed(row_id)
+            return
+        row = self.store.get(row_id)
+        moves = self.archive_plan(row_id, mode, folder, entries)
+        done = unpack.extract(row.path, moves, row.url, row.page_url)
+        trashed = False
+        if self.after_unpack == "delete":
+            try:
+                trash(row.path)
+                trashed = True
+            except OSError:
+                pass                                      # it stays; the row still says it was unpacked
+        how = "as a folder in " + os.path.dirname(moves[0].target) if mode == unpack.FOLDER and moves \
+            else "sorted by the rules"
+        who = "its rule " if by_rule else ""
+        self.store.update(row_id, why=f"{row.why} Then {who}unpacked {len(moves)} files {how}.",
+                          unpack={"state": "done", "mode": mode, "count": len(moves), "by_rule": by_rule,
+                                  "trashed": trashed, "done": dataclasses.asdict(done)})
+
+    def together_folder(self, row_id: int) -> str:
+        """The folder name "Unpack as a folder" offers first: where the program inside would go by the rules, else
+        the folder of the rule that placed the archive, else Default."""
+        row = self.store.get(row_id)
+        rule_list = self.rule_set()
+        try:
+            names = [e.name.replace("\\", "/").rsplit("/", 1)[-1] for e in unpack.contents(row.path)]
+        except unpack.UnpackError:
+            names = []
+        for name in names:
+            if rules.split_name(name)[1] in unpack.PROGRAM_EXTENSIONS:
+                steps = self._inner(row, name).steps
+                if steps:
+                    return rule_list[steps[0].number - 1].target or rules.DEFAULT_FOLDER
+                break
+        return self.placed_folder(row_id)
+
+    def placed_folder(self, row_id: int) -> str:
+        """The folder name of the rule that placed this download (Default when none did)."""
+        row = self.store.get(row_id)
+        rule_list = self.rule_set()
+        first = row.rules.split("+")[0]
+        if first.isdigit() and 0 < int(first) <= len(rule_list):
+            return rule_list[int(first) - 1].target or rules.DEFAULT_FOLDER
+        return rules.DEFAULT_FOLDER
+
+    def folder_named(self, row_id: int, name: str) -> str:
+        """The path of a folder from the Folders tab, with its tokens filled in for this download."""
+        row = self.store.get(row_id)
+        d = Download(url=row.url, filename=row.filename, page_url=row.page_url, when=row.added_at)
+        return rules.place([Rule("", target=name or rules.DEFAULT_FOLDER)], d, self.base_folder, self.library_set()).folder
+
+    def seen(self, row_id: int) -> None:
+        """The user has seen what a rule unpacked by itself: its box goes (Undo stays in the row's menu)."""
+        row = self.store.get(row_id)
+        if row and row.unpack:
+            self.store.update(row_id, unpack={**row.unpack, "seen": True})
+
+    def keep_packed(self, row_id: int) -> None:
+        self.store.update(row_id, unpack={"state": "kept"})
+
+    def undo_unpack(self, row_id: int) -> List[str]:
+        """Take an unpack back: its files and the folders it made go, and the archive waits for a choice again.
+        Returns the files kept because they were changed since."""
+        row = self.store.get(row_id)
+        info = row.unpack if row else {}
+        if info.get("state") != "done":
+            return []
+        saved = info["done"]
+        kept = unpack.undo(unpack.Done(saved["archive"], [tuple(f) for f in saved["files"]], saved["folders"]))
+        why = row.why + " Unpacking undone."
+        if os.path.isfile(row.path):
+            try:
+                self.store.update(row_id, why=why)
+                self._wait_for_choice(row, unpack.contents(row.path))
+                return kept
+            except unpack.UnpackError:
+                pass
+        self.store.update(row_id, why=why, unpack={
+            "state": "kept", "message": "The archive is in the Recycle Bin; restore it from there to unpack it again."})
+        return kept
 
     # ---- buttons ---------------------------------------------------------------------------------------------
 

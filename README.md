@@ -34,6 +34,11 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
    A whole series can be pasted as one link: `https://x.org/saga-[001-150].cbz`, `page[1-20:2].jpg`,
    `[a-z].pdf` or `{intro,main}.mp3`. It opens in the Add box as one folded row, with every link checked first.
 
+   **Archives (trial, off until switched on under Settings > Archives):** a finished `.zip` or `.tar` shows what is
+   inside and offers **Unpack as a folder in** a folder of your choice, **Sort them** by your rules, or **Keep packed**,
+   with a suggestion and a preview of where each file goes. Tick "Do this every time" to make it a rule; Undo takes
+   an unpack back. Files that are zips underneath (`.cbz`, `.epub`, `.docx`) are never opened.
+
    Every download shows which rule placed it (hover it, or **Downloads > Why Here?**). **Export…** and
    **Import…** in the same window move your rules, folders and groups to another PC.
 

@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, Iterable, List, Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2          # 2 (2026-11-05): the unpack column
 
 # states a row can be in
 PROBING = "probing"       # asking the server what the link is
@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS downloads (
     rules     TEXT NOT NULL DEFAULT '',
     why       TEXT NOT NULL DEFAULT '',
     added     TEXT NOT NULL,
-    finished  TEXT NOT NULL DEFAULT ''
+    finished  TEXT NOT NULL DEFAULT '',
+    unpack    TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS downloads_state ON downloads(state);
 """
@@ -80,6 +81,7 @@ class Row:
     why: str = ""
     added: str = ""                 # ISO time the download was added; time rules use it
     finished: str = ""
+    unpack: Dict[str, Any] = field(default_factory=dict)    # a finished archive: waiting/done/kept/failed (unpack.py)
 
     @property
     def path(self) -> str:
@@ -91,7 +93,7 @@ class Row:
 
 
 _COLUMNS = [f.name for f in fields(Row)]
-_JSON = ("video", "headers")
+_JSON = ("video", "headers", "unpack")
 
 
 class Store:
@@ -108,6 +110,9 @@ class Store:
             if version > SCHEMA_VERSION:
                 raise RuntimeError(f"{path} was written by a newer Accipio (schema {version}); update Accipio")
             self._db.executescript(_SCHEMA)
+            have = {r[1] for r in self._db.execute("PRAGMA table_info(downloads)")}
+            if "unpack" not in have:                                     # a schema 1 file from before
+                self._db.execute("ALTER TABLE downloads ADD COLUMN unpack TEXT NOT NULL DEFAULT '{}'")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:

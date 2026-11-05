@@ -68,6 +68,13 @@ session does not reopen what is settled. Keep it current when a decision changes
   many rows run in each engine and calls `set_limits(speed_limit=)` only on change. `VideoEngine` enforces its
   share for all videos together in the progress hook (`_spend`, a shared byte budget); never yt-dlp's `ratelimit`,
   which is per video. The GUI sets only `max_downloads` on the engines directly.
+- Archive trial (2026-11-05#04, decisions 40B, 41, 42, 43E, 45A; the user wants it TEST-RUN before it is settled):
+  `core/unpack.py` (Qt-free: `is_archive` by ending only, `contents`, `suggest`, `plan_folder`, `plan_sort`, `extract`,
+  `undo`), `Queue._archive_arrived` from `_finish` when `Queue.unpack_on` (Settings.unpack_archives, default off),
+  row state in the store's `unpack` JSON column (schema 2: waiting/done/kept/failed), `Rule.unpack` ("" / "folder" /
+  "sort", the Rules form's "and archives are" row, shown when the trial is on), `rules.remembered_rule` for the box's
+  "do this every time" tick, `gui/archive_box.py` (a box UNDER the list, not unfolded inside the row as in the
+  mockup: a QTableView cannot hold it without a model rewrite). rar/7z: later via an installed 7-Zip (45C).
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

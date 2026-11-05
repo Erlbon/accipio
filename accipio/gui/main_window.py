@@ -35,6 +35,7 @@ from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 from accipio.gui import style
+from accipio.gui.archive_box import ArchiveBox
 from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
 from accipio.gui.updates import AccipioUpdates
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
@@ -105,6 +106,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
     queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history,
                   video_engine=video_engine or None, video_prober=video_prober,
                   library_set=lambda: holder["library"], speed_limit=current.speed_limit_kib * 1024, **kwargs)
+    queue.unpack_on, queue.after_unpack = current.unpack_archives, current.after_unpack
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
@@ -192,6 +194,12 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         self.table.doubleClicked.connect(self.open_item)
         layout.addWidget(self.table, 1)
+        self.archive_box = ArchiveBox()                  # a finished archive: what now? (the unpack trial)
+        self.archive_box.chosen.connect(self._archive_chosen)
+        self.archive_box.undo.connect(self._undo_unpack)
+        self.archive_box.seen.connect(self._archive_seen)
+        self._archive_busy: set = set()                  # rows handed to the worker; their box stays shut
+        layout.addWidget(self.archive_box)
         self.setCentralWidget(central)
 
         self.build_label = QLabel(f"Build {APP_VERSION}")
@@ -394,8 +402,76 @@ class MainWindow(QMainWindow):
             chip.setText(f"{name} {counts[name]}")
         speed = self.model.total_speed()
         self.speed_label.setText(f"↓ {human_size(speed)}/s" if speed else "")
+        self._update_archive_box(rows)
         while self.failures:
             self.statusBar().showMessage(self.failures.pop(0), 10000)
+
+    # ---- archives (the unpack trial) ---------------------------------------------------------------------------
+
+    def _update_archive_box(self, rows: List[Row]) -> None:
+        """The box shows the selected archive that waits for a choice (or that a rule unpacked unseen), else the
+        oldest such one."""
+        def wants(r: Row) -> bool:
+            state = r.unpack.get("state")
+            return r.id not in self._archive_busy and r.state == COMPLETE and (
+                state == "waiting" or (state == "done" and r.unpack.get("by_rule") and not r.unpack.get("seen")))
+        candidates = [r for r in rows if wants(r)]
+        if not candidates:
+            self.archive_box.clear()
+            return
+        selected = {r.id for r in self.selected_rows()}
+        row = next((r for r in candidates if r.id in selected), candidates[0])
+        state = row.unpack["state"]
+        if self.archive_box.key == (row.id, state):
+            return
+        if state == "done":
+            self.archive_box.show_done(row)
+            return
+        library = self.services._holder["library"]
+        d = rules.Download(row.url, row.filename, row.page_url)
+        known = rules.known_extensions(library.groups)
+        group = next((g.name for g in library.groups if rules.group_matches(g, d, known)), "")
+        site = next((s.name for s in library.site_groups if rules.site_group_matches(s, d)), "")
+
+        def plan(mode: str, folder_name: str, row_id: int = row.id):
+            folder = self.queue.folder_named(row_id, folder_name) if mode == "folder" else ""
+            return self.queue.archive_plan(row_id, mode, folder)
+        self.archive_box.show_waiting(
+            row, plan, self.services.settings.base_folder, [rules.DEFAULT_FOLDER] + [f.name for f in library.folders],
+            self.queue.together_folder(row.id), [g.name for g in library.groups], group,
+            [s.name for s in library.site_groups], site)
+
+    def _busy_with(self, row_id: int, future: concurrent.futures.Future) -> None:
+        self._archive_busy.add(row_id)
+        future.add_done_callback(lambda _: self._archive_busy.discard(row_id))
+
+    def _archive_chosen(self, row_id: int, mode: str, folder_name: str, remember) -> None:
+        if remember:
+            group, site = remember
+            keep_in = folder_name if mode == "folder" else self.queue.placed_folder(row_id)
+            rule = rules.remembered_rule(group, site, mode, keep_in)
+            self.apply_rules([rule] + list(self.services._holder["rules"]))
+            self.statusBar().showMessage(f'New rule "{rule.name}" at the top of your rules.', 6000)
+        if mode == "keep":
+            self._busy_with(row_id, self.run(self.queue.keep_packed, row_id))
+            return
+        folder = self.queue.folder_named(row_id, folder_name) if mode == "folder" else ""
+        self._busy_with(row_id, self.run(self.queue.unpack_archive, row_id, mode, folder))
+
+    def _undo_unpack(self, row_id: int) -> None:
+        self.archive_box.clear()
+
+        def report(future):
+            kept = future.result() if future.exception() is None else []
+            if kept:
+                self.bridge.message.emit(f"Undone. {len(kept)} file(s) changed since were kept: {kept[0]}")
+        future = self.run(self.queue.undo_unpack, row_id)
+        future.add_done_callback(report)
+        self._busy_with(row_id, future)
+
+    def _archive_seen(self, row_id: int) -> None:
+        self.archive_box.clear()
+        self._busy_with(row_id, self.run(self.queue.seen, row_id))
 
     # ---- adding ----------------------------------------------------------------------------------------------
 
@@ -550,6 +626,10 @@ class MainWindow(QMainWindow):
             action = self.actions_by_key[key]
             action.setEnabled(enabled)
             menu.addAction(action)
+        unpacked = [r for r in rows if r.unpack.get("state") == "done"]
+        if unpacked:
+            menu.addSeparator()
+            menu.addAction("Undo unpacking", lambda: [self._undo_unpack(r.id) for r in unpacked])
         menu.exec(self.table.viewport().mapToGlobal(point))
         for key in ("pause", "resume", "retry"):
             self.actions_by_key[key].setEnabled(True)
@@ -576,7 +656,7 @@ class MainWindow(QMainWindow):
     def open_rules(self) -> None:
         from accipio.gui.rules_dialog import RulesDialog
         dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self,
-                             library=self.services._holder["library"])
+                             library=self.services._holder["library"], archives=self.services.settings.unpack_archives)
         if dialog.exec():
             self.apply_rules(dialog.result_rules(), dialog.result_library())
             base = dialog.result_base_folder()
@@ -604,6 +684,7 @@ class MainWindow(QMainWindow):
         self.queue.base_folder = new.base_folder
         self.model.base_folder = new.base_folder
         self.queue.keep_history = new.keep_history
+        self.queue.unpack_on, self.queue.after_unpack = new.unpack_archives, new.after_unpack
         self.notices.enabled = set(new.notice_kinds())
         self.queue.speed_limit = new.speed_limit_kib * 1024        # a total; refresh() shares it between the engines
         for engine in (self.services.engine, self.services.video_engine):
