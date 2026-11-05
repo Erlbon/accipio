@@ -30,7 +30,7 @@ from redactor_common.gui.about_dialog import CreditsDialog
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
-from accipio.core import aria2, ipc, notices, rules, settings as settings_mod, ytdlp_update
+from accipio.core import aria2, ipc, notices, ranges, rules, settings as settings_mod, ytdlp_update
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -384,7 +384,12 @@ class MainWindow(QMainWindow):
         self.paste.selectAll()
 
     def add_links(self, text: str, page_url: str = "") -> int:
+        """Add the links in pasted or dropped text. A series (``saga-[001-150].cbz``) opens the Add box instead,
+        so its links are seen and checked before anything starts. Returns how many links there were."""
         links = links_in(text)
+        if any(ranges.has_pattern(link) for link in links):
+            self.open_add_dialog("\n".join(links))
+            return len(links)
         for link in links:
             self.run(self.queue.add, link, page_url=page_url)
         if links:
@@ -394,6 +399,9 @@ class MainWindow(QMainWindow):
     def add_from_bar(self) -> None:
         text = self.paste.text()
         if not text.strip():
+            return
+        if any(ranges.has_pattern(link) for link in links_in(text)):
+            self.open_add_dialog(text, from_bar=True)         # the bar is cleared only when the box adds them
             return
         if self.add_links(text):
             self.paste.clear()

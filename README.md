@@ -31,6 +31,9 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
      contains *this regular expression*, rename to *that*"; the first line that fits renames the file, and with
      none the name is kept. Rules are tried from the top and **the first rule that fits wins**.
 
+   A whole series can be pasted as one link: `https://x.org/saga-[001-150].cbz`, `page[1-20:2].jpg`,
+   `[a-z].pdf` or `{intro,main}.mp3`. It opens in the Add box as one folded row, with every link checked first.
+
    Every download shows which rule placed it (hover it, or **Downloads > Why Here?**). **Export…** and
    **Import…** in the same window move your rules, folders and groups to another PC.
 

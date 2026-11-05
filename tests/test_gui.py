@@ -804,3 +804,65 @@ def test_switching_rules_leaves_no_old_chips_behind(app, tmp_path):
         dialog.list.setCurrentRow(row)
     chips = [c for c in dialog.form.sites.findChildren(QPushButton)]
     assert [c.text() for c in chips] == ["Comic sites  ✕"]          # the old rule's chips are gone, not just queued
+
+
+# ---- series of links (2026-11-05, 29A/30B) --------------------------------------------------------------
+
+def test_a_series_in_the_paste_bar_opens_the_add_box_folded(world):
+    win, engine, prober, base = world
+    for n in (1, 2, 4):                                   # 3 does not exist on the server
+        prober.serve(f"https://a.org/saga-00{n}.cbz", f"saga-00{n}.cbz", size=1000)
+    seen = {}
+
+    def look(dialog):
+        seen["rows"] = [[dialog.table.item(r, c).text() for c in range(1, 5)] for r in range(dialog.table.rowCount())]
+        seen["check"] = dialog.table.item(0, 0).checkState()
+        seen["button"] = dialog.add_button.text()
+        return True
+    win._show_add_dialog = lambda dialog: (win.flush(), dialog.collect(), look(dialog))[-1]
+    win.paste.setText("https://a.org/saga-[001-004].cbz")
+    win.add_from_bar()
+    win.flush()
+    assert len(seen["rows"]) == 1                                        # one folded row for the series
+    name, folder, rule, status = seen["rows"][0]
+    assert name.startswith("▸ saga-[001-004].cbz") and "(4 links)" in name
+    assert status == "3 ready · 1 failed" and seen["button"] == "Add 3"
+    assert seen["check"] == Qt.CheckState.Checked                         # the failed one does not count against it
+    assert [r.url for r in win.queue.rows()] == [f"https://a.org/saga-00{n}.cbz" for n in (1, 2, 4)]
+    assert win.paste.text() == ""
+
+
+def test_a_series_unfolds_and_single_links_can_be_left_out(world):
+    win, engine, prober, base = world
+    for n in range(1, 4):
+        prober.serve(f"https://a.org/p{n}.jpg", f"p{n}.jpg")
+    prober.serve("https://b.org/one.zip", "one.zip")
+
+    def choose(dialog):
+        assert dialog.table.rowCount() == 2                               # the series, folded, and the plain link
+        dialog._clicked(0, 2 - 1)                                         # click the series' name: unfold
+        assert dialog.table.rowCount() == 5 and dialog.table.item(0, 1).text().startswith("▾")
+        dialog.table.item(2, 0).setCheckState(Qt.CheckState.Unchecked)    # leave p2 out
+        assert dialog.table.item(0, 0).checkState() == Qt.CheckState.PartiallyChecked
+        dialog.set_folder(0, os.path.join(base, "Pictures"))              # the whole series somewhere else
+        assert dialog.add_button.text() == "Add 3"
+        return True
+    open_box(win, "https://a.org/p[1-3].jpg\nhttps://b.org/one.zip", choose)
+    win.flush()
+    rows = {r.url: r for r in win.queue.rows()}
+    assert set(rows) == {"https://a.org/p1.jpg", "https://a.org/p3.jpg", "https://b.org/one.zip"}
+    assert rows["https://a.org/p1.jpg"].folder == os.path.join(base, "Pictures")
+
+
+def test_a_huge_series_is_only_expanded_after_asking(world):
+    win, engine, prober, base = world
+    from accipio.gui import add_dialog
+    asked = []
+    original = add_dialog.AddDialog.confirm_many
+    add_dialog.AddDialog.confirm_many = lambda self, link, total: asked.append(total) or False
+    try:
+        dialog = open_box(win, "https://a.org/[1-100]/[1-100].jpg", lambda d: False)
+    finally:
+        add_dialog.AddDialog.confirm_many = original
+    assert asked == [10_000] and dialog.entries == {}                     # nothing checked against the site
+    assert dialog.table.item(0, 4).text() == "10,000 links: not expanded" and dialog.chosen() == []

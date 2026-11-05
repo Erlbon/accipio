@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#02 -- Series of links: saga-[001-150].cbz
+
+- **One link can stand for a whole series**, as in curl and DownThemAll: `page[1-20].jpg`, `img[001-150].png` (leading zeros kept), `v[1-100:5].zip` (a step), `[a-z].pdf`, `{intro,main,outro}.mp3`, and combinations such as `s[1-3]/e[01-10].mkv`. Ordinary links that happen to hold brackets (an IPv6 address, `?ids[]=4`) stay one link.
+- **A series opens the Add box**, from the paste bar, Edit > Paste Links or a drop, so nothing starts unseen. It shows as one folded row with one tick, one folder and a summary ("148 ready · 2 failed"); click its name to unfold it and untick single files, double-click its folder to send the whole series elsewhere. Links that do not exist are left out by themselves. The links are checked one at a time, so a site is not flooded.
+- **A series of more than 1,000 links asks first**, since one typo can make millions.
+- In the Add box, links going to the Default folder say "Default" (it said "base folder").
+
 ## 2026-11-05#01 -- No Save As box for downloads Accipio takes
 
 - With Chrome's "Ask where to save each file before downloading" switched on, Chrome opened its Save As box even though Accipio had already taken the download. The extension now takes downloads over before Chrome picks a name, so the box no longer opens for them. A download Accipio does not take (Accipio not running, a link it cannot use, the takeover switched off) goes on in Chrome as before, Save As included.
