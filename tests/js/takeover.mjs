@@ -51,6 +51,7 @@ if (suggested || state.cancelled[0] !== 1 || state.erased[0] !== 1) fail("a take
 const sent = state.sent.at(-1);
 if (sent.type !== "add" || sent.url !== link.url || sent.page_url !== link.referrer || sent.cookies !== "session=abc")
   fail("the offer to Accipio is wrong: " + JSON.stringify(sent));
+if (sent.takeover !== true) fail("a hand-over must say so, or Accipio says yes before its own check worked");
 
 // Accipio cannot be reached: Chrome goes on with its own name, nothing cancelled.
 state.reply = { ok: false, error: "Accipio is not running" };

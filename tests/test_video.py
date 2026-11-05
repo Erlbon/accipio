@@ -106,6 +106,48 @@ def test_only_max_downloads_run_at_once(tmp_path):
     wait_state(engine, second, {"complete"})
 
 
+class Clock:
+    """A clock that only moves when the engine sleeps."""
+
+    def __init__(self):
+        self.now = 100.0
+        self.slept = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept += seconds
+        self.now += seconds
+
+
+def test_the_speed_limit_holds_for_all_videos_together(tmp_path):
+    """Before 2026-11-05 each video got the whole limit (yt-dlp's ratelimit is per download)."""
+    clock = Clock()
+    engine = VideoEngine(downloader=Gate(), clock=clock, sleep=clock.sleep)
+    engine.set_limits(speed_limit=1000)
+    first = video._Job("v1", "u1", str(tmp_path), "a.mp4", [])
+    second = video._Job("v2", "u2", str(tmp_path), "b.mp4", [])
+    for done in (1000, 2000, 3000):          # the first report is where the part stands (a resume may start far in)
+        for job in (first, second):
+            engine._progress(job, {"status": "downloading", "filename": job.filename, "downloaded_bytes": done})
+    assert clock.slept == pytest.approx(4.0)                     # 4000 new bytes at 1000 B/s, shared by the two
+    assert "ratelimit" not in engine._options(first)             # no per-video limit on top
+
+
+def test_no_limit_means_no_waiting_and_each_part_counts_its_own_bytes(tmp_path):
+    clock = Clock()
+    engine = VideoEngine(downloader=Gate(), clock=clock, sleep=clock.sleep)
+    job = video._Job("v1", "u1", str(tmp_path), "a.mp4", [])
+    for done in (0, 5000):
+        engine._progress(job, {"status": "downloading", "filename": "a.f137.mp4", "downloaded_bytes": done})
+    assert clock.slept == 0
+    engine.set_limits(speed_limit=1000)
+    for done in (0, 500):
+        engine._progress(job, {"status": "downloading", "filename": "a.f140.m4a", "downloaded_bytes": done})
+    assert clock.slept == pytest.approx(0.5)                    # the sound part's 500 bytes, not 500 - 5000
+
+
 def test_pause_keeps_the_part_and_resume_starts_again(tmp_path):
     gate = Gate()
     engine = VideoEngine(downloader=gate)

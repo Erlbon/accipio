@@ -22,6 +22,10 @@ class FakeEngine:
         self.jobs = {}
         self.counter = 0
         self.removed = []
+        self.limits = []
+
+    def set_limits(self, **kw):
+        self.limits.append(kw)
 
     def add(self, url, folder, filename, headers=(), paused=False):
         self.counter += 1
@@ -179,6 +183,76 @@ def test_progress_and_completion(world):
     row = q.store.get(row_id)
     assert row.state == COMPLETE and row.finished and row.headers == {}   # cookies are not kept
     assert gid in engine.removed and row_id not in q.speeds
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows' mark lives in an NTFS stream")
+def test_a_finished_file_carries_windows_mark_of_the_web(world):
+    """As Chrome does: SmartScreen and Office then warn about a downloaded program or macro document."""
+    q, engine, prober, base, _ = world
+    prober.serve("https://a.org/tool.exe", "tool.exe")
+    row_id = q.add("https://a.org/tool.exe", page_url="https://a.org/downloads")
+    engine.finish(q.store.get(row_id).gid, b"MZ")
+    q.refresh()
+    with open(q.store.get(row_id).path + ":Zone.Identifier", encoding="utf-8") as f:
+        mark = f.read().splitlines()
+    assert mark == ["[ZoneTransfer]", "ZoneId=3", "ReferrerUrl=https://a.org/downloads", "HostUrl=https://a.org/tool.exe"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows' mark lives in an NTFS stream")
+def test_a_file_moved_after_sniffing_keeps_the_mark(world):
+    q, engine, prober, base, _ = world
+    prober.serve("https://user:pw@a.org/download", "download", "application/octet-stream")
+    row_id = q.add("https://user:pw@a.org/download")
+    engine.finish(q.store.get(row_id).gid, b"%PDF-1.7 rest of it")
+    q.refresh()
+    with open(q.store.get(row_id).path + ":Zone.Identifier", encoding="utf-8") as f:
+        text = f.read()
+    assert "ZoneId=3" in text and "HostUrl=https://a.org/download" in text and "pw" not in text
+    assert "ReferrerUrl" not in text                                     # no page: no line, as Chrome does
+
+
+def test_the_mark_never_breaks_a_download_on_a_drive_without_streams(world, monkeypatch):
+    from accipio.core import zone
+    q, engine, prober, base, _ = world
+    monkeypatch.setattr(zone, "_write", lambda path, text: (_ for _ in ()).throw(OSError("FAT32")))
+    prober.serve("https://a.org/f.zip", "f.zip")
+    row_id = q.add("https://a.org/f.zip")
+    engine.finish(q.store.get(row_id).gid, b"PK\x03\x04")
+    q.refresh()
+    assert q.store.get(row_id).state == COMPLETE
+
+
+# ---- one speed limit for both engines --------------------------------------------------------------------
+
+@pytest.mark.parametrize("total, direct, video, expected", [
+    (0, 2, 2, (0, 0)),                    # no limit
+    (900, 0, 0, (900, 900)),              # nothing running: whoever starts first may use it all
+    (900, 3, 0, (900, 900)),
+    (900, 0, 1, (900, 900)),
+    (900, 2, 1, (600, 300)),              # shared by how many run in each engine
+    (1000, 1, 3, (250, 750)),
+])
+def test_the_total_speed_limit_is_shared_by_the_engines(total, direct, video, expected):
+    from accipio.core.queue import share_speed
+    assert share_speed(total, direct, video) == expected
+
+
+def test_the_queue_hands_each_engine_its_share_as_downloads_start(world):
+    q, engine, prober, base, _ = world
+    video = FakeEngine()
+    q.engines["video"] = video
+    q.speed_limit = 900
+    prober.serve("https://a.org/a.zip", "a.zip")
+    prober.serve("https://a.org/b.zip", "b.zip")
+    q.add("https://a.org/a.zip")
+    q.add("https://a.org/b.zip")
+    row_id = q.store.add("https://v.org/watch", state=ACTIVE, source="video", folder=base, filename="clip.mp4")
+    q.store.update(row_id, gid=video.add("https://v.org/watch", base, "clip.mp4"))
+    q.refresh()
+    assert engine.limits[-1] == {"speed_limit": 600} and video.limits[-1] == {"speed_limit": 300}
+    count = len(engine.limits)
+    q.refresh()
+    assert len(engine.limits) == count                                  # unchanged: not sent again
 
 
 def test_a_file_with_no_known_type_is_sniffed_renamed_and_placed_again(world):

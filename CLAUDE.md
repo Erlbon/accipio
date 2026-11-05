@@ -58,6 +58,16 @@ session does not reopen what is settled. Keep it current when a decision changes
 - Notifications (picked 2026-10-29: Windows notifications via a tray icon, not in-window toasts): `core/notices.py`
   diffs the rows on every `reload()` and groups each kind for `GATHER` seconds; the window shows them through
   `QSystemTrayIcon.showMessage` (`_show_notice`, which tests replace). Offscreen tests have no tray (`tray` is None).
+- Hand-over from Chrome (2026-11-05#03): the extension's onDeterminingFilename offer carries `takeover: true`;
+  `MainWindow._taken_over` answers only after `Queue.add` has probed and started the download (at most
+  `TAKEOVER_WAIT` = 8 s, under ipc's 10 s). A failed check removes the row and says no, so Chrome keeps its copy; a
+  timed-out one is removed when it finishes. Context-menu adds (no Chrome copy exists) still answer at once.
+- Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
+  + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
+- Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how
+  many rows run in each engine and calls `set_limits(speed_limit=)` only on change. `VideoEngine` enforces its
+  share for all videos together in the progress hook (`_spend`, a shared byte budget); never yt-dlp's `ratelimit`,
+  which is per video. The GUI sets only `max_downloads` on the engines directly.
 - History of finished downloads is opt-in (`keep_history`, default off); headers/cookies are wiped on finish.
 - The **command action is stored but not run yet**: running server-controlled names through a command line
   (especially .bat/.cmd) needs injection-safe quoting first.

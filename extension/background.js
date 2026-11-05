@@ -20,9 +20,12 @@ async function takeoverOn() {
   return takeover;
 }
 
-export async function offer(url, pageUrl, referrer = "") {
+// takeover: Chrome has already started this download and drops it on a yes, so Accipio answers only after its
+// own request worked (a no leaves the download with Chrome).
+export async function offer(url, pageUrl, referrer = "", takeover = false) {
   return send({
     type: "add",
+    takeover,
     url,
     page_url: pageUrl || "",
     referrer: referrer || pageUrl || "",
@@ -37,7 +40,7 @@ async function decide(item) {
   if (item.incognito || !isTakeable(url)) return false;
   if (passThrough.delete(url) || passThrough.delete(item.url)) return false;
   if (!(await takeoverOn())) return false;
-  const reply = await offer(url, item.referrer, item.referrer);
+  const reply = await offer(url, item.referrer, item.referrer, true);
   if (!reply || !reply.ok) {
     console.warn("Accipio did not take the download:", reply && reply.error);
     return false;

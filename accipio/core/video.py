@@ -20,6 +20,7 @@ import functools
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -180,11 +181,14 @@ class _Job:
 
 class VideoEngine:
     def __init__(self, ffmpeg: Optional[str] = None, max_downloads: int = 3, quality: str = "best",
-                 downloader: Optional[Callable[[Dict[str, Any], str], None]] = None):
+                 downloader: Optional[Callable[[Dict[str, Any], str], None]] = None,
+                 clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
         self.ffmpeg = ffmpeg
         self.max_downloads = max_downloads
         self.quality = quality
-        self.speed_limit = 0
+        self.speed_limit = 0                  # bytes/s for ALL videos together (yt-dlp's own ratelimit is per video)
+        self._clock, self._sleep = clock, sleep
+        self._window: Optional[List[float]] = None       # [start, bytes since start, limit] of the shared budget
         self._downloader = downloader or self._yt_dlp
         self._jobs: Dict[str, _Job] = {}
         self._cond = threading.Condition()
@@ -320,8 +324,6 @@ class VideoEngine:
                    "noplaylist": True, "continuedl": True, "overwrites": False, "nopart": False,
                    "progress_hooks": [functools.partial(self._progress, job)],
                    "post_hooks": [functools.partial(self._finished, job)]}
-        if self.speed_limit:
-            options["ratelimit"] = self.speed_limit
         return options
 
     def _progress(self, job: _Job, d: Dict[str, Any]) -> None:
@@ -329,14 +331,34 @@ class VideoEngine:
             from yt_dlp.utils import DownloadCancelled
             raise DownloadCancelled("stopped by Accipio")           # yt-dlp lets this one through untouched
         name = d.get("filename") or ""
+        done = d.get("downloaded_bytes") or 0
         with self._cond:
             if d.get("tmpfilename"):
                 job.temp_files.add(d["tmpfilename"])
+            # a part's first report says where it stands (a resumed part starts far in): only growth after it counts
+            new = done - job.parts[name][0] if name in job.parts else 0
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            job.parts[name] = [d.get("downloaded_bytes") or 0, int(total)]
+            job.parts[name] = [done, int(total)]
             if d.get("status") == "finished":
                 job.parts[name][1] = max(job.parts[name][1], job.parts[name][0])
             job.speed = int(d.get("speed") or 0)
+            wait = self._spend(max(0, new))
+        if wait > 0:
+            self._sleep(wait)                     # slows this video's reading; the others share the same budget
+
+    def _spend(self, count: int) -> float:
+        """Count bytes against the shared limit; the seconds the caller must wait to stay under it. Called locked."""
+        limit = self.speed_limit
+        if not limit:
+            self._window = None
+            return 0.0
+        now = self._clock()
+        window = self._window
+        if (window is None or window[2] != limit
+                or (now - window[0] > 5 and now >= window[0] + window[1] / limit)):   # never forgive a debt
+            self._window = [now, 0, limit]        # a fresh window now and then, so an idle spell is not saved up
+        self._window[1] += count
+        return self._window[0] + self._window[1] / limit - now
 
     def _finished(self, job: _Job, path: str) -> None:
         with self._cond:

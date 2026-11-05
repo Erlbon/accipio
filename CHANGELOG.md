@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#03 -- Safer hand-over from Chrome, Windows' download warning, one speed limit
+
+- **Downloaded files carry Windows' "from the internet" mark**, as files Chrome saves do. A program downloaded through Accipio now gets the SmartScreen warning before it runs, and a downloaded Office document opens in Protected View. Before this, a program Accipio took from Chrome ran without any warning. Drives that cannot hold the mark (FAT32 sticks, some network shares) keep the file as it is, as with Chrome.
+- **A download Chrome hands over is checked before Chrome lets go of it.** Accipio used to say yes as soon as the link was in its list, and Chrome then threw its own copy away; if Accipio's own request failed (a link that works only once, a download made by a form, a site that refuses anyone but the browser) the file was gone and only an error row was left. Now Accipio answers only once its own request worked; otherwise Chrome simply downloads the file itself. If the check takes more than 8 seconds, Chrome keeps the download too.
+- **The total speed limit is a total.** Each video used to get the whole limit on its own, on top of the direct downloads; three videos and a file could run at four times the limit. The limit is now shared between direct downloads and videos by how many run in each.
+- The extension is version 0.1.2: reload Accipio's card in `chrome://extensions` after updating.
+
 ## 2026-11-05#02 -- Series of links: saga-[001-150].cbz
 
 - **One link can stand for a whole series**, as in curl and DownThemAll: `page[1-20].jpg`, `img[001-150].png` (leading zeros kept), `v[1-100:5].zip` (a step), `[a-z].pdf`, `{intro,main,outro}.mp3`, and combinations such as `s[1-3]/e[01-10].mkv`. Ordinary links that happen to hold brackets (an IPv6 address, `?ids[]=4`) stay one link.

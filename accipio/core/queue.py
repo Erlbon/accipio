@@ -23,14 +23,24 @@ import datetime
 import os
 import shutil
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
-from accipio.core import aria2, probe, rules, sniff
+from accipio.core import aria2, probe, rules, sniff, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
 MAX_RESTARTS = 3
+
+
+def share_speed(total: int, direct: int, video: int) -> Tuple[int, int]:
+    """Split the total speed limit (bytes/s, 0 = none) between aria2 and the video engine by how many downloads
+    each is running. An engine with nothing running keeps the whole limit, so the first download that starts
+    there is not held back until the next refresh."""
+    if not total or not direct or not video:
+        return total, total
+    direct_share = max(1, total * direct // (direct + video))
+    return direct_share, max(1, total - direct_share)
 
 
 @dataclass
@@ -49,7 +59,7 @@ class Queue:
                  prober: Callable[..., probe.Probe] = probe.probe, exists: Callable[[str], bool] = os.path.exists,
                  keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now,
                  video_engine=None, video_prober: Optional[Callable[..., Optional[VideoProbe]]] = None,
-                 library_set: Optional[Callable[[], rules.Library]] = None):
+                 library_set: Optional[Callable[[], rules.Library]] = None, speed_limit: int = 0):
         self.store = store
         self.engine = engine
         self.engines = {"direct": engine, "video": video_engine}
@@ -61,6 +71,8 @@ class Queue:
         self.exists = exists
         self.clock = clock
         self.speeds: Dict[int, int] = {}
+        self.speed_limit = speed_limit                   # the total for both engines; refresh() shares it out
+        self._shares: Dict[str, int] = {}
         if not keep_history:
             store.forget_finished()
         self._reconcile()
@@ -207,7 +219,18 @@ class Queue:
                     continue
                 self.store.update(row.id, state=state, done=status.done, total=status.total or row.total)
             changed.append(self.store.get(row.id))
+        self._share_speed()
         return changed
+
+    def _share_speed(self) -> None:
+        """Give each engine its part of the one total limit; sent only when a part changes."""
+        running = [r.source if r.source in self.engines else "direct" for r in self.store.rows((ACTIVE,))]
+        direct, video = share_speed(self.speed_limit, running.count("direct"), running.count("video"))
+        for source, limit in (("direct", direct), ("video", video)):
+            engine = self.engines.get(source)
+            if engine is not None and self._shares.get(source) != limit:
+                engine.set_limits(speed_limit=limit)
+                self._shares[source] = limit
 
     def _failed(self, row: Row, status: aria2.Status) -> None:
         if status.error_code == aria2.CANNOT_RESUME and row.restarts < MAX_RESTARTS:
@@ -238,6 +261,7 @@ class Queue:
                 folder, name = target, final
                 why += f" After the download the content turned out to be {real.upper()}, so it became {final}: {placement.why()}"
                 numbers = placement.rule_numbers if not row.pinned else numbers
+        zone.mark(os.path.join(folder, name), row.url, row.page_url)    # as Chrome does: SmartScreen warns
         self.store.update(row.id, state=COMPLETE, folder=folder, filename=name, why=why, rules=numbers,
                           done=status.done, total=status.total, headers={}, error="",
                           finished=self.clock().isoformat(timespec="seconds"))

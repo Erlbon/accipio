@@ -64,7 +64,8 @@ class Bridge(QObject):
     browser_seen = pyqtSignal()
 
 
-UPDATES_FILE = "accipio_updates.json"     # the family's update-check file (on/off, last check, skipped version)
+TAKEOVER_WAIT = 8.0       # seconds a download Chrome hands over may take to check (under ipc.TIMEOUT, 10)
+UPDATES_FILE = "accipio_updates.json"    # the family's update-check file (on/off, last check, skipped version)
 
 
 @dataclass
@@ -91,12 +92,10 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
                                    "or run python tools/fetch_engines.py in a checkout.")
         engine = aria2.Aria2(exe, os.path.join(folder, "aria2.session"), max_downloads=current.max_downloads,
                              connections=current.connections).start()
-        engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
     if video_engine is None:
         from accipio.core import video
         video_engine = video.VideoEngine(video.find_ffmpeg(), max_downloads=current.max_downloads,
                                          quality=current.video_quality)
-        video_engine.set_limits(speed_limit=current.speed_limit_kib * 1024)
         video_prober = video_prober or video.make_prober(video_engine)
     library = settings_mod.load_library(folder)
     if rules.modernize(rule_list, library):            # older rules: named folders, first fit
@@ -105,7 +104,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
     kwargs = {"prober": prober} if prober else {}
     queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history,
                   video_engine=video_engine or None, video_prober=video_prober,
-                  library_set=lambda: holder["library"], **kwargs)
+                  library_set=lambda: holder["library"], speed_limit=current.speed_limit_kib * 1024, **kwargs)
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
@@ -240,10 +239,31 @@ class MainWindow(QMainWindow):
                 return {"ok": False, "error": "not a link Accipio can download"}
             headers = {name: str(message[key]) for key, name in
                        (("cookies", "Cookie"), ("referrer", "Referer"), ("user_agent", "User-Agent")) if message.get(key)}
-            self.run(self.queue.add, links[0], page_url=str(message.get("page_url") or ""), headers=headers)
+            added = self.run(self.queue.add, links[0], page_url=str(message.get("page_url") or ""), headers=headers)
+            if message.get("takeover"):
+                return self._taken_over(added, links[0])
             self.bridge.message.emit(f"From the browser: {links[0]}")
             return {"ok": True}
         return {"ok": False, "error": f"unknown message {kind!r}"}
+
+    def _taken_over(self, added: concurrent.futures.Future, link: str) -> dict:
+        """A download Chrome had already started. Chrome throws its copy away once Accipio says yes, so the yes
+        waits until Accipio's own request worked; otherwise Chrome keeps the download and nothing is lost
+        (a link that works only once, a form's download, a site that refuses Accipio)."""
+        try:
+            row_id = added.result(timeout=TAKEOVER_WAIT)
+        except concurrent.futures.TimeoutError:
+            # Chrome goes on with it, so Accipio's late copy must not run beside it
+            added.add_done_callback(lambda f: f.exception() is None and self.run(self.queue.remove, f.result()))
+            return {"ok": False, "error": "Accipio took too long to check the link; Chrome downloads it."}
+        except Exception as error:
+            return {"ok": False, "error": str(error)}
+        row = self.queue.store.get(row_id)
+        if row is None or row.state == ERROR:
+            self.run(self.queue.remove, row_id)
+            return {"ok": False, "error": row.error if row else "the download is gone"}
+        self.bridge.message.emit(f"From the browser: {link}")
+        return {"ok": True}
 
     def bring_to_front(self) -> None:
         if self.isMinimized():
@@ -585,9 +605,10 @@ class MainWindow(QMainWindow):
         self.model.base_folder = new.base_folder
         self.queue.keep_history = new.keep_history
         self.notices.enabled = set(new.notice_kinds())
+        self.queue.speed_limit = new.speed_limit_kib * 1024        # a total; refresh() shares it between the engines
         for engine in (self.services.engine, self.services.video_engine):
             if engine is not None:
-                self.run(engine.set_limits, max_downloads=new.max_downloads, speed_limit=new.speed_limit_kib * 1024)
+                self.run(engine.set_limits, max_downloads=new.max_downloads)
         if self.services.video_engine is not None:
             self.services.video_engine.quality = new.video_quality
         self.statusBar().showMessage("Settings saved.", 4000)

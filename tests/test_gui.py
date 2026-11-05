@@ -2,6 +2,7 @@
 import datetime
 import json
 import os
+import threading
 
 import pytest
 
@@ -192,7 +193,10 @@ def test_settings_are_saved_and_reach_the_engine(world, tmp_path):
     dialog.keep_history.setChecked(True)
     win.apply_settings(dialog.result_settings())
     win.flush()
-    assert engine.limits[-1] == {"max_downloads": 5, "speed_limit": 300 * 1024}
+    assert {"max_downloads": 5} in engine.limits and win.queue.speed_limit == 300 * 1024
+    win.tick()                                         # the queue shares the total out on its next refresh
+    win.flush()
+    assert engine.limits[-1] == {"speed_limit": 300 * 1024}
     again = settings.load_settings(win.services.folder)
     assert (again.max_downloads, again.keep_history, again.base_folder) == (5, True, base)
 
@@ -725,6 +729,40 @@ def test_importing_rules_adds_them_below_mine(app, tmp_path, monkeypatch):
 
 
 # ---- connecting the browser (2026-11-04#02) -------------------------------------------------------------
+
+def test_a_download_chrome_hands_over_is_checked_before_accipio_takes_it(world):
+    """Chrome drops its own copy once Accipio says yes, so the yes waits until Accipio's own check worked."""
+    from accipio.core import ipc
+    win, engine, prober, base = world
+    prober.serve("https://a.org/ok.zip", "ok.zip")
+    reply = ipc.send(win.services.folder, {"type": "add", "takeover": True, "url": "https://a.org/ok.zip"})
+    assert reply == {"ok": True}
+    assert [r.filename for r in win.queue.rows()] == ["ok.zip"]          # already added when the yes came
+    reply = ipc.send(win.services.folder, {"type": "add", "takeover": True, "url": "https://a.org/once-only.zip"})
+    assert reply["ok"] is False and "404" in reply["error"]               # Chrome keeps this one
+    win.flush()
+    assert [r.filename for r in win.queue.rows()] == ["ok.zip"]          # and no error row is left behind
+
+
+def test_a_check_that_takes_too_long_leaves_the_download_to_chrome(world, monkeypatch):
+    from accipio.core import ipc
+    win, engine, prober, base = world
+    monkeypatch.setattr(mw, "TAKEOVER_WAIT", 0.2)
+    gate = threading.Event()
+    real_call = prober.__class__.__call__
+
+    def slow_prober(self, url, headers=None):
+        gate.wait(5)
+        return real_call(self, url, headers)
+    monkeypatch.setattr(prober.__class__, "__call__", slow_prober)
+    prober.serve("https://a.org/slow.zip", "slow.zip")
+    reply = ipc.send(win.services.folder, {"type": "add", "takeover": True, "url": "https://a.org/slow.zip"})
+    assert reply["ok"] is False and "too long" in reply["error"]
+    gate.set()
+    win.flush()
+    win.flush()                                                          # the late row is removed on the worker
+    assert win.queue.rows() == []                                        # never a second copy beside Chrome's
+
 
 def test_the_browser_bar_shows_until_the_extension_talks_to_accipio(world):
     from accipio.core import ipc
