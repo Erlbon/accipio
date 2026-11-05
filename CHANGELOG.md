@@ -2,6 +2,12 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#06 -- The taskbar button shows the downloads
+
+- **A progress bar on Accipio's taskbar button** for all unfinished downloads together. It is in your Windows accent colour while they run (Windows 11 picks the colour), yellow when all are paused, and red when a download failed while the window was in the background. It stays red until you bring Accipio to the front. When no size is known, as with some videos, the bar slides.
+- **A badge on the button** counts the running downloads, or the paused ones when nothing runs, up to "9+".
+- **The window title says the same in words**, so hovering the taskbar button or the tray icon shows "Accipio – 3 downloading, 45%", "2 paused" or "1 failed".
+
 ## 2026-11-05#05 -- Release
 
 Everything since 2026-11-04#06, in one release:

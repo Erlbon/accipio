@@ -84,7 +84,7 @@ makes the installer, `dist\Accipio-<build>-windows-x64-setup.exe`, from `install
 
 ## Status
 
-Direct downloads, the rules, the window, video sites, the browser link, notifications and yt-dlp updates work.
+Direct downloads, the rules, the window, video sites, the browser link, notifications, progress on the taskbar button and yt-dlp updates work.
 Not yet: running a command when a download finishes (the rules editor hides that field until it does),
 schedules, torrents, and a Chrome Web Store listing. See [docs/design.md](docs/design.md) and
 [CHANGELOG.md](CHANGELOG.md).

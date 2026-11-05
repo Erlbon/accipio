@@ -58,6 +58,12 @@ session does not reopen what is settled. Keep it current when a decision changes
 - Notifications (picked 2026-10-29: Windows notifications via a tray icon, not in-window toasts): `core/notices.py`
   diffs the rows on every `reload()` and groups each kind for `GATHER` seconds; the window shows them through
   `QSystemTrayIcon.showMessage` (`_show_notice`, which tests replace). Offscreen tests have no tray (`tray` is None).
+- Taskbar button (2026-11-05#06, mockup 47C): `core/taskbar.py` (Qt-free) turns the rows into a `Look` (mode,
+  percent, badge count, title) and counts failures nobody has seen (`UnreadFailures`, cleared while the window is
+  active). `gui/taskbar_button.py` hands it to ITaskbarList3 over ctypes (no Qt class for it in Qt 6) and draws the
+  badge as an overlay icon; `show()` returns False until the button exists, and the window keeps retrying. Do NOT
+  override `nativeEvent` on the window to catch TaskbarButtonCreated: under PyQt6 it crashed the real window at
+  start (access violation; offscreen tests never see it). Tests replace `win.taskbar_button`.
 - Hand-over from Chrome (2026-11-05#03): the extension's onDeterminingFilename offer carries `takeover: true`;
   `MainWindow._taken_over` answers only after `Queue.add` has probed and started the download (at most
   `TAKEOVER_WAIT` = 8 s, under ipc's 10 s). A failed check removes the row and says no, so Chrome keeps its copy; a

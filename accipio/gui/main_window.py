@@ -30,13 +30,14 @@ from redactor_common.gui.about_dialog import CreditsDialog
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 
-from accipio.core import aria2, ipc, notices, ranges, rules, settings as settings_mod, ytdlp_update
+from accipio.core import aria2, ipc, notices, ranges, rules, settings as settings_mod, taskbar, ytdlp_update
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 from accipio.gui import style
 from accipio.gui.archive_box import ArchiveBox
 from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
+from accipio.gui.taskbar_button import TaskbarButton
 from accipio.gui.updates import AccipioUpdates
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
@@ -210,6 +211,10 @@ class MainWindow(QMainWindow):
         self.notices = notices.Notices(services.settings.notice_kinds())
         self._clicked_path = ""
         self.tray = self._build_tray()
+        self.unread_failures = taskbar.UnreadFailures()
+        self.taskbar_button = TaskbarButton(self)         # tests put a fake here
+        self._look: Optional[taskbar.Look] = None
+        self._button_told = False
 
         self.bridge = Bridge(self)
         self.bridge.show_requested.connect(self.bring_to_front)
@@ -312,6 +317,23 @@ class MainWindow(QMainWindow):
                 continue
             self._show_notice(notice)
 
+    def _looking(self) -> bool:
+        return self.isActiveWindow()
+
+    def show_progress(self, rows: List[Row]) -> None:
+        """The taskbar button, the window title and the tray tooltip (core/taskbar.py). A failure stays red until
+        the window has been in front."""
+        self.unread_failures.observe(rows, looking=self._looking())
+        look = taskbar.look(rows, self.unread_failures.count)
+        if look != self._look:
+            self._look = look
+            self.setWindowTitle(look.title)
+            if self.tray is not None:
+                self.tray.setToolTip(look.title)
+            self._button_told = False
+        if not self._button_told:                         # until Windows takes it: the button may not exist yet
+            self._button_told = self.taskbar_button.show(look)
+
     def _show_notice(self, notice: notices.Notice) -> None:
         if self.tray is None:
             return
@@ -395,6 +417,7 @@ class MainWindow(QMainWindow):
         rows = self.queue.rows()
         self.model.set_rows(rows, dict(self.queue.speeds))
         self.tell(rows)
+        self.show_progress(rows)
         if selected and not {r.id for r in self.selected_rows()}:
             self.select_ids(selected)
         counts = self.model.counts()
@@ -772,6 +795,9 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         if self.tray is not None:
             self.tray.hide()                              # else Windows keeps a dead icon until the mouse passes
+        close = getattr(self.taskbar_button, "close", None)
+        if close:
+            close()
         if self.ipc is not None:
             self.ipc.stop()
         self.worker.shutdown(wait=True, cancel_futures=True)

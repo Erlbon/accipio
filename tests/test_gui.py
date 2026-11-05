@@ -13,7 +13,7 @@ pytest.importorskip("PyQt6")
 from PyQt6.QtCore import Qt  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QFileDialog, QHeaderView, QMessageBox  # noqa: E402
 
-from accipio.core import cron, rules, settings  # noqa: E402
+from accipio.core import cron, rules, settings, taskbar  # noqa: E402
 from accipio.core.rules import Condition, Rule  # noqa: E402
 from accipio.core.store import ACTIVE, COMPLETE, PAUSED  # noqa: E402
 from accipio.gui import main_window as mw  # noqa: E402
@@ -585,6 +585,82 @@ def test_switching_a_notification_off_in_the_settings(world, monkeypatch):
     win.apply_settings(dialog.result_settings())
     add(win, prober, "https://a.org/a.zip", "a.zip")
     assert shown == [] and settings.load_settings(win.services.folder).notify_added is False
+
+
+class FakeButton:
+    def __init__(self):
+        self.looks = []
+
+    def show(self, look):
+        self.looks.append(look)
+        return True
+
+
+def test_the_taskbar_button_and_title_follow_the_downloads(world, monkeypatch):
+    win, engine, prober, base = world
+    win.taskbar_button = button = FakeButton()
+    monkeypatch.setattr(win, "_looking", lambda: False)
+    add(win, prober, "https://a.org/a.zip", "a.zip")
+    add(win, prober, "https://a.org/b.zip", "b.zip")
+    engine.progress(win.model.rows[0].gid, 30, 100)
+    engine.progress(win.model.rows[1].gid, 60, 100)
+    win.tick()
+    win.flush()
+    assert button.looks[-1] == taskbar.Look(taskbar.NORMAL, 45, 2, "Accipio – 2 downloading, 45%")
+    assert win.windowTitle() == "Accipio – 2 downloading, 45%"
+
+    engine.fail(win.model.rows[1].gid, "3", "the server answered 404")
+    win.tick()
+    win.flush()
+    assert (button.looks[-1].mode, button.looks[-1].count) == (taskbar.ERROR, 1)
+    assert win.windowTitle() == "Accipio – 1 downloading, 1 failed, 30%"
+
+    monkeypatch.setattr(win, "_looking", lambda: True)          # the user brings the window up
+    win.reload()
+    assert button.looks[-1].mode == taskbar.NORMAL
+
+    engine.finish(win.model.rows[0].gid)
+    win.tick()
+    win.flush()
+    assert button.looks[-1] == taskbar.Look(taskbar.NONE, 0, 0, "Accipio")
+    assert win.windowTitle() == "Accipio"
+
+
+def test_the_window_keeps_telling_the_button_until_windows_takes_it(world):
+    win, engine, prober, base = world
+    win.taskbar_button = button = FakeButton()
+    answers = [False, False, True]
+    button.show = lambda look: button.looks.append(look) or answers.pop(0)
+    add(win, prober, "https://a.org/a.zip", "a.zip")
+    win.reload()
+    win.reload()
+    win.reload()
+    assert len(button.looks) == 3 and answers == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the taskbar interface is Windows'")
+def test_windows_hands_out_the_taskbar_interface(app):
+    from accipio.gui.taskbar_button import TaskbarButton
+    TaskbarButton._call(TaskbarButton._create(), 2)            # a wrong interface id raises here
+
+
+def test_the_badge_is_a_coloured_disc_with_the_count(app):
+    from accipio.gui.taskbar_button import BADGE_SIZE, badge_image
+    image = badge_image("3", taskbar.PAUSED)
+    assert (image.width(), image.height()) == (BADGE_SIZE, BADGE_SIZE)
+    assert image.pixelColor(0, 0).alpha() == 0                              # round, not a square
+    assert image.pixelColor(BADGE_SIZE // 2, 4).name() == "#faeeda"         # the paused amber, above the digit
+
+
+def test_the_taskbar_button_is_told_only_when_something_changes(world):
+    win, engine, prober, base = world
+    win.taskbar_button = button = FakeButton()
+    win.reload()                                   # the idle look from the start, if the real button had no window
+    del button.looks[:]
+    win.reload()
+    add(win, prober, "https://a.org/a.zip", "a.zip")
+    win.reload()
+    assert [look.count for look in button.looks] == [1]
 
 
 def test_clicking_a_group_notice_brings_the_window_up(world, monkeypatch):
