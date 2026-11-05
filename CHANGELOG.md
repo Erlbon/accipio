@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-05#01 -- No Save As box for downloads Accipio takes
+
+- With Chrome's "Ask where to save each file before downloading" switched on, Chrome opened its Save As box even though Accipio had already taken the download. The extension now takes downloads over before Chrome picks a name, so the box no longer opens for them. A download Accipio does not take (Accipio not running, a link it cannot use, the takeover switched off) goes on in Chrome as before, Save As included.
+- The extension is version 0.1.1. After updating Accipio, press the reload button on Accipio's card in `chrome://extensions` (or restart Chrome) so Chrome picks up the new version.
+
 ## 2026-11-04#06 -- One folder per older rule, whichever version it came through
 
 - A rule with a typed folder and a subfolder that already went through 2026-11-04#04 (which named the folder but kept the subfolder) now ends with one folder, the named one extended by the subfolder, instead of that folder plus a second one beside it. A folder another rule also uses is left alone and the rule gets a folder of its own.

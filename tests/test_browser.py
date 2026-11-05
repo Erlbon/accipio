@@ -191,6 +191,15 @@ def test_the_extension_scripts_parse(name):
     assert done.returncode == 0, done.stderr
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="no node")
+def test_the_extension_takes_downloads_before_chrome_asks_where_to_save():
+    """Run the real background.js against a stand-in Chrome (tests/js/takeover.mjs): the takeover sits in
+    onDeterminingFilename, so Chrome's Save As box never opens for a download Accipio took (seen 2026-11-05)."""
+    script = os.path.join(os.path.dirname(__file__), "js", "takeover.mjs")
+    done = subprocess.run(["node", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr + done.stdout
+
+
 def test_a_client_stuck_in_the_handshake_blocks_no_one(server):
     """A connection that never answers the key challenge must not hold up the next one (it once could:
     the key check ran inside accept())."""

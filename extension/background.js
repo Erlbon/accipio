@@ -1,8 +1,11 @@
 // Accipio for Chrome: hands downloads to the Accipio app through Chrome's native messaging.
 //
-// A download Chrome starts is PAUSED first, then offered to Accipio. Only when Accipio says it took it is
-// Chrome's copy cancelled; if Accipio cannot be reached (not installed, refused), Chrome's download is
-// resumed as if nothing happened. So a click never gets lost.
+// A download is caught in onDeterminingFilename, which Chrome runs BEFORE it picks a file name and before its
+// "Save As" box (the "Ask where to save each file" setting). Chrome waits while the extension offers the link to
+// Accipio. Only when Accipio says it took it is Chrome's copy cancelled, so no Save As box opens; if Accipio
+// cannot be reached (not installed, refused), Chrome is told to go on as if nothing happened, Save As and all.
+// So a click never gets lost. (Until 2026-11-05 this happened in onCreated, after Chrome had already opened Save
+// As for people with that setting on.)
 //
 // Cookies for the link's site go along, so downloads behind a login work in Accipio too. They are sent
 // only to the local Accipio app, never anywhere else. Incognito downloads are left alone.
@@ -28,24 +31,30 @@ export async function offer(url, pageUrl, referrer = "") {
   });
 }
 
-chrome.downloads.onCreated.addListener(async (item) => {
+// Whether Accipio takes this download (false: leave it to Chrome).
+async function decide(item) {
   const url = item.finalUrl || item.url;
-  if (item.incognito || !isTakeable(url)) return;
-  if (passThrough.delete(url)) return;
-  if (!(await takeoverOn())) return;
-  try {
-    await chrome.downloads.pause(item.id);
-  } catch (e) {
-    return; // already finished (a tiny file) or gone: leave it to Chrome
-  }
+  if (item.incognito || !isTakeable(url)) return false;
+  if (passThrough.delete(url) || passThrough.delete(item.url)) return false;
+  if (!(await takeoverOn())) return false;
   const reply = await offer(url, item.referrer, item.referrer);
-  if (reply && reply.ok) {
-    await chrome.downloads.cancel(item.id).catch(() => {});
-    await chrome.downloads.erase({ id: item.id }).catch(() => {});
-  } else {
-    await chrome.downloads.resume(item.id).catch(() => {});
+  if (!reply || !reply.ok) {
     console.warn("Accipio did not take the download:", reply && reply.error);
+    return false;
   }
+  return true;
+}
+
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  decide(item).then(async (taken) => {
+    if (taken) {
+      await chrome.downloads.cancel(item.id).catch(() => {});
+      await chrome.downloads.erase({ id: item.id }).catch(() => {});
+    } else {
+      suggest();                     // Chrome carries on with its own name (and Save As, if the user wants it)
+    }
+  }, () => suggest());
+  return true;                       // the answer comes later: Chrome waits for it
 });
 
 const MENUS = [
