@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from accipio.gui import appicon
 
-ROW_HEIGHT = 26                 # table rows, a little taller than Fusion's default
+WARNING_COLOR = "#BA7517"           # amber, readable on light and dark backgrounds
+ROW_HEIGHT = 26                # table rows, a little taller than Fusion's default
 CHEVRON = os.path.join(appicon.HERE, "chevron-down.png")    # made by tools/make_icons.py, as the icons are
 
 STYLESHEET = """

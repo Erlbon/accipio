@@ -16,8 +16,7 @@ from redactor_common.gui.background_call import BackgroundCancelled, call_in_bac
 from accipio.core import video
 from accipio.core.settings import Settings
 from accipio.core.video import QUALITIES
-
-WARNING_COLOR = "#BA7517"           # amber, readable on light and dark backgrounds
+from accipio.gui.style import WARNING_COLOR
 
 
 def install_ffmpeg_with_progress(parent) -> Optional[str]:

@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#06 -- A rule's folder is hard to miss
+
+- **The rule list says where each rule sends its files**: "6  Comics  → Comics". A rule that goes to Default, or to a folder that no longer exists (which also means Default), shows in amber.
+- **The "go to" row** has a bold label and shows the full path the files land in today. While it is Default (or a missing folder) it says so in amber: "D:\Downloads — the same place as no rule at all. Pick a folder?" A comics rule left on Default had sent comics to Default unnoticed.
+
 ## 2026-11-06#05 -- Archives get a tab of their own in the Rules window
 
 - **Rules > 5 · Archives** now holds the archive trial: the switch for looking inside zips and tars, what happens to an archive once its files are out, and a list of the rules that already say what to do with one. It was under Settings, where it was hard to find; Settings now only points to the tab.

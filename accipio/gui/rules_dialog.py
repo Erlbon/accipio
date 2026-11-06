@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 import datetime
 import os
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import QTime, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -593,9 +593,11 @@ class RuleForm(QWidget):
     fits wins, so there is no stop/continue."""
     changed = pyqtSignal()
 
-    def __init__(self, parent=None, library_of=rules.default_library, archives: bool = False):
+    def __init__(self, parent=None, library_of=rules.default_library, archives: bool = False,
+                 base_of=settings_mod.default_download_folder):
         super().__init__(parent)
         self.library_of = library_of
+        self.base_of = base_of            # the Default folder's path, as the Folders tab has it right now
         self._legacy_folder = ""          # a typed path from before Folders, kept as it was until saved
         layout = QVBoxLayout(self)
         sentence = QGridLayout()
@@ -638,10 +640,14 @@ class RuleForm(QWidget):
         self.folder.currentIndexChanged.connect(self.changed)
         self.folder.currentIndexChanged.connect(self._show_where)
         self.where = QLabel()
-        self.where.setEnabled(False)
+        self.where.setWordWrap(True)
+        self.where.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        folder_row.setSpacing(12)
         folder_row.addWidget(self.folder)
         folder_row.addWidget(self.where, 1)
-        sentence.addWidget(label("go to"), 3, 0)
+        go_to = QLabel("go to")                  # the one row that decides where files land: not greyed (Q58C)
+        go_to.setStyleSheet("font-weight: 600")
+        sentence.addWidget(go_to, 3, 0)
         sentence.addLayout(folder_row, 3, 1)
         self.archives = QComboBox()                # the archive trial: what happens to a zip or tar this rule takes
         for key, words in rules.UNPACK_CHOICES.items():
@@ -721,8 +727,21 @@ class RuleForm(QWidget):
         self._show_where()
 
     def _show_where(self, *_):
-        named = rules.find_named(self.library_of().folders, self.folder.currentData() or "")
-        self.where.setText(named.path if named else "where everything else goes")
+        """The full path the files land in today; amber while that is Default or a folder that is gone."""
+        target = self.folder.currentData() or rules.DEFAULT_FOLDER
+        base = self.base_of()
+        named = None if rules.is_default(target) else rules.find_named(self.library_of().folders, target)
+        if rules.is_default(target):
+            text, warn = f"{base} — the same place as no rule at all. Pick a folder?", True
+        elif named is None:
+            text, warn = f"There is no folder called “{target}”, so files go to {base}. Pick one, or add it under Folders.", True
+        else:
+            sample = Download("https://example.com/file.zip", "file.zip", when=datetime.datetime.now(),
+                              video={"uploader": "Uploader", "channel": "Channel"})
+            text = rules.place([Rule("x", target=named.name)], sample, base, rules.Library([named], [], [])).folder
+            warn = False
+        self.where.setText(text)
+        self.where.setStyleSheet(f"color: {style.WARNING_COLOR}" if warn else "")
 
     def add_condition(self, condition: Optional[Condition]) -> ConditionRow:
         row = ConditionRow(condition, library_of=self.library_of, kinds=MORE_KINDS)
@@ -857,9 +876,9 @@ class RulesDialog(QDialog):
         legend.setWordWrap(True)
         legend.setEnabled(False)
         left_layout.addWidget(legend)
-        left.setMaximumWidth(200)                        # a few short names; the rule itself needs the room
+        left.setMaximumWidth(280)                        # short names and their folders; the rule needs the room
         split.addWidget(left)
-        self.form = RuleForm(library_of=self.result_library, archives=archives)
+        self.form = RuleForm(library_of=self.result_library, archives=archives, base_of=self.result_base_folder)
         self.form.changed.connect(self._form_changed)
         self.archives_tab.toggled.connect(self.form.set_show_archives)
         scroll = QScrollArea()
@@ -868,7 +887,7 @@ class RulesDialog(QDialog):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(self.form)
         split.addWidget(scroll)
-        split.setSizes([170, 850])
+        split.setSizes([250, 770])
         rules_layout.addWidget(split, 1)
 
         test = QGroupBox("Test")
@@ -934,7 +953,7 @@ class RulesDialog(QDialog):
         return self.folders_tab.default_path().strip() or self.base_folder
 
     def _library_changed(self):
-        self.update_test()
+        self._renumber()                                 # a folder added or gone changes the arrows in the list
 
     def _renamed(self, kind: str, old: str, new: str):
         rule_list = self.result_rules()
@@ -1019,15 +1038,25 @@ class RulesDialog(QDialog):
         self._renumber()
         return item
 
-    def _label(self, number: int, rule: Rule) -> str:
-        return f"{number}  {rule.name}"
+    def _label(self, number: int, rule: Rule, folders: List[rules.Folder]) -> Tuple[str, bool]:
+        """"6  Comics  → Comics", and whether it needs a look: a rule that sends its files to Default, or to a folder
+        that no longer exists (which also means Default), is easy to miss (Q58C)."""
+        target = rule.target.strip() or rules.DEFAULT_FOLDER
+        if rules.is_default(target):
+            return f"{number}  {rule.name}  → {rules.DEFAULT_FOLDER}", True
+        if rules.find_named(folders, target) is None:
+            return f"{number}  {rule.name}  → {target} (missing)", True
+        return f"{number}  {rule.name}  → {target}", False
 
     def _renumber(self, *_):
+        folders = self.folders_tab.items()
         for position in range(self.list.count()):
             item = self.list.item(position)
             rule = item.data(Qt.ItemDataRole.UserRole)
-            item.setText(self._label(position + 1, rule))
-            item.setForeground(QColor("gray") if not rule.enabled else self.list.palette().text().color())
+            text, look = self._label(position + 1, rule, folders)
+            item.setText(text)
+            item.setForeground(QColor("gray") if not rule.enabled else QColor(style.WARNING_COLOR) if look
+                               else self.list.palette().text().color())
         self.update_test()
 
     def _select(self, item, previous):

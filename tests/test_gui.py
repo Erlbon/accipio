@@ -18,7 +18,9 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QHeaderView, QMessageBox 
 from accipio.core import cron, rules, settings, taskbar  # noqa: E402
 from accipio.core.rules import Condition, Rule  # noqa: E402
 from accipio.core.store import ACTIVE, COMPLETE, PAUSED  # noqa: E402
-from accipio.gui import main_window as mw  # noqa: E402
+from PyQt6.QtGui import QColor  # noqa: E402
+
+from accipio.gui import main_window as mw, style  # noqa: E402
 from accipio.gui.queue_model import COLUMNS, NAME, STATUS  # noqa: E402
 from accipio.gui.rules_dialog import ConditionRow, RulesDialog, TimeEditor, picker_state  # noqa: E402
 from accipio.gui.settings_dialog import SettingsDialog  # noqa: E402
@@ -293,7 +295,7 @@ def test_the_dialog_lists_the_rules_and_brings_old_ones_up_to_date(app, tmp_path
     rule_list = [Rule("Work", [Condition("domain", ["work.example"])], folder="Work", stop=False),
                  Rule("Other", subfolder="Other")]
     dialog = RulesDialog(rule_list, str(tmp_path))
-    assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work", "2  Other"]
+    assert [dialog.list.item(i).text() for i in range(2)] == ["1  Work  → Work", "2  Other  → Other"]
     got = dialog.result_rules()
     assert (got[0].target, got[0].folder, got[0].stop) == ("Work", "", True)    # a typed path became a named folder
     assert (got[1].target, got[1].subfolder) == ("Other", "")                  # and so did a subfolder
@@ -761,12 +763,32 @@ def test_a_folder_a_rule_uses_cannot_be_deleted(app, tmp_path, monkeypatch):
     assert len(tab.items()) == len(samples.FOLDERS)
 
 
+def test_a_rule_left_on_default_is_hard_to_miss(app, tmp_path):
+    """2026-11-06 (Q58C): a comics rule left on Default sent comics to Default and nobody saw it. The rule list
+    says where each rule goes, and the go-to row turns amber, while a rule goes to Default or a missing folder."""
+    rule_list = [Rule("Comics", [Condition("type", ["Comics"])], target="Default"),
+                 Rule("Books", [Condition("type", ["Books"])], target="Books"),
+                 Rule("Gone", [Condition("type", ["Audio"])], target="Nowhere")]
+    dialog = RulesDialog(rule_list, str(tmp_path), library=samples.sorting_library())
+    texts = [dialog.list.item(i).text() for i in range(3)]
+    assert texts == ["1  Comics  → Default", "2  Books  → Books", "3  Gone  → Nowhere (missing)"]
+    amber = QColor(style.WARNING_COLOR)
+    assert [dialog.list.item(i).foreground().color() == amber for i in range(3)] == [True, False, True]
+    dialog.list.setCurrentRow(0)
+    assert str(tmp_path) in dialog.form.where.text() and "same place as no rule" in dialog.form.where.text()
+    assert style.WARNING_COLOR in dialog.form.where.styleSheet()
+    dialog.form.folder.setCurrentIndex(dialog.form.folder.findData("Comics"))   # picking a folder clears it
+    assert dialog.form.where.text() == os.path.join(str(tmp_path), "Comics") and not dialog.form.where.styleSheet()
+    assert dialog.list.item(0).text() == "1  Comics  → Comics"
+    assert dialog.list.item(0).foreground().color() != amber
+
+
 def test_the_rule_form_picks_a_folder_and_a_site_group(app, tmp_path):
     library = samples.sorting_library()
     library.site_groups.append(rules.SiteGroup("Comic sites", ["getcomics.org"]))
     dialog = RulesDialog([Rule("Comics", [Condition("sites", ["Comic sites"])], target="Comics")], str(tmp_path),
                          library=library)
-    assert dialog.form.folder.currentData() == "Comics" and dialog.form.where.text() == "%default%/Comics"
+    assert dialog.form.folder.currentData() == "Comics" and dialog.form.where.text() == os.path.join(str(tmp_path), "Comics")
     assert dialog.form.sites.values() == ["Comic sites"] and dialog.form.rows == []
     dialog.form.folder.setCurrentIndex(dialog.form.folder.findData("Books"))
     assert dialog.result_rules()[0].target == "Books"
