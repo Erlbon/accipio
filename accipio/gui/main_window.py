@@ -365,7 +365,7 @@ class MainWindow(QMainWindow):
             edit=[MenuAction("paste_links", "&Paste Links", self.paste_links, shortcut="Ctrl+Shift+V"),
                   Separator(),
                   MenuAction("select_all", "Select &All", self.table.selectAll, shortcut="Ctrl+A")],
-            view=[MenuAction(f"show_{name.lower()}", label, lambda n=name: self.set_filter(n), shortcut=f"Ctrl+{i}")
+            view=[MenuAction(f"show_{name.lower()}", label, lambda _=False, n=name: self.set_filter(n), shortcut=f"Ctrl+{i}")
                   for i, (name, label) in enumerate(zip(FILTERS, ("Show A&ll", "Show A&ctive", "Show &Done", "Show &Failed")), 1)],
             app_menus=[AppMenu("&Downloads", [
                 MenuAction("pause", "&Pause", self.pause_selected, shortcut="Space"),

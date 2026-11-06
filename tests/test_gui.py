@@ -128,6 +128,8 @@ def test_progress_completion_and_the_filter_chips(world):
     assert win.proxy.rowCount() == 1 and win.proxy.index(0, NAME).data() == "b.zip"
     win.set_filter("All")
     assert win.proxy.rowCount() == 2
+    win.actions_by_key["show_done"].trigger()             # View > Show Done: "checked" must not become the filter
+    assert win.proxy.rowCount() == 1 and win.chips["Done"].isChecked()
 
 
 def test_why_here_is_the_tooltip(world):
@@ -778,6 +780,18 @@ def test_the_group_lists_offer_only_what_is_not_picked_yet(app, tmp_path):
     picker._fill_menu()
     offered = [a.text().split("  —  ")[0] for a in picker.menu.actions()]
     assert "Comics" not in offered and "Ebooks" in offered and "Video" in offered
+    [ebooks] = [a for a in picker.menu.actions() if a.text().startswith("Ebooks")]
+    ebooks.trigger()                                     # the menu passes "checked": it must not become the name
+    assert picker.values() == ["Comics", "Ebooks"]
+
+
+def test_the_file_group_drop_down_under_more_conditions_adds_the_group(app):
+    row = ConditionRow(Condition("type", ["mkv"]))
+    menu = row.type_menu.menu()
+    menu.aboutToShow.emit()
+    [comics] = [a for a in menu.actions() if a.text().startswith("Comics")]
+    comics.trigger()
+    assert row.condition().values == ["mkv", "Comics"]
 
 
 def test_the_renamer_tries_its_lines_on_a_name(app, tmp_path):

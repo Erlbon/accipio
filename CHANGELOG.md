@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#02 -- View > Show All, Active, Done and Failed work again
+
+- **The View menu's filters (Ctrl+1 to Ctrl+4) crashed** the same way as Add Links: the menu's on/off state was taken for the filter's name. The filter chips above the list were never affected. Tests now click every one of these menu items, and the Rules window's group drop-downs, which turned out fine.
+
 ## 2026-11-06#01 -- File > Add Links works again
 
 - **File > Add Links… (Ctrl+N) crashed** with "setPlainText … unexpected type 'bool'": the menu passed its on/off state along as the text of the Add box. It opens the box again, with the paste bar's links or the clipboard's.
