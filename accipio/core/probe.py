@@ -42,6 +42,17 @@ class ProbeError(RuntimeError):
     """The server said no (404, 403...) or could not be reached; the message is fit to show."""
 
 
+class WebPageError(ProbeError):
+    """The link is a web page, not a file: a file hoster's landing page (often with a captcha) that the file only
+    comes after. Downloading it would save the page under the file's place (decided 2026-11-06, Q59A)."""
+
+
+WEB_PAGE_MESSAGE = ("this link is a web page, not a file: the site wants you to click through it first (often past a "
+                    "captcha). Open it in the browser (Downloads > Open Link in Browser) and download from there.")
+PAGE_TYPES = {"text/html", "application/xhtml+xml"}
+PAGE_EXTENSIONS = {"htm", "html", "xhtml", "shtml", "mht", "mhtml"}
+
+
 @dataclass
 class Probe:
     url: str                       # after redirects
@@ -135,5 +146,9 @@ def probe(url: str, headers: Optional[Dict[str, str]] = None, timeout: float = 1
         elif not ranged and (info.get("Content-Length") or "").isdigit():
             size = int(info["Content-Length"])
         resumable = ranged or (info.get("Accept-Ranges") or "").lower() == "bytes"
-        filename = choose_filename(info.get("Content-Disposition") or "", final_url, mime)
+        disposition = info.get("Content-Disposition") or ""
+        filename = choose_filename(disposition, final_url, mime)
+    if mime in PAGE_TYPES and not filename_from_disposition(disposition) \
+            and rules.split_name(filename_from_url(final_url))[1] not in PAGE_EXTENSIONS:
+        raise WebPageError(WEB_PAGE_MESSAGE)        # a page asked for by name (.html), or handed over as a file, is fine
     return Probe(final_url, filename, mime, size, resumable)

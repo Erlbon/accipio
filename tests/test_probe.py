@@ -42,6 +42,18 @@ def test_a_missing_file_and_an_unreachable_server_say_so(web):
         probe.probe("http://127.0.0.1:9/x", timeout=2)
 
 
+def test_a_web_page_is_not_downloaded_as_if_it_were_the_file(web):
+    """2026-11-06 (Q59A): a file hoster's link (vikingfile) is a page with a captcha; the file comes after it."""
+    with pytest.raises(probe.WebPageError, match="web page, not a file"):
+        probe.probe(web + "/f/bL50z2nyK9")
+    assert issubclass(probe.WebPageError, probe.ProbeError)             # every caller already shows these
+
+
+def test_an_html_file_asked_for_by_name_still_downloads(web):
+    assert probe.probe(web + "/saved/page.html").filename == "page.html"
+    assert probe.probe(web + "/cd-html").filename == "notes.html"     # the server hands it over as a file
+
+
 @pytest.mark.parametrize("disposition, url, mime, name", [
     ("", "https://x.org/a/Report%202024.pdf", "application/pdf", "Report 2024.pdf"),
     ("", "https://x.org/report.2024", "application/pdf", "report.2024.pdf"),

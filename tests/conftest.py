@@ -44,6 +44,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(302, {"Location": "/files/real.zip"})
         if path == "/get.php":
             return self._send(200, {"Content-Type": "application/zip"}, b"PK")
+        if path in ("/f/bL50z2nyK9", "/saved/page.html"):     # a hoster's landing page; an .html file asked for
+            return self._send(200, {"Content-Type": "text/html; charset=UTF-8"}, b"<html><title>x</title></html>")
+        if path == "/cd-html":
+            return self._send(200, {"Content-Type": "text/html", "Content-Disposition": 'attachment; filename="notes.html"'},
+                              b"<html></html>")
         if path == "/folder/":
             return self._send(200, {"Content-Type": "application/x-msdownload"}, b"MZ")
         if path == "/nohead":

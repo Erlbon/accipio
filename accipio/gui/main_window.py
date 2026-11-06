@@ -374,6 +374,7 @@ class MainWindow(QMainWindow):
                 Separator(),
                 MenuAction("open_folder", "Show in &Folder", self.open_folder_of_selected, shortcut="Ctrl+Shift+F"),
                 MenuAction("copy_link", "&Copy Link", self.copy_link_of_selected, shortcut="Ctrl+C"),
+                MenuAction("open_in_browser", "Open Link in &Browser", self.open_link_of_selected),
                 MenuAction("why_here", "&Why Here?", self.why_selected, shortcut="Ctrl+I"),
                 Separator(),
                 MenuAction("remove", labels.REMOVE_FROM_LIST, self.remove_selected, shortcut="Delete"),
@@ -624,6 +625,12 @@ class MainWindow(QMainWindow):
         rows = self.selected_rows()
         if rows:
             QGuiApplication.clipboard().setText("\n".join(r.url for r in rows))
+
+    def open_link_of_selected(self) -> None:
+        """The link in the default browser: for a page Accipio cannot get past (a hoster's captcha, Q59A)."""
+        rows = self.selected_rows()
+        if rows:
+            QDesktopServices.openUrl(QUrl(rows[0].url))
 
     def why_selected(self) -> None:
         rows = self.selected_rows()

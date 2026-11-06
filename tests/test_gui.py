@@ -143,6 +143,27 @@ def test_why_here_is_the_tooltip(world):
     assert "https://a.org/a.zip" in tip and 'Why here: rule 8 "Archives"' in tip
 
 
+def test_a_web_page_link_fails_with_a_way_to_open_it_in_the_browser(world, monkeypatch):
+    from accipio.core import probe
+    from PyQt6.QtGui import QDesktopServices
+    win, engine, prober, base = world
+    page = "https://vik1ngfile.site/f/bL50z2nyK9"
+
+    def landing_page(url, headers=None):
+        raise probe.WebPageError(probe.WEB_PAGE_MESSAGE)
+    monkeypatch.setattr(win.queue, "prober", landing_page)
+    win.paste.setText(page)
+    win.add_from_bar()
+    win.flush()
+    row = win.queue.rows()[0]
+    assert row.state == "error" and "web page, not a file" in row.error and not engine.jobs
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toString()) or True)
+    select(win, 0)
+    win.actions_by_key["open_in_browser"].trigger()
+    assert opened == [page]
+
+
 def test_space_pauses_and_resumes_the_selection(world):
     win, engine, prober, base = world
     add(win, prober, "https://a.org/a.zip", "a.zip")

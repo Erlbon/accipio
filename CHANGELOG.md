@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#07 -- A link that is a web page says so
+
+- **A link that turns out to be a web page is no longer downloaded as if it were the file.** A file hoster's link (vikingfile and the like) is a page you click through first, often past a captcha; Accipio used to save that page under the file's place. The row now fails with "this link is a web page, not a file…", and the Add box shows the same. A page asked for by name (`….html`) or handed over by the server as a file still downloads.
+- **Downloads > Open Link in Browser** (also on the right-click menu) opens a row's link in your browser.
+
 ## 2026-11-06#06 -- A rule's folder is hard to miss
 
 - **The rule list says where each rule sends its files**: "6  Comics  → Comics". A rule that goes to Default, or to a folder that no longer exists (which also means Default), shows in amber.
