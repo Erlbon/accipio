@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#14 -- Check for Updates installs again
+
+- **An installed Accipio only offered "Open Download Page"** since 2026-11-06-04. The shared update code (redactor_common 2026-11-06-01) learned to recognise installed copies on its own and then looked for a file called `accipio-setup-setup.exe`, found none it could verify, and gave up on installing. Accipio now keeps to its own installer flow, so **Update Now** downloads `accipio-setup.exe`, checks it and runs it, as before.
+- Copies of 2026-11-06-04 and 2026-11-06-13 still look for the odd name, so releases from now on also carry the installer under that name; their Check for Updates then installs this one.
+
 ## 2026-11-06#13 -- Examples under the fields, not in them
 
 - **Grey example text inside empty fields looked like real values** (a file group's Names showed `*invoice*, *Vol.??*` although it had none). In the Rules window an empty field now stays empty, and its example is a small grey line under it: folders, file groups, site groups, a rule's name, the conditions under More conditions, and the time window's cron line. The renamer shows one example line under its rows instead of one in every row.

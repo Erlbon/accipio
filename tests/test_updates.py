@@ -39,6 +39,9 @@ def fake_fetch(body):
 def controller(app, tmp_path, installed=True, frozen=True, launched=None, body=None):
     window = QWidget()
     exe = tmp_path / "Accipio" / "Accipio.exe"
+    if installed:                      # as a real install: Inno's uninstaller sits beside the exe, which
+        exe.parent.mkdir(parents=True, exist_ok=True)       # redactor_common 2026-11-06-01 takes as "installed"
+        (exe.parent / "unins000.exe").write_bytes(b"MZ")
     return updates.AccipioUpdates(window, tmp_path / "accipio_updates.json", fetch=fake_fetch(body or answer()),
                                   frozen=frozen, exe=exe,
                                   installed_dir=lambda: str(exe.parent) if installed else "",
@@ -46,6 +49,8 @@ def controller(app, tmp_path, installed=True, frozen=True, launched=None, body=N
 
 
 def test_the_newest_release_offers_the_fixed_name_installer(app, tmp_path):
+    """2026-11-06: with the family code's own installer support, an installed copy looked for
+    "accipio-setup-setup.exe", found nothing it could verify, and only offered the download page."""
     ctl, _ = controller(app, tmp_path)
     release = ctl._latest()
     assert release.asset_name == "accipio-setup.exe" and release.asset_size == 1234 and release.downloadable

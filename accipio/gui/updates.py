@@ -54,8 +54,11 @@ class AccipioUpdates(UpdateController):
     def __init__(self, window, settings_path, *, fetch=None, frozen: Optional[bool] = None, exe=None,
                  installed_dir: Callable[[], str] = installed_dir,
                  launch: Optional[Callable[[List[str]], None]] = None):
+        # installed=False: Accipio runs its own installer flow (can_update, offer, update_to below). Left to itself,
+        # redactor_common (since 2026-11-06-01) sees unins000.exe, appends "-setup" to the slug and looks for
+        # "accipio-setup-setup.exe", finds nothing to verify, and an installed Accipio only got the download page.
         super().__init__(window, APP_NAME, APP_VERSION, APP_REPO_URL, settings_path, fetch=fetch, frozen=frozen,
-                         exe=exe)
+                         exe=exe, installed=False)
         self.slug = SETUP_SLUG
         self._installed_dir = installed_dir
         self._launch = launch or _launch_detached
