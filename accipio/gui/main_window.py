@@ -679,12 +679,15 @@ class MainWindow(QMainWindow):
     def open_rules(self) -> None:
         from accipio.gui.rules_dialog import RulesDialog
         dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self,
-                             library=self.services._holder["library"], archives=self.services.settings.unpack_archives)
+                             library=self.services._holder["library"], archives=self.services.settings.unpack_archives,
+                             after_unpack=self.services.settings.after_unpack)
         if dialog.exec():
             self.apply_rules(dialog.result_rules(), dialog.result_library())
-            base = dialog.result_base_folder()
-            if base != self.services.settings.base_folder:          # the Default folder, edited in Folders
-                self.apply_settings(dataclasses.replace(self.services.settings, base_folder=base))
+            unpack_on, after = dialog.archives_tab.result()
+            changed = dataclasses.replace(self.services.settings, base_folder=dialog.result_base_folder(),
+                                          unpack_archives=unpack_on, after_unpack=after)
+            if changed != self.services.settings:        # the Default folder (Folders) or the Archives tab
+                self.apply_settings(changed)
 
     def apply_rules(self, new_rules: List[rules.Rule], library: Optional[rules.Library] = None) -> None:
         self.services._holder["rules"] = new_rules

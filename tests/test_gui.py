@@ -725,9 +725,10 @@ def test_the_progress_bars_paint_in_every_state(world):
 
 # ---- the rules window's tabs (2026-11-04#02) ------------------------------------------------------------
 
-def test_the_window_has_the_four_tabs_in_setup_order(app, tmp_path):
+def test_the_window_has_the_five_tabs_in_setup_order(app, tmp_path):
     dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
-    assert [dialog.tabs.tabText(i) for i in range(4)] == ["1 · Folders", "2 · File Groups", "3 · Site Groups", "4 · Rules"]
+    assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == [
+        "1 · Folders", "2 · File Groups", "3 · Site Groups", "4 · Rules", "5 · Archives"]
     assert dialog.result_library() == samples.sorting_library()
 
 
@@ -1084,16 +1085,55 @@ def archive_arrives(win, engine, prober, url, files):
     return win.queue.store.get(row.id)
 
 
-def test_the_archive_trial_is_switched_on_in_preferences(world):
+def test_the_archive_trial_is_switched_on_in_the_rules_window(world, monkeypatch):
+    from accipio.gui.rules_dialog import RulesDialog as Dialog
     win, *_ = world
-    dialog = SettingsDialog(win.services.settings, win)
-    assert not dialog.unpack_archives.isChecked()                       # off until he tries it
-    dialog.unpack_archives.setChecked(True)
-    dialog.after_unpack.setCurrentIndex(dialog.after_unpack.findData("delete"))
-    win.apply_settings(dialog.result_settings())
+    assert not hasattr(SettingsDialog(win.services.settings, win), "unpack_archives")   # moved out of Settings
+
+    def edit(dialog):
+        tab = dialog.archives_tab
+        assert dialog.tabs.tabText(dialog.tabs.indexOf(tab)) == "5 · Archives"
+        assert not tab.unpack.isChecked() and not tab.after.isEnabled()            # off until he tries it
+        tab.unpack.setChecked(True)
+        tab.after.setCurrentIndex(tab.after.findData("delete"))
+        return 1
+    monkeypatch.setattr(Dialog, "exec", edit)
+    win.open_rules()
     assert win.queue.unpack_on and win.queue.after_unpack == "delete"
     again = settings.load_settings(win.services.folder)
     assert (again.unpack_archives, again.after_unpack) == (True, "delete")
+
+
+def test_cancel_in_the_rules_window_leaves_the_archive_trial_alone(world, monkeypatch):
+    from accipio.gui.rules_dialog import RulesDialog as Dialog
+    win, *_ = world
+
+    def edit(dialog):
+        dialog.archives_tab.unpack.setChecked(True)
+        return 0
+    monkeypatch.setattr(Dialog, "exec", edit)
+    win.open_rules()
+    assert not win.queue.unpack_on and not settings.load_settings(win.services.folder).unpack_archives
+
+
+def test_the_archives_switch_shows_the_rule_forms_archive_row_at_once(app, tmp_path):
+    dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
+    dialog.list.setCurrentRow(0)
+    assert dialog.form.archives.isHidden()
+    dialog.archives_tab.unpack.setChecked(True)
+    assert not dialog.form.archives.isHidden()
+    dialog.archives_tab.unpack.setChecked(False)
+    assert dialog.form.archives.isHidden()
+
+
+def test_the_archives_tab_lists_the_rules_that_unpack(app, tmp_path):
+    rule_list = samples.sorting_rules()
+    dialog = RulesDialog(rule_list, str(tmp_path), library=samples.sorting_library(), archives=True)
+    assert "No rule says yet" in dialog.archives_tab.by_rules.text()
+    dialog.list.setCurrentRow(2)
+    dialog.form.archives.setCurrentIndex(dialog.form.archives.findData("folder"))
+    dialog.tabs.setCurrentWidget(dialog.archives_tab)
+    assert f"3  {rule_list[2].name}: unpacked as a folder there" in dialog.archives_tab.by_rules.text()
 
 
 def test_a_waiting_archive_shows_its_box_with_the_suggestion_first(world):

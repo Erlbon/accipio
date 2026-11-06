@@ -26,6 +26,7 @@ from accipio.core import cron, probe, rules
 from accipio.core import settings as settings_mod
 from accipio.core.rules import Condition, Download, Rule
 from accipio.gui import style
+from accipio.gui.archives_tab import ArchivesTab
 from accipio.gui.library_tabs import FileGroupsTab, FoldersTab, SiteGroupsTab
 
 KIND_LABELS = [("type", "In file group"), ("sites", "From site group"), ("domain", "Site"), ("name", "Name"),
@@ -645,13 +646,14 @@ class RuleForm(QWidget):
         self.archives = QComboBox()                # the archive trial: what happens to a zip or tar this rule takes
         for key, words in rules.UNPACK_CHOICES.items():
             self.archives.addItem(words.removeprefix("archives "), key)
-        self.archives.setToolTip("Only for .zip and .tar files (Preferences > Archives). \"Sorted\" sends each file "
+        self.archives.setToolTip("Only for .zip and .tar files (the 5 · Archives tab). \"Sorted\" sends each file "
                                  "inside through your rules; what no rule fits goes to this rule's folder.")
         self.archives.currentIndexChanged.connect(self.changed)
         self.archives_label = label("and archives are")
         sentence.addWidget(self.archives_label, 4, 0)
         sentence.addWidget(self.archives, 4, 1, Qt.AlignmentFlag.AlignLeft)
         self.show_archives = archives
+        self._unpack_choice = ""
         sentence.setColumnStretch(1, 1)
         layout.addLayout(sentence)
 
@@ -765,13 +767,22 @@ class RuleForm(QWidget):
         self.fill_folders(rule.target or rules.DEFAULT_FOLDER)
         self.renamer.set_lines(rule.renames)
         self.archives.setCurrentIndex(max(self.archives.findData(rule.unpack), 0))
-        for widget in (self.archives, self.archives_label):         # only with the trial on, or a rule that uses it
-            widget.setVisible(self.show_archives or bool(rule.unpack))
+        self._unpack_choice = rule.unpack
+        self._show_archive_row()
         self.command.setText(rule.command)
         self.more_button.setChecked(bool(more))
         self._loading = False
         self._show_more(bool(more))
         self._check()
+
+    def set_show_archives(self, on: bool) -> None:
+        """The Archives tab's switch: the row follows it at once, not only after the window is reopened."""
+        self.show_archives = on
+        self._show_archive_row()
+
+    def _show_archive_row(self) -> None:
+        for widget in (self.archives, self.archives_label):         # only with the trial on, or a rule that uses it
+            widget.setVisible(self.show_archives or bool(self._unpack_choice))
 
     def rule(self) -> Rule:
         conditions = []
@@ -796,7 +807,7 @@ class RulesDialog(QDialog):
     """Folders, File Groups, Site Groups and Rules, in the order you set them up; the test box under them all."""
 
     def __init__(self, rule_list: List[Rule], base_folder: str, parent=None, library: Optional[rules.Library] = None,
-                 archives: bool = False):
+                 archives: bool = False, after_unpack: str = "keep"):
         super().__init__(parent)
         self.setWindowTitle("Rules")
         self.resize(1020, 760)
@@ -817,8 +828,10 @@ class RulesDialog(QDialog):
         rules_page = QWidget()
         rules_layout = QVBoxLayout(rules_page)
         rules_layout.setContentsMargins(0, 0, 0, 0)
+        self.archives_tab = ArchivesTab(archives, after_unpack, self.result_rules_preview)
         for number, (tab, title) in enumerate(((self.folders_tab, "Folders"), (self.groups_tab, "File Groups"),
-                                                (self.sites_tab, "Site Groups"), (rules_page, "Rules")), 1):
+                                                (self.sites_tab, "Site Groups"), (rules_page, "Rules"),
+                                                (self.archives_tab, "Archives")), 1):
             self.tabs.addTab(tab, f"{number} · {title}")
         self.tabs.currentChanged.connect(self._tab_changed)
         layout.addWidget(self.tabs, 1)
@@ -848,6 +861,7 @@ class RulesDialog(QDialog):
         split.addWidget(left)
         self.form = RuleForm(library_of=self.result_library, archives=archives)
         self.form.changed.connect(self._form_changed)
+        self.archives_tab.toggled.connect(self.form.set_show_archives)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -933,7 +947,7 @@ class RulesDialog(QDialog):
 
     def _tab_changed(self, *_):
         page = self.tabs.currentWidget()
-        if page in (self.folders_tab, self.groups_tab, self.sites_tab):
+        if page in (self.folders_tab, self.groups_tab, self.sites_tab, self.archives_tab):
             page.refresh()                                       # "used by" after rule edits
         elif self.current is not None:
             self.form.load(self.current.data(Qt.ItemDataRole.UserRole))   # folder list after Folders edits

@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#05 -- Archives get a tab of their own in the Rules window
+
+- **Rules > 5 · Archives** now holds the archive trial: the switch for looking inside zips and tars, what happens to an archive once its files are out, and a list of the rules that already say what to do with one. It was under Settings, where it was hard to find; Settings now only points to the tab.
+- Switching the trial on shows each rule's "and archives are" choice at once, without reopening the window. Cancel leaves the trial as it was.
+
 ## 2026-11-06#04 -- shared part moves to redactor_common 2026-11-06#01
 
 - redactor_common's menu items no longer pass Qt's "checked" flag into the action they call. That flag is what crashed File > Add Links and View > Show Done (fixed here in #01 and #02); now no menu item can hit it again. No visible change.

@@ -17,7 +17,7 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
    `chrome://extensions`, switch on **Developer mode**, choose **Load unpacked** and pick the
    `_internal\extension` folder in the Accipio folder. Clicked downloads now go to Accipio; the extension's
    toolbar button switches that off and on.
-3. Set up where things go under **Tools > Rules**, in four tabs, in this order:
+3. Set up where things go under **Tools > Rules**, in five tabs, in this order:
    - **Folders**: first **Default**, where everything goes unless a rule picks another folder; point it at a
      folder of your choice. Then your own named places, written under Default (`Comics` = `%default%\Comics`) or
      as a full path (`D:\Comics\_Inbox\{yyyy}-{MM}`). Rules pick a folder by name, so moving one here moves every
@@ -30,11 +30,13 @@ yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the
      source, video channel) are under **More conditions**. Last comes an optional renamer: lines of "if the name
      contains *this regular expression*, rename to *that*"; the first line that fits renames the file, and with
      none the name is kept. Rules are tried from the top and **the first rule that fits wins**.
+   - **Archives** (trial): the switch for looking inside zips and tars, what happens to an archive once its
+     files are out, and which rules already say what to do with one.
 
    A whole series can be pasted as one link: `https://x.org/saga-[001-150].cbz`, `page[1-20:2].jpg`,
    `[a-z].pdf` or `{intro,main}.mp3`. It opens in the Add box as one folded row, with every link checked first.
 
-   **Archives (trial, off until switched on under Settings > Archives):** a finished `.zip` or `.tar` shows what is
+   **Archives (trial, off until switched on under Rules > 5 · Archives):** a finished `.zip` or `.tar` shows what is
    inside and offers **Unpack as a folder in** a folder of your choice, **Sort them** by your rules, or **Keep packed**,
    with a suggestion and a preview of where each file goes. Tick "Do this every time" to make it a rule; Undo takes
    an unpack back. Files that are zips underneath (`.cbz`, `.epub`, `.docx`) are never opened.
