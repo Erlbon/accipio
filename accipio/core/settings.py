@@ -40,6 +40,7 @@ class Settings:
     browser_connected: bool = False       # the extension has talked to Accipio once; until then a start shows how
     unpack_archives: bool = False         # the archive trial (2026-11-05): look inside zips and tars, ask what to do
     after_unpack: str = "keep"            # or "delete" (the archive goes to the Recycle Bin)
+    ffmpeg_path: str = ""                 # picked with Browse… under Settings; empty = find it (video.find_ffmpeg)
 
     def notice_kinds(self) -> List[str]:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),

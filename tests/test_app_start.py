@@ -35,3 +35,50 @@ def test_ffmpeg_installed_by_winget_is_found(tmp_path, monkeypatch):
     monkeypatch.setattr(video.sys, "executable", str(tmp_path / "python" / "python.exe"))
     found = video.find_ffmpeg()
     assert found is not None and Path(found).parent == links
+    mine = tmp_path / "tools" / video.FFMPEG_NAME
+    mine.parent.mkdir()
+    mine.write_bytes(b"")
+    assert video.find_ffmpeg(str(mine)) == str(mine)                        # picked under Settings: it wins
+    assert video.find_ffmpeg(str(tmp_path / "gone" / "ffmpeg.exe")) == found   # picked, then deleted: search again
+
+
+class FakeWinget:
+    """Stands in for subprocess.Popen running winget: writes ``output`` to its stdout file, exits with ``code``."""
+
+    def __init__(self, code=0, output=b"Successfully installed", runs_until=0):
+        self.code, self.output, self.runs_until = code, output, runs_until
+        self.calls, self.killed, self.polls = [], False, 0
+
+    def __call__(self, args, stdout=None, **kwargs):
+        self.calls.append(args)
+        stdout.write(self.output)
+        return self
+
+    def poll(self):
+        self.polls += 1
+        return None if self.polls <= self.runs_until and not self.killed else self.code
+
+    def kill(self):
+        self.killed = True
+
+
+def test_install_ffmpeg_runs_winget_quietly_and_reports_its_failure(tmp_path):
+    ok = FakeWinget()
+    video.install_ffmpeg(winget_exe="winget.exe", popen=ok)
+    assert ok.calls == [["winget.exe", "install", "--id", "Gyan.FFmpeg", "--exact", "--silent",
+                         "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"]]
+    with pytest.raises(video.FfmpegInstallError, match="No package found"):
+        video.install_ffmpeg(winget_exe="winget.exe", popen=FakeWinget(code=1, output=b"...\nNo package found"))
+
+
+def test_install_ffmpeg_stops_winget_on_cancel_and_says_when_winget_is_missing(monkeypatch):
+    import threading
+    cancel = threading.Event()
+    cancel.set()
+    slow = FakeWinget(runs_until=1000)
+    with pytest.raises(video.FfmpegInstallCancelled):
+        video.install_ffmpeg(cancel=cancel, winget_exe="winget.exe", popen=slow)
+    assert slow.killed
+    monkeypatch.setattr(video, "find_winget", lambda: None)
+    with pytest.raises(video.FfmpegInstallError, match="winget"):
+        video.install_ffmpeg(popen=FakeWinget())

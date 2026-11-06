@@ -1,9 +1,11 @@
 """The window and the rules editor, offscreen, with the fake engine and prober from the queue tests."""
+import dataclasses
 import datetime
 import json
 import os
 import re
 import threading
+import types
 
 import pytest
 
@@ -908,6 +910,70 @@ def test_the_daily_update_check_is_a_preference(world, monkeypatch):
     win.open_settings()
     assert win.updates.settings.enabled is True
     assert os.path.isfile(os.path.join(win.services.folder, mw.UPDATES_FILE))
+
+
+class FakeFfmpeg:
+    """Where ffmpeg is "on this PC": a file picked by the user wins, else what an install put in ``installed``."""
+
+    def __init__(self, tmp_path):
+        self.installed = tmp_path / "winget" / "ffmpeg.exe"
+        self.installs = 0
+
+    def find(self, chosen=""):
+        if chosen and os.path.isfile(chosen):
+            return chosen
+        return str(self.installed) if self.installed.is_file() else None
+
+    def install(self, parent):
+        self.installs += 1
+        self.installed.parent.mkdir(parents=True, exist_ok=True)
+        self.installed.write_bytes(b"MZ")
+        return None                                         # no error
+
+
+def ffmpeg_row(dialog):
+    shown = [b.text() for b in (dialog.ffmpeg_install, dialog.ffmpeg_browse, dialog.ffmpeg_auto) if not b.isHidden()]
+    return dialog.ffmpeg_label.text(), shown
+
+
+def test_settings_say_when_ffmpeg_is_missing_and_offer_to_install_it(world, tmp_path):
+    win = world[0]
+    fake = FakeFfmpeg(tmp_path)
+    dialog = SettingsDialog(win.services.settings, win, find_ffmpeg=fake.find, install_ffmpeg=fake.install)
+    text, buttons = ffmpeg_row(dialog)
+    assert text.startswith("Not found") and buttons == ["Install ffmpeg", "Browse…"]
+    dialog.ffmpeg_install.click()
+    assert fake.installs == 1
+    assert ffmpeg_row(dialog) == (str(fake.installed), ["Browse…"])       # found at once, no restart
+    assert dialog.result_settings().ffmpeg_path == ""                       # found by itself: nothing to remember
+
+
+def test_a_browsed_ffmpeg_is_kept_until_find_automatically(world, tmp_path):
+    win = world[0]
+    fake = FakeFfmpeg(tmp_path)
+    mine = tmp_path / "tools" / "ffmpeg.exe"
+    mine.parent.mkdir()
+    mine.write_bytes(b"MZ")
+    dialog = SettingsDialog(win.services.settings, win, find_ffmpeg=fake.find, install_ffmpeg=fake.install)
+    dialog._ask_for_ffmpeg = lambda: str(mine)
+    dialog.ffmpeg_browse.click()
+    assert ffmpeg_row(dialog) == (str(mine), ["Browse…", "Find automatically"])
+    assert dialog.result_settings().ffmpeg_path == str(mine)
+    dialog._ask_for_ffmpeg = lambda: ""                                     # Cancel in the file picker changes nothing
+    dialog.ffmpeg_browse.click()
+    assert dialog.result_settings().ffmpeg_path == str(mine)
+    dialog.ffmpeg_auto.click()
+    assert ffmpeg_row(dialog)[1] == ["Install ffmpeg", "Browse…"] and dialog.result_settings().ffmpeg_path == ""
+
+
+def test_the_video_engine_uses_the_ffmpeg_from_settings_at_once(world, tmp_path):
+    win = world[0]
+    mine = tmp_path / "ffmpeg.exe"
+    mine.write_bytes(b"MZ")
+    win.services.video_engine = types.SimpleNamespace(ffmpeg=None, quality="best", set_limits=lambda **_: None)
+    win.apply_settings(dataclasses.replace(win.services.settings, ffmpeg_path=str(mine)))
+    assert win.services.video_engine.ffmpeg == str(mine)
+    assert settings.load_settings(win.services.folder).ffmpeg_path == str(mine)
 
 
 def test_a_new_folder_starts_under_default_and_default_is_a_reserved_name(app, tmp_path):

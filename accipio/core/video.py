@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import functools
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -33,11 +36,14 @@ QUALITIES = {"best": "Best", "1080": "Up to 1080p", "720": "Up to 720p", "audio"
 FFMPEG_NAME = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
 
 
-def find_ffmpeg() -> Optional[str]:
-    """ffmpeg the way the Redactor apps find it (redactor_common's ``find_tool``, as videoredactor does): a
-    bundled copy (``ffmpeg/`` next to a frozen exe, or the checkout's ``bin/ffmpeg``), then PATH, then the
-    usual Windows install folders, including winget's Links folder (where the installer's ffmpeg option puts it; a
-    PATH change there reaches only programs started afterwards)."""
+def find_ffmpeg(chosen: str = "") -> Optional[str]:
+    """The ffmpeg picked under Settings (``chosen``) while that file is there; else ffmpeg the way the Redactor
+    apps find it (redactor_common's ``find_tool``, as videoredactor does): a bundled copy (``ffmpeg/`` next to a
+    frozen exe, or the checkout's ``bin/ffmpeg``), then PATH, then the usual Windows install folders, including
+    winget's Links folder (where the installer's ffmpeg option and Settings' Install ffmpeg put it; a PATH change
+    there reaches only programs started afterwards)."""
+    if chosen and os.path.isfile(chosen):
+        return chosen
     from redactor_common.core.tool_locator import find_tool, windows_program_dirs
     bundled = Path(sys.executable).parent / "ffmpeg" if getattr(sys, "frozen", False) \
         else Path(__file__).resolve().parents[2] / "bin" / "ffmpeg"
@@ -46,6 +52,50 @@ def find_ffmpeg() -> Optional[str]:
         install_dirs.append(Path(os.environ["LOCALAPPDATA"]) / "Microsoft" / "WinGet" / "Links")
     found = find_tool(FFMPEG_NAME, tools_dir=bundled, install_dirs=install_dirs)
     return str(found) if found else None
+
+
+# The same command as the installer's ffmpeg option (installer/accipio.iss).
+WINGET_FFMPEG = ("install", "--id", "Gyan.FFmpeg", "--exact", "--silent", "--accept-package-agreements",
+                 "--accept-source-agreements", "--disable-interactivity")
+
+
+class FfmpegInstallError(Exception):
+    pass
+
+
+class FfmpegInstallCancelled(Exception):
+    pass
+
+
+def find_winget() -> Optional[str]:
+    """winget is an app alias in WindowsApps, which a plain PATH search can miss."""
+    alias = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WindowsApps", "winget.exe")
+    return alias if os.path.isfile(alias) else shutil.which("winget")
+
+
+def install_ffmpeg(cancel: Optional[threading.Event] = None, winget_exe: Optional[str] = None,
+                   popen: Callable[..., Any] = subprocess.Popen) -> None:
+    """Install ffmpeg with winget (Settings > Install ffmpeg), without a console window. Raises
+    FfmpegInstallError with winget's last words when it fails (it also "fails" when ffmpeg is already installed,
+    so the caller looks with find_ffmpeg first), FfmpegInstallCancelled when ``cancel`` is set."""
+    exe = winget_exe or find_winget()
+    if not exe:
+        raise FfmpegInstallError("winget is not on this PC. Install ffmpeg yourself (ffmpeg.org), then pick "
+                                 "ffmpeg.exe with Browse….")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with tempfile.TemporaryFile() as output:                 # a file, not a pipe: winget's output cannot fill it up
+        process = popen([exe, *WINGET_FFMPEG], stdout=output, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, creationflags=flags)
+        while process.poll() is None:
+            if cancel is not None and cancel.is_set():
+                process.kill()
+                raise FfmpegInstallCancelled()
+            time.sleep(0.2)
+        if process.poll() != 0:
+            output.seek(0)
+            lines = [line.strip() for line in output.read().decode("utf-8", "replace").splitlines() if line.strip()]
+            raise FfmpegInstallError("winget could not install ffmpeg: " + (lines[-1] if lines else
+                                                                             f"exit code {process.poll()}"))
 
 
 @functools.lru_cache(maxsize=1)

@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#03 -- ffmpeg under Settings
+
+- **Settings has an ffmpeg row** under "Video sites". It shows the ffmpeg Accipio uses, or says in amber that none was found and what that costs (lower quality from video sites, no mp3).
+- **Install ffmpeg** (shown only when none is found) installs it with winget, the same way the installer offers to, under a progress box whose Cancel stops it. The row and the video downloads use it at once, without a restart.
+- **Browse…** picks an `ffmpeg.exe` of your own; **Find automatically** (shown only while one is picked) goes back to searching. A picked file that is later deleted is ignored and the search takes over.
+- The greyed-out ffmpeg line at the bottom of Settings is gone.
+
 ## 2026-11-06#02 -- View > Show All, Active, Done and Failed work again
 
 - **The View menu's filters (Ctrl+1 to Ctrl+4) crashed** the same way as Add Links: the menu's on/off state was taken for the filter's name. The filter chips above the list were never affected. Tests now click every one of these menu items, and the Rules window's group drop-downs, which turned out fine.

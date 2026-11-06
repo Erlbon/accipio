@@ -96,7 +96,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
                              connections=current.connections).start()
     if video_engine is None:
         from accipio.core import video
-        video_engine = video.VideoEngine(video.find_ffmpeg(), max_downloads=current.max_downloads,
+        video_engine = video.VideoEngine(video.find_ffmpeg(current.ffmpeg_path), max_downloads=current.max_downloads,
                                          quality=current.video_quality)
         video_prober = video_prober or video.make_prober(video_engine)
     library = settings_mod.load_library(folder)
@@ -700,6 +700,14 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.updates.settings.update(**{KEY_CHECK_FOR_UPDATES: dialog.check_updates.isChecked()})
             self.apply_settings(dialog.result_settings())
+        else:
+            self._use_ffmpeg(self.services.settings.ffmpeg_path)     # Install ffmpeg counts even after Cancel
+
+    def _use_ffmpeg(self, chosen: str) -> None:
+        """Videos added from now on use this ffmpeg (or the one found), without a restart."""
+        if self.services.video_engine is not None:
+            from accipio.core import video
+            self.services.video_engine.ffmpeg = video.find_ffmpeg(chosen)
 
     def apply_settings(self, new: settings_mod.Settings) -> None:
         self.services.settings = new
@@ -715,6 +723,7 @@ class MainWindow(QMainWindow):
                 self.run(engine.set_limits, max_downloads=new.max_downloads)
         if self.services.video_engine is not None:
             self.services.video_engine.quality = new.video_quality
+        self._use_ffmpeg(new.ffmpeg_path)
         self.statusBar().showMessage("Settings saved.", 4000)
 
     # ---- updating yt-dlp -------------------------------------------------------------------------------------

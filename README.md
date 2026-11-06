@@ -59,7 +59,9 @@ YouTube and most big video sites send picture and sound separately; ffmpeg joins
 bundle it, but the installer offers to fetch it with winget when none is found. Without ffmpeg you get the best single file the site offers (often lower quality), and "Audio
 only" keeps the site's own sound format instead of mp3. To get full quality, install ffmpeg once, for
 example with `winget install Gyan.FFmpeg`, or put `ffmpeg.exe` in a folder named `ffmpeg` next to
-`Accipio.exe`. Accipio also finds it on PATH and in the usual install folders.
+`Accipio.exe`. Accipio also finds it on PATH and in the usual install folders. **Settings > ffmpeg** shows which one
+it uses, installs it with winget when none is found (**Install ffmpeg**), and lets you pick your own `ffmpeg.exe`
+(**Browse…**; **Find automatically** goes back to searching).
 
 ### Keeping video sites working
 
