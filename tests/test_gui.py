@@ -1021,6 +1021,80 @@ def test_the_daily_update_check_is_a_preference(world, monkeypatch):
     assert os.path.isfile(os.path.join(win.services.folder, mw.UPDATES_FILE))
 
 
+def ask_row(win, kind, count=49, title="Conference 2026", mix=False):
+    ask = {"kind": kind, "count": count, "title": title, "mix": mix, "links": []}
+    video = {"title": "Song", "ask": ask} if kind == "rest" else {"ask": ask}
+    return win.queue.store.add("https://www.youtube.com/watch?v=1&list=RD1", state=PAUSED, source="video",
+                               video=video, filename="Song.mp4" if kind == "rest" else "")
+
+
+def test_a_video_from_a_playlist_asks_with_just_this_video_as_the_default(world, monkeypatch):
+    win = world[0]
+    answers = []
+    monkeypatch.setattr(win.queue, "answer_playlist", lambda row_id, take_all: answers.append((row_id, take_all)))
+    row_id = ask_row(win, "rest")
+    win.reload()
+    box = win.playlist_question
+    assert box.isVisible() and box.row_id == row_id
+    assert "part of a playlist" in box.heading.text() and "Song" in box.detail.text()
+    assert "Conference 2026: 49 videos" in box.detail.text()
+    assert (box.take_all.text(), box.just_one.text()) == ("All 49 videos", "Just this video")
+    assert box.just_one.isDefault() and not box.never.isHidden()
+    box.just_one.click()
+    win.flush()
+    assert answers == [(row_id, False)] and not box.isVisible()
+
+
+def test_never_asking_again_is_saved_and_reaches_the_queue(world, monkeypatch):
+    win = world[0]
+    monkeypatch.setattr(win.queue, "answer_playlist", lambda row_id, take_all: None)
+    ask_row(win, "rest")
+    win.reload()
+    win.playlist_question.never.setChecked(True)
+    win.playlist_question.just_one.click()
+    win.flush()
+    assert win.services.settings.ask_playlists is False and win.queue.ask_playlists is False
+    assert settings.load_settings(win.services.folder).ask_playlists is False
+
+
+def test_a_playlist_link_asks_before_downloading_all_of_it(world, monkeypatch):
+    win = world[0]
+    answers = []
+    monkeypatch.setattr(win.queue, "answer_playlist", lambda row_id, take_all: answers.append((row_id, take_all)))
+    row_id = ask_row(win, "list", count=12, title="My list", mix=False)
+    win.reload()
+    box = win.playlist_question
+    assert "whole playlist" in box.heading.text() and "My list" in box.detail.text() and "12" in box.detail.text()
+    assert (box.take_all.text(), box.just_one.text()) == ("Download all 12", "Don't download")
+    assert box.just_one.isDefault() and box.never.isHidden()                 # "always just the video" has no meaning here
+    box.take_all.click()
+    win.flush()
+    assert answers == [(row_id, True)]
+
+
+def test_a_playlist_added_from_the_add_box_counts_as_the_yes(world, monkeypatch):
+    from accipio.core.queue import Preview
+    from accipio.core.rules import Placement
+    win = world[0]
+    added = []
+    monkeypatch.setattr(win.queue, "preview", lambda url, **_: Preview(
+        url, "Playlist: 2 videos", None, "playlist", Placement(win.services.settings.base_folder, "x", [], []), 2))
+    monkeypatch.setattr(win.queue, "add", lambda url, **kw: added.append((url, kw.get("whole_list"))) or 1)
+    open_box(win, "https://www.youtube.com/playlist?list=P", lambda dialog: True)
+    win.flush()
+    assert added == [("https://www.youtube.com/playlist?list=P", True)]
+
+
+def test_settings_can_switch_the_playlist_question_back_on(world):
+    win = world[0]
+    win.apply_settings(dataclasses.replace(win.services.settings, ask_playlists=False))
+    dialog = SettingsDialog(win.services.settings, win)
+    assert not dialog.ask_playlists.isChecked()
+    dialog.ask_playlists.setChecked(True)
+    win.apply_settings(dialog.result_settings())
+    assert win.queue.ask_playlists is True
+
+
 class FakeFfmpeg:
     """Where ffmpeg is "on this PC": a file picked by the user wins, else what an install put in ``installed``."""
 

@@ -90,6 +90,11 @@ class SettingsDialog(QDialog):
         ffmpeg_row.addStretch(1)
         form.addRow("ffmpeg", ffmpeg_row)
         self._show_ffmpeg()
+        self.ask_playlists = QCheckBox("When a video link comes from a playlist, offer the rest of the playlist")
+        self.ask_playlists.setToolTip("Off: such a link is just that video. A link to a playlist itself always asks "
+                                      "before anything downloads.")
+        self.ask_playlists.setChecked(current.ask_playlists)
+        form.addRow("Playlists", self.ask_playlists)
         self.keep_history = QCheckBox("Keep finished downloads in the list after a restart")
         self.keep_history.setChecked(current.keep_history)
         form.addRow("History", self.keep_history)
@@ -165,4 +170,5 @@ class SettingsDialog(QDialog):
                                    video_quality=self.video_quality.currentData(),
                                    notify_added=self.notify_added.isChecked(),
                                    notify_finished=self.notify_finished.isChecked(),
-                                   notify_failed=self.notify_failed.isChecked(), ffmpeg_path=self.ffmpeg_path)
+                                   notify_failed=self.notify_failed.isChecked(), ffmpeg_path=self.ffmpeg_path,
+                                   ask_playlists=self.ask_playlists.isChecked())

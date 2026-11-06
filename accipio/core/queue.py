@@ -12,8 +12,15 @@ A server that cannot resume makes resuming after a pause fail; the queue then st
 itself (a few times at most).
 
 Links to video sites (when a video engine and prober are given) go to yt-dlp instead of aria2: the site is
-asked for title, channel, uploader and playlist, which the rules can use. A playlist becomes one row per
-video. Each row remembers its engine through ``source`` ("direct" or "video").
+asked for title, channel, uploader and playlist, which the rules can use. Each row remembers its engine
+through ``source`` ("direct" or "video").
+
+A playlist is never downloaded without a yes (decided 2026-11-06, 57 A+C, 58D). A link to a list itself waits
+as one paused row with ``video["ask"]`` until ``answer_playlist``; yes makes it one row per video. A video link
+that carries a list (``watch?v=…&list=…``) downloads just that video at once, and the list is then looked up
+and offered the same way (``ask_playlists`` off: never offered). A YouTube Mix (``list=RD…``, a radio list
+YouTube keeps making) is never offered: such a link is just its video (59B). The window shows the question. Adding with
+``whole_list`` (the Add box, where the user ticked the playlist row) is the yes in advance.
 
 The probe makes a network request, so ``add`` and ``preview`` belong on a worker thread, not the window's.
 """
@@ -23,10 +30,11 @@ import dataclasses
 import datetime
 import os
 import shutil
+import threading
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from accipio.core import aria2, probe, rules, sniff, unpack, zone
+from accipio.core import aria2, probe, rules, sniff, unpack, video, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
@@ -48,6 +56,15 @@ def share_speed(total: int, direct: int, video: int) -> Tuple[int, int]:
         return total, total
     direct_share = max(1, total * direct // (direct + video))
     return direct_share, max(1, total - direct_share)
+
+
+def _video_id(url: str) -> str:
+    """The video a YouTube link points at (``v=`` or the youtu.be path), to keep one video from being added twice."""
+    import urllib.parse
+    parts = urllib.parse.urlsplit(url)
+    if parts.netloc.lower().endswith("youtu.be"):
+        return parts.path.strip("/")
+    return (urllib.parse.parse_qs(parts.query).get("v") or [url])[0]
 
 
 @dataclass
@@ -82,6 +99,11 @@ class Queue:
         self._shares: Dict[str, int] = {}
         self.unpack_on = False                           # the archive trial (Preferences); off: archives are files
         self.after_unpack = "keep"                       # or "delete": the archive goes to the Recycle Bin
+        self.ask_playlists = True                        # offer the rest of a list a video link carries (Settings)
+        # Looking a list up can take many seconds (a YouTube Mix: 16 s for 371 videos), so it runs beside the
+        # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
+        self.in_background: Callable[..., None] = \
+            lambda fn, *args: threading.Thread(target=fn, args=args, daemon=True, name="accipio-list").start()
         if not keep_history:
             store.forget_finished()
         self._reconcile()
@@ -96,6 +118,8 @@ class Queue:
         are started again (paused ones stay paused): yt-dlp continues from its .part file."""
         known = {s.gid for s in self.engine.all()}
         for row in self.store.rows(UNFINISHED):
+            if row.video.get("ask") and not row.gid:
+                continue                                  # a playlist link still waiting for its yes or no
             if row.state != PROBING and row.source == "video" and self.engines["video"] is not None and row.filename:
                 gid = self.engines["video"].add(row.url, row.folder, row.filename,
                                                 headers=[f"{k}: {v}" for k, v in row.headers.items()],
@@ -134,10 +158,12 @@ class Queue:
         return Preview(url, placement.filename, found.size, "file", placement)
 
     def add(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None,
-            folder: str = "", filename: str = "") -> int:
-        """Queue a link. ``folder`` and ``filename`` are the Add box's overrides (empty = the rules decide)."""
+            folder: str = "", filename: str = "", whole_list: bool = False) -> int:
+        """Queue a link. ``folder`` and ``filename`` are the Add box's overrides (empty = the rules decide);
+        ``whole_list``: a playlist was approved already, so no question."""
         row_id = self.store.add(url, page_url=page_url, headers=headers or {}, state=PROBING, pinned=bool(folder),
-                                added=self.clock().isoformat(timespec="seconds"))
+                                added=self.clock().isoformat(timespec="seconds"),
+                                video={"whole_list": True} if whole_list else {})
         self._start(row_id, folder=folder, filename=filename)
         return row_id
 
@@ -147,7 +173,8 @@ class Queue:
         try:
             found_video = None
             if self.video_prober:
-                found_video = self.video_prober(row.url, headers=row.headers, playlist=row.video.get("playlist", ""))
+                found_video = self.video_prober(row.url, headers=row.headers, playlist=row.video.get("playlist", ""),
+                                                whole_list=bool(row.video.get("whole_list")))
             if found_video is not None:
                 self._start_video(row_id, found_video, folder, filename)
                 return
@@ -172,16 +199,20 @@ class Queue:
                           rules=placement.rule_numbers, why=why)
 
     def _start_video(self, row_id: int, found: VideoProbe, folder: str, filename: str) -> None:
-        if found.entries is not None:                     # a playlist: this row becomes its first video
+        if found.entries is not None:                     # a playlist: after a yes, this row becomes its first video
             if not found.entries:
                 self.store.update(row_id, state=ERROR, error="The playlist is empty.")
                 return
             row = self.store.get(row_id)
-            video = {"playlist": found.playlist} if found.playlist else {}
+            if not row.video.get("whole_list"):
+                self.store.update(row_id, state=PAUSED, source="video",
+                                  video={"ask": self._list_question("list", row.url, found)})
+                return
+            listed = {"playlist": found.playlist} if found.playlist else {}
             ids = [row_id] + [self.store.add(link, page_url=row.page_url, headers=row.headers, state=PROBING,
-                                             source="video", video=video, pinned=row.pinned, added=row.added)
+                                             source="video", video=listed, pinned=row.pinned, added=row.added)
                               for link in found.entries[1:]]
-            self.store.update(row_id, url=found.entries[0], source="video", video=video)
+            self.store.update(row_id, url=found.entries[0], source="video", video=listed)
             for each in ids:
                 self._start(each, folder=folder)
             return
@@ -201,6 +232,58 @@ class Queue:
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime="", size=found.size,
                           total=found.size or 0, done=0, resumable=True, rules=placement.rule_numbers, why=why)
+        if self.ask_playlists and video.carries_a_list(row.url) and not video.is_mix(row.url):
+            self.in_background(self._offer_the_list, row_id)      # a Mix is YouTube's endless radio: not offered (59B)
+
+    # ---- playlists: only with a yes --------------------------------------------------------------------------
+
+    @staticmethod
+    def _list_question(kind: str, url: str, found: VideoProbe) -> dict:
+        title = found.playlist or found.title
+        return {"kind": kind, "count": len(found.entries or []), "title": title, "mix": video.is_mix(url),
+                "links": list(found.entries or [])}
+
+    def _offer_the_list(self, row_id: int) -> None:
+        """The video is on its way; now see how big the list it came with is, so the window can offer the rest.
+        A list that cannot be read is simply not offered."""
+        row = self.store.get(row_id)
+        try:
+            found = self.video_prober(row.url, headers=row.headers, whole_list=True)
+        except Exception:                                 # a thread of its own: nothing may escape it
+            return
+        if found is None or not found.entries or len(found.entries) < 2:
+            return
+        row = self.store.get(row_id)                      # read again: the download went on meanwhile
+        if row is not None:
+            self.store.update(row_id, video={**row.video, "ask": self._list_question("rest", row.url, found)})
+
+    def answer_playlist(self, row_id: int, take_all: bool) -> None:
+        """The user's answer. A list link: yes = one row per video, no = the row goes. A video's list: yes = the
+        other videos are added, no = nothing more."""
+        row = self.store.get(row_id)
+        ask = row.video.get("ask") if row else None
+        if not ask:
+            return
+        rest = {k: v for k, v in row.video.items() if k != "ask"}
+        folder = row.folder if row.pinned else ""
+        if ask["kind"] == "list":
+            if not take_all:
+                self.remove(row_id)
+                return
+            self.store.update(row_id, video={**rest, "whole_list": True})
+            self._start_video(row_id, VideoProbe(row.url, ask["title"], playlist=ask["title"], entries=ask["links"]),
+                              folder, "")
+            return
+        self.store.update(row_id, video=rest)
+        if not take_all:
+            return
+        mine = _video_id(row.url)
+        listed = {"playlist": ask["title"]} if ask["title"] else {}
+        for link in ask["links"]:
+            if _video_id(link) != mine:
+                new = self.store.add(link, page_url=row.page_url, headers=row.headers, state=PROBING, source="video",
+                                     video=listed, pinned=row.pinned, added=row.added)
+                self._start(new, folder=folder)
 
     def _free(self, folder: str, filename: str, row_id: int) -> str:
         """A name nothing has: not a file on disk, and not another unfinished download into the same folder."""
@@ -423,7 +506,7 @@ class Queue:
 
     def resume(self, row_id: int) -> None:
         row = self.store.get(row_id)
-        if row and row.state == PAUSED:
+        if row and row.state == PAUSED and row.gid:          # a playlist waiting for its yes has nothing to resume
             self.engine_of(row).resume(row.gid)
             self.store.update(row_id, state=ACTIVE)
 

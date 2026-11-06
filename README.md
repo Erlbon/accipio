@@ -65,6 +65,12 @@ example with `winget install Gyan.FFmpeg`, or put `ffmpeg.exe` in a folder named
 it uses, installs it with winget when none is found (**Install ffmpeg**), and lets you pick your own `ffmpeg.exe`
 (**Browse…**; **Find automatically** goes back to searching).
 
+### Playlists
+
+A playlist is never downloaded without your yes. A video link that comes from a playlist
+(`watch?v=…&list=…`) is just that video, and Accipio asks whether you also want the rest; a YouTube Mix
+(`list=RD…`) is only ever its video. A link to a playlist itself waits until you say **Download all**.
+
 ### Keeping video sites working
 
 Video sites change often. **Tools > Update yt-dlp** fetches the newest yt-dlp without a new Accipio

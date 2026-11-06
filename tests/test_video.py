@@ -229,10 +229,19 @@ def test_real_probe_of_a_plain_video_link(web):
 # ---- the queue routes video links ------------------------------------------------------------------------
 
 class FakeVideoProber:
+    """``answers``: what a link is on its own (yt-dlp's noplaylist); ``lists``: what it is when the whole list is
+    asked for (a video link that carries a list)."""
+
     def __init__(self):
         self.answers = {}
+        self.lists = {}
+        self.list_calls = []
 
-    def __call__(self, url, headers=None, playlist=""):
+    def __call__(self, url, headers=None, playlist="", whole_list=False):
+        if whole_list:
+            self.list_calls.append(url)
+            if url in self.lists:
+                return self.lists[url]
         answer = self.answers.get(url)
         if answer is None:
             return None
@@ -248,6 +257,7 @@ def world(tmp_path):
     rule_list = samples.sorting_rules()
     q = Queue(Store(str(tmp_path / "q.db")), direct, lambda: rule_list, base, prober=prober, clock=lambda: TUE_1014,
               video_engine=videos, video_prober=vprober, library_set=samples.sorting_library)
+    q.in_background = lambda fn, *args: fn(*args)            # the list lookup, in place
     return q, direct, videos, prober, vprober, base, rule_list
 
 
@@ -270,18 +280,157 @@ def test_rules_can_use_the_channel(world, tmp_path):
     assert q.store.get(q.add(url)).folder == os.path.join(str(tmp_path), "XYZ", "2026")
 
 
-def test_a_playlist_becomes_one_row_per_video(world):
-    q, direct, videos, prober, vprober, base, rule_list = world
-    rule_list.insert(0, rules.Rule("Lists", [rules.Condition("source", ["video"])], subfolder="Lists/{playlist}"))
-    links = [f"https://www.youtube.com/watch?v={n}" for n in range(3)]
-    vprober.answers["https://www.youtube.com/playlist?list=P"] = VideoProbe("p", "My list", playlist="My list", entries=links)
+PLAYLIST = "https://www.youtube.com/playlist?list=P"
+
+
+def serve_list(vprober, count=3):
+    links = [f"https://www.youtube.com/watch?v={n}" for n in range(count)]
+    vprober.answers[PLAYLIST] = VideoProbe("p", "My list", playlist="My list", entries=links)
     for n, link in enumerate(links):
         vprober.answers[link] = VideoProbe(link, f"Part {n}", "mp4", uploader="xyz")
-    q.add("https://www.youtube.com/playlist?list=P")
+    return links
+
+
+def test_a_playlist_link_waits_for_a_yes_then_becomes_one_row_per_video(world):
+    q, direct, videos, prober, vprober, base, rule_list = world
+    rule_list.insert(0, rules.Rule("Lists", [rules.Condition("source", ["video"])], subfolder="Lists/{playlist}"))
+    serve_list(vprober)
+    row_id = q.add(PLAYLIST)
+    [row] = q.rows()
+    assert row.state == PAUSED and videos.jobs == {}                        # nothing downloads before the yes
+    assert {k: row.video["ask"][k] for k in ("kind", "count", "title", "mix")} == \
+        {"kind": "list", "count": 3, "title": "My list", "mix": False}
+    q.resume(row_id)                                                         # Resume is not a yes
+    assert videos.jobs == {}
+    q.answer_playlist(row_id, take_all=True)
     rows = q.rows()
     assert [r.filename for r in rows] == ["Part 0.mp4", "Part 1.mp4", "Part 2.mp4"]
     assert {r.folder for r in rows} == {os.path.join(base, "Lists", "My list")}
-    assert all(r.state == ACTIVE and r.video["playlist"] == "My list" for r in rows)
+    assert all(r.state == ACTIVE and r.video["playlist"] == "My list" and "ask" not in r.video for r in rows)
+
+
+def test_no_to_a_playlist_link_adds_nothing(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    serve_list(vprober)
+    q.answer_playlist(q.add(PLAYLIST), take_all=False)
+    assert q.rows() == [] and videos.jobs == {}
+
+
+def test_a_playlist_ticked_in_the_add_box_needs_no_second_yes(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    serve_list(vprober)
+    q.add(PLAYLIST, whole_list=True)
+    assert [r.state for r in q.rows()] == [ACTIVE] * 3
+
+
+def test_a_video_from_a_mix_is_just_that_video_with_no_question(world):
+    """A YouTube Mix is a radio list YouTube keeps making (371 to 1,954 videos for one song): not offered (59B)."""
+    q, direct, videos, prober, vprober, base, _ = world
+    url = "https://www.youtube.com/watch?v=18VpnaSGHto&list=RD18VpnaSGHto&start_radio=1&pp=oAcB"
+    vprober.answers[url] = VideoProbe(url, "Song", "mp4", uploader="xyz")
+    vprober.lists[url] = VideoProbe(url, "Mix - Song", playlist="Mix - Song", entries=["a", "b", "c"])
+    row = q.store.get(q.add(url))
+    assert row.state == ACTIVE and row.filename == "Song.mp4" and len(videos.jobs) == 1
+    assert "ask" not in row.video and vprober.list_calls == []            # not even looked up
+
+
+def test_yes_to_a_videos_playlist_adds_the_others_once(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    url = "https://www.youtube.com/watch?v=18VpnaSGHto&list=PLtalks"
+    vprober.answers[url] = VideoProbe(url, "Song", "mp4", uploader="xyz")
+    listed = [f"https://www.youtube.com/watch?v={v}" for v in ("18VpnaSGHto", "b", "c")]
+    vprober.lists[url] = VideoProbe(url, "Talks", playlist="Talks", entries=listed)
+    for link in listed[1:]:
+        vprober.answers[link] = VideoProbe(link, link[-1], "mp4")
+    row_id = q.add(url)
+    ask = q.store.get(row_id).video["ask"]
+    assert (ask["kind"], ask["count"], ask["mix"]) == ("rest", 3, False)
+    q.answer_playlist(row_id, take_all=True)
+    assert sorted(r.filename for r in q.rows()) == ["Song.mp4", "b.mp4", "c.mp4"]      # the song is not fetched twice
+    assert "ask" not in q.store.get(row_id).video and q.store.get(row_id).video["title"] == "Song"
+
+
+def test_a_slow_list_lookup_does_not_hold_up_the_queue(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    fresh = Queue(Store(os.path.join(os.path.dirname(base), "fresh.db")), FakeEngine(), list, base)
+    q.in_background = fresh.in_background                     # the real one: a thread beside the queue's worker
+    url = "https://www.youtube.com/watch?v=1&list=PLbig"
+    vprober.answers[url] = VideoProbe(url, "Talk", "mp4")
+    release, looked_up = threading.Event(), threading.Event()
+    real = vprober.__call__
+
+    def slow(link, headers=None, playlist="", whole_list=False):
+        if whole_list:
+            release.wait(5)
+            looked_up.set()
+            return VideoProbe(link, "Big", playlist="Big", entries=[f"https://www.youtube.com/watch?v={n}" for n in range(9)])
+        return real(link, headers, playlist)
+    q.video_prober = slow
+    row_id = q.add(url)                                        # returns while the list is still being looked up
+    assert q.store.get(row_id).state == ACTIVE and "ask" not in q.store.get(row_id).video
+    release.set()
+    assert looked_up.wait(5)
+    deadline = time.monotonic() + 5
+    while "ask" not in q.store.get(row_id).video:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    assert q.store.get(row_id).video["ask"]["count"] == 9
+
+
+def test_just_the_video_keeps_one_row_and_never_asking_skips_the_list_check(world):
+    q, direct, videos, prober, vprober, base, _ = world
+    url = "https://www.youtube.com/watch?v=1&list=PLx"
+    vprober.answers[url] = VideoProbe(url, "Talk", "mp4")
+    vprober.lists[url] = VideoProbe(url, "Talks", playlist="Talks", entries=["https://www.youtube.com/watch?v=1",
+                                                                             "https://www.youtube.com/watch?v=2"])
+    row_id = q.add(url)
+    q.answer_playlist(row_id, take_all=False)
+    assert len(q.rows()) == 1 and "ask" not in q.store.get(row_id).video
+    q.ask_playlists = False
+    vprober.list_calls.clear()
+    q.add(url)
+    assert vprober.list_calls == [] and all("ask" not in r.video for r in q.rows())
+
+
+def test_a_waiting_playlist_survives_a_restart(tmp_path):
+    store = Store(str(tmp_path / "q.db"))
+    ask = {"kind": "list", "count": 2, "title": "L", "mix": False, "links": ["https://y/1", "https://y/2"]}
+    waiting = store.add(PLAYLIST, state=PAUSED, source="video", video={"ask": ask})
+    Queue(store, FakeEngine(), rules.default_rules, str(tmp_path), prober=FakeProber(),
+          video_engine=FakeEngine(), video_prober=FakeVideoProber())
+    assert store.get(waiting).state == PAUSED and store.get(waiting).video["ask"] == ask
+
+
+def test_the_probe_takes_only_the_video_unless_the_whole_list_is_asked_for(monkeypatch):
+    import yt_dlp
+    seen = []
+
+    class Recorder:
+        def __init__(self, options):
+            seen.append(options.get("noplaylist"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=False):
+            return {"title": "t", "ext": "mp4"}
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", Recorder)
+    video.probe_video("https://www.youtube.com/watch?v=1&list=RD1")
+    video.probe_video("https://www.youtube.com/watch?v=1&list=RD1", whole_list=True)
+    assert seen == [True, False]
+
+
+@pytest.mark.parametrize("url, carries", [
+    ("https://www.youtube.com/watch?v=18VpnaSGHto&list=RD18VpnaSGHto&start_radio=1", True),
+    ("https://www.youtube.com/watch?v=1", False),
+    ("https://www.youtube.com/playlist?list=PL1", False),               # the list itself, not a video in one
+    ("https://youtu.be/1?list=PL1", True),
+])
+def test_a_video_link_that_carries_a_list_is_recognised(url, carries):
+    assert video.carries_a_list(url) is carries
 
 
 def test_a_finished_video_takes_the_engines_final_name(world):
@@ -314,7 +463,7 @@ def test_a_site_error_is_shown(world):
     q, direct, videos, prober, vprober, base, _ = world
     from accipio.core.probe import ProbeError
 
-    def broken(url, headers=None, playlist=""):
+    def broken(url, headers=None, playlist="", whole_list=False):
         raise ProbeError("[youtube] 1: Video unavailable")
     q.video_prober = broken
     row = q.store.get(q.add("https://www.youtube.com/watch?v=1"))

@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -170,13 +171,29 @@ def _base_options(headers: Optional[Dict[str, str]], ffmpeg: Optional[str]) -> D
     return options
 
 
+def carries_a_list(url: str) -> bool:
+    """A link to one video that also names a list it was opened from (``watch?v=…&list=…``, ``youtu.be/…?list=…``),
+    as opposed to a link to the list itself. Such a link means the video; the list is only offered."""
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qs(parts.query)
+    if "list" not in query:
+        return False
+    return "v" in query or parts.netloc.lower().endswith("youtu.be")
+
+
+def is_mix(url: str) -> bool:
+    """A YouTube Mix: a radio list YouTube makes around a video (its id starts with RD), not one anybody picked."""
+    return any(v.startswith("RD") for v in urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("list", []))
+
+
 def probe_video(url: str, headers: Optional[Dict[str, str]] = None, quality: str = "best",
-                ffmpeg: Optional[str] = None, playlist: str = "") -> VideoProbe:
-    """Ask the site about a video (or a playlist) without downloading it."""
+                ffmpeg: Optional[str] = None, playlist: str = "", whole_list: bool = False) -> VideoProbe:
+    """Ask the site about a video (or a playlist) without downloading it. A video link that carries a list is
+    just that video unless ``whole_list`` (yt-dlp's noplaylist); a link to a list itself is always the list."""
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import DownloadError
     options = {**_base_options(headers, ffmpeg), **format_options(quality, ffmpeg),
-               "skip_download": True, "extract_flat": "in_playlist"}
+               "skip_download": True, "extract_flat": "in_playlist", "noplaylist": not whole_list}
     try:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -429,8 +446,9 @@ class VideoEngine:
 
 def make_prober(engine: VideoEngine) -> Callable[..., Optional[VideoProbe]]:
     """The queue's video prober: None for a link that is not a video site, else what the site says."""
-    def prober(url: str, headers: Optional[Dict[str, str]] = None, playlist: str = "") -> Optional[VideoProbe]:
+    def prober(url: str, headers: Optional[Dict[str, str]] = None, playlist: str = "",
+               whole_list: bool = False) -> Optional[VideoProbe]:
         if not is_video_site(url):
             return None
-        return probe_video(url, headers, engine.quality, engine.ffmpeg, playlist=playlist)
+        return probe_video(url, headers, engine.quality, engine.ffmpeg, playlist=playlist, whole_list=whole_list)
     return prober

@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#11 -- A playlist downloads only after you say yes
+
+- **A video link that comes from a playlist is just that video.** A YouTube link such as `watch?v=…&list=…` used to fetch every video in the list. Now the video starts at once, and Accipio comes to the front and asks: **Just this video** (the default; Esc gives it too) or **All N videos**. The list is looked up beside the queue, so other links are not held up while it is counted.
+- **A YouTube Mix is never offered.** A link with `list=RD…` is YouTube's radio list around a song, which it keeps extending (371 to 1,954 videos for the same song), so such a link is simply its video, with no question.
+- **A link to a playlist itself waits for a yes.** It shows as one row and nothing downloads until you answer **Download all N** or **Don't download** (the default). A waiting playlist is asked about again after a restart.
+- **A playlist row ticked in the Add box** counts as the yes, so there is no second question.
+- **"Always just the video, don't ask again"** in the box switches the question off; Settings > Playlists switches it back on. A link to a playlist itself always asks.
+
 ## 2026-11-06#10 -- A new icon: a glove reaching to catch
 
 - **Accipio has a new icon**: a work glove reaching to catch, on a teal tile. The old one, an arrow dropping into a tray, looked like a setup program still running.

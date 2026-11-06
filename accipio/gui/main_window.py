@@ -37,6 +37,7 @@ from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 from accipio.gui import style
 from accipio.gui.archive_box import ArchiveBox
 from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
+from accipio.gui.playlist_question import PlaylistQuestion
 from accipio.gui.taskbar_button import TaskbarButton
 from accipio.gui.updates import AccipioUpdates
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
@@ -108,6 +109,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
                   video_engine=video_engine or None, video_prober=video_prober,
                   library_set=lambda: holder["library"], speed_limit=current.speed_limit_kib * 1024, **kwargs)
     queue.unpack_on, queue.after_unpack = current.unpack_archives, current.after_unpack
+    queue.ask_playlists = current.ask_playlists
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
@@ -199,6 +201,9 @@ class MainWindow(QMainWindow):
         self.archive_box.chosen.connect(self._archive_chosen)
         self.archive_box.undo.connect(self._undo_unpack)
         self.archive_box.seen.connect(self._archive_seen)
+        self.playlist_question = PlaylistQuestion(self)     # before a playlist downloads: yes or no (58D)
+        self.playlist_question.answered.connect(self._playlist_answered)
+        self._playlists_answered: set = set()
         self._archive_busy: set = set()                  # rows handed to the worker; their box stays shut
         layout.addWidget(self.archive_box)
         self.setCentralWidget(central)
@@ -432,8 +437,29 @@ class MainWindow(QMainWindow):
         speed = self.model.total_speed()
         self.speed_label.setText(f"↓ {human_size(speed)}/s" if speed else "")
         self._update_archive_box(rows)
+        self._update_playlist_question(rows)
         while self.failures:
             self.statusBar().showMessage(self.failures.pop(0), 10000)
+
+    # ---- playlists: asked, never assumed ---------------------------------------------------------------------
+
+    def _update_playlist_question(self, rows: List[Row]) -> None:
+        """One question at a time, for the oldest row that waits for one. Accipio comes to the front to ask."""
+        box = self.playlist_question
+        waiting = [r for r in rows if r.video.get("ask") and r.id not in self._playlists_answered]
+        if box.isVisible():
+            if any(r.id == box.row_id for r in waiting):
+                return
+            box.hide()                                    # the row went away (removed) meanwhile
+        if waiting:
+            self.bring_to_front()
+            box.ask(min(waiting, key=lambda r: r.id))
+
+    def _playlist_answered(self, row_id: int, take_all: bool, never: bool) -> None:
+        self._playlists_answered.add(row_id)              # the answer clears the row's question on the worker
+        self.run(self.queue.answer_playlist, row_id, take_all)
+        if never:
+            self.apply_settings(dataclasses.replace(self.services.settings, ask_playlists=False))
 
     # ---- archives (the unpack trial) ---------------------------------------------------------------------------
 
@@ -542,7 +568,9 @@ class MainWindow(QMainWindow):
         dialog = AddDialog(text, self.services.settings.base_folder, self.worker.submit, self.queue.preview, links_in, self)
         if self._show_add_dialog(dialog):
             for url, folder in dialog.chosen():
-                self.run(self.queue.add, url, folder=folder)
+                entry = dialog.entries.get(url)                    # a ticked playlist row is the yes to it
+                whole = bool(entry and entry.preview and entry.preview.kind == "playlist")
+                self.run(self.queue.add, url, folder=folder, whole_list=whole)
             if from_bar:
                 self.paste.clear()
         return dialog
@@ -731,6 +759,7 @@ class MainWindow(QMainWindow):
         self.model.base_folder = new.base_folder
         self.queue.keep_history = new.keep_history
         self.queue.unpack_on, self.queue.after_unpack = new.unpack_archives, new.after_unpack
+        self.queue.ask_playlists = new.ask_playlists
         self.notices.enabled = set(new.notice_kinds())
         self.queue.speed_limit = new.speed_limit_kib * 1024        # a total; refresh() shares it between the engines
         for engine in (self.services.engine, self.services.video_engine):
