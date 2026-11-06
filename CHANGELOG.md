@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#08 -- Downloads work on a PC without IPv6
+
+- **vikingfile downloads failed** with "Network problem has occurred. cause: A socket operation was attempted to an unreachable network". The file sits on a storage server with an IPv6 address; on a PC with no IPv6 route the download engine tried that address and gave up, where Chrome quietly used IPv4. Accipio now checks at start whether the PC can reach IPv6 at all (nothing is sent) and, if not, keeps the engine on IPv4.
+
 ## 2026-11-06#07 -- A link that is a web page says so
 
 - **A link that turns out to be a web page is no longer downloaded as if it were the file.** A file hoster's link (vikingfile and the like) is a page you click through first, often past a captcha; Accipio used to save that page under the file's place. The row now fails with "this link is a web page, not a file…", and the Add box shows the same. A page asked for by name (`….html`) or handed over by the server as a file still downloads.

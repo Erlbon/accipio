@@ -55,6 +55,21 @@ def find_aria2c() -> Optional[str]:
     return shutil.which("aria2c")
 
 
+IPV6_PROBE = ("2001:4860:4860::8888", 53)     # any public IPv6 address; nothing is sent to it
+
+
+def ipv6_works() -> bool:
+    """Whether this PC can reach the internet over IPv6. A UDP connect only asks the system for a route and sends
+    nothing. Without one, aria2 tries a host's IPv6 address and gives up ("A socket operation was attempted to an
+    unreachable network") where browsers fall back to IPv4, so it is then started with IPv6 off (2026-11-06)."""
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as s:
+            s.connect(IPV6_PROBE)
+        return True
+    except OSError:
+        return False
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -91,8 +106,9 @@ class Aria2:
     """One aria2c process owned by Accipio. Use as a context manager, or call start() and stop()."""
 
     def __init__(self, exe: str, session_file: str, *, max_downloads: int = 3, connections: int = 8,
-                 log_file: Optional[str] = None):
+                 log_file: Optional[str] = None, ipv6: Optional[bool] = None):
         self.exe = exe
+        self.ipv6 = ipv6_works() if ipv6 is None else ipv6
         self.session_file = session_file
         self.max_downloads = max_downloads
         self.connections = connections
@@ -121,6 +137,8 @@ class Aria2:
             f"--save-session={self.session_file}", "--save-session-interval=30", "--auto-save-interval=10",
             "--summary-interval=0", "--console-log-level=warn", "--quiet=true",
         ]
+        if not self.ipv6:
+            args.append("--disable-ipv6=true")
         if os.path.isfile(self.session_file) and os.path.getsize(self.session_file):
             args.append(f"--input-file={self.session_file}")
         if self.log_file:
