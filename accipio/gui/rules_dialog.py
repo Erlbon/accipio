@@ -27,6 +27,7 @@ from accipio.core import settings as settings_mod
 from accipio.core.rules import Condition, Download, Rule
 from accipio.gui import style
 from accipio.gui.archives_tab import ArchivesTab
+from accipio.gui.example_hint import hint_label, with_example
 from accipio.gui.library_tabs import FileGroupsTab, FoldersTab, SiteGroupsTab
 
 KIND_LABELS = [("type", "In file group"), ("sites", "From site group"), ("domain", "Site"), ("name", "Name"),
@@ -119,9 +120,8 @@ class TimeEditor(QWidget):
         advanced = QHBoxLayout()
         advanced.addWidget(QLabel("Advanced (cron):"))
         self.advanced = QLineEdit()
-        self.advanced.setPlaceholderText("* 8-15 * * 1-5   (several lines: separate with ;)")
         self.advanced.textEdited.connect(self._from_advanced)
-        advanced.addWidget(self.advanced, 1)
+        advanced.addWidget(with_example(self.advanced, "* 8-15 * * 1-5   (several lines: separate with ;)"), 1)
         layout.addLayout(advanced)
         self._busy = False
         self.set_lines(cron.window_lines({1, 2, 3, 4, 5}, datetime.time(8), datetime.time(16)))
@@ -222,9 +222,9 @@ class ConditionRow(QFrame):
         self._build_pages()
         self.set_condition(condition or Condition(kinds[0][0], []))
 
-    def _line(self, placeholder: str) -> QLineEdit:
+    def _line(self, example: str) -> QLineEdit:
         edit = QLineEdit()
-        edit.setPlaceholderText(placeholder)
+        edit.example_text = example                # page() puts it under the field (65D)
         edit.textChanged.connect(self.changed)
         return edit
 
@@ -242,7 +242,10 @@ class ConditionRow(QFrame):
             row.setContentsMargins(0, 0, 0, 0)
             row.setAlignment(Qt.AlignmentFlag.AlignTop)
             for w in widgets:
-                row.addWidget(w, 1 if isinstance(w, (QLineEdit, TimeEditor)) else 0)
+                if getattr(w, "example_text", ""):
+                    row.addWidget(with_example(w, w.example_text), 1)
+                    continue
+                row.addWidget(w, 1 if isinstance(w, (QLineEdit, TimeEditor)) else 0, Qt.AlignmentFlag.AlignTop)
             self.pages[key] = holder
             self.stack.addWidget(holder)
 
@@ -465,10 +468,8 @@ class RenameRow(QFrame):
         self.number = QLabel()
         self.number.setMinimumWidth(16)
         self.pattern = QLineEdit(line.pattern)
-        self.pattern.setPlaceholderText(r"(.+?)[ .]S(\d\d)E(\d\d)")
         self.pattern.setToolTip("A regular expression, any case. It only has to be somewhere in the name.")
         self.to = QLineEdit(line.to)
-        self.to.setPlaceholderText("{1|dots|title} S{2}E{3}.{ext}")
         self.to.setToolTip(rules.FILTER_HELP)
         for edit in (self.pattern, self.to):
             edit.textChanged.connect(self.changed)
@@ -502,6 +503,8 @@ class RenameEditor(QWidget):
         self.rows_layout.setSpacing(4)
         layout.addLayout(self.rows_layout)
         self.rows: List[RenameRow] = []
+        self.example_hint = hint_label(r"Example line:  (.+?)[ .]S(\d\d)E(\d\d)  →  {1|dots|title} S{2}E{3}.{ext}")
+        layout.addWidget(self.example_hint)
         bottom = QHBoxLayout()
         self.add_button = QPushButton("+ Rename line")
         self.add_button.clicked.connect(self.add_line)
@@ -509,7 +512,7 @@ class RenameEditor(QWidget):
         bottom.addSpacing(12)
         bottom.addWidget(QLabel("Try a name"))
         self.sample = QLineEdit()
-        self.sample.setPlaceholderText("the.expanse.s02e05.1080p.web.mkv")
+        self.sample.setPlaceholderText("type or paste a file name")
         self.sample.textChanged.connect(self._try)
         bottom.addWidget(self.sample, 1)
         layout.addLayout(bottom)
@@ -611,13 +614,12 @@ class RuleForm(QWidget):
 
         name_row = QHBoxLayout()
         self.name = QLineEdit()
-        self.name.setPlaceholderText("Comics")
         self.name.textChanged.connect(self.changed)
         self.enabled = QCheckBox("On")
         self.enabled.setToolTip("Switch the rule off without deleting it")
         self.enabled.toggled.connect(self.changed)
-        name_row.addWidget(self.name, 1)
-        name_row.addWidget(self.enabled)
+        name_row.addWidget(with_example(self.name, "Comics"), 1)
+        name_row.addWidget(self.enabled, 0, Qt.AlignmentFlag.AlignTop)
         sentence.addWidget(label("Rule"), 0, 0)
         sentence.addLayout(name_row, 0, 1)
 

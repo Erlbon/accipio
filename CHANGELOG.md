@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#13 -- Examples under the fields, not in them
+
+- **Grey example text inside empty fields looked like real values** (a file group's Names showed `*invoice*, *Vol.??*` although it had none). In the Rules window an empty field now stays empty, and its example is a small grey line under it: folders, file groups, site groups, a rule's name, the conditions under More conditions, and the time window's cron line. The renamer shows one example line under its rows instead of one in every row.
+- Prompts that nobody takes for a value stay inside their fields, such as "Paste a link to see which rules hit…".
+
 ## 2026-11-06#12 -- Uninstalling and updating stop Accipio properly again
 
 - **Uninstalling a running Accipio failed** since the window's X hides it to the tray (#09): the uninstaller's close request only hid it, so after a wait it gave up, left Accipio running and left its files behind. An update closed it by force instead, which skips saving aria2's download session.

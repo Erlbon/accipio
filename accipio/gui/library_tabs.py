@@ -17,6 +17,9 @@ from PyQt6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QHBoxLayout, Q
 
 from accipio.core import rules
 from accipio.core.rules import Folder, Group, SiteGroup
+from accipio.gui.example_hint import with_example
+
+FOLDER_EXAMPLE = "%default%\\Comics   or   D:\\Comics\\_Inbox\\{yyyy}-{MM}"
 
 
 def split_values(text: str) -> List[str]:
@@ -256,7 +259,7 @@ class FoldersTab(NamedListTab):
         super()._select(item, previous)
         default = self.is_default_item(item)
         self.name.setReadOnly(default)
-        self.path.setPlaceholderText("D:\\Downloads" if default else "%default%\\Comics   or   D:\\Comics\\{yyyy}")
+        self.path.example_hint.setText("Example: " + ("D:\\Downloads" if default else FOLDER_EXAMPLE))
 
     def _name_edited(self, text: str):
         if not self.is_default_item(self.current) and rules.is_default(text):
@@ -281,13 +284,12 @@ class FoldersTab(NamedListTab):
     def build_form(self):
         row = QHBoxLayout()
         self.path = QLineEdit()
-        self.path.setPlaceholderText("D:\\Comics\\_Inbox\\{yyyy}-{MM}   or   Books")
         self.path.setToolTip(rules.FILTER_HELP)
         self.path.textChanged.connect(self.field_changed)
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
-        row.addWidget(self.path, 1)
-        row.addWidget(browse)
+        row.addWidget(with_example(self.path, FOLDER_EXAMPLE), 1)
+        row.addWidget(browse, 0, Qt.AlignmentFlag.AlignTop)
         self.form.addRow("Where", row)
         self.today = QLabel()
         self.today.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -354,16 +356,13 @@ class FileGroupsTab(NamedListTab):
 
     def build_form(self):
         self.extensions = QLineEdit()
-        self.extensions.setPlaceholderText("cbz, cbr, cb7")
         self.names_field = QLineEdit()
-        self.names_field.setPlaceholderText("*invoice*, *Vol.??*")
         self.mimes = QLineEdit()
-        self.mimes.setPlaceholderText("application/vnd.comicbook+zip")
         for edit in (self.extensions, self.names_field, self.mimes):
             edit.textChanged.connect(self.field_changed)
-        self.form.addRow("Extensions", self.extensions)
-        self.form.addRow("Names", self.names_field)
-        self.form.addRow("MIME types", self.mimes)
+        self.form.addRow("Extensions", with_example(self.extensions, "cbz, cbr, cb7"))
+        self.form.addRow("Names", with_example(self.names_field, "*invoice*, *Vol.??*"))
+        self.form.addRow("MIME types", with_example(self.mimes, "application/vnd.comicbook+zip"))
 
     def show_item(self, item: Group):
         self.extensions.setText(", ".join(item.extensions))
@@ -401,9 +400,8 @@ class SiteGroupsTab(NamedListTab):
 
     def build_form(self):
         self.sites = QLineEdit()
-        self.sites.setPlaceholderText("getcomics.org, readcomicsonline.ru")
         self.sites.textChanged.connect(self.field_changed)
-        self.form.addRow("Sites", self.sites)
+        self.form.addRow("Sites", with_example(self.sites, "getcomics.org, readcomicsonline.ru"))
         self.where = QComboBox()
         for key, label in (("either", "the page you clicked on, or where the file comes from"),
                            ("page", "only the page you clicked on"), ("file", "only where the file comes from")):

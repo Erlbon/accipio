@@ -900,6 +900,28 @@ def test_the_rule_form_picks_a_folder_and_a_site_group(app, tmp_path):
     assert "no site group called 'Nope'" in dialog.form.problems.text()
 
 
+PROMPTS = {"Paste a link to see which rules hit and where it would go", "clicked on page (optional)", "channel",
+           "type or paste a file name"}
+
+
+def test_examples_in_the_rules_window_sit_under_the_fields_never_in_them(app, tmp_path):
+    """65D (2026-11-06): grey example text inside an empty field looked like real values. Fields stay empty and
+    the example is a small line under them; only prompts that nobody takes for a value stay inside."""
+    from PyQt6.QtWidgets import QLineEdit
+    dialog = RulesDialog([Rule("R", [Condition("type", ["Comics"])], renames=[rules.Rename("a", "b")])], str(tmp_path))
+    inside = {e.placeholderText() for e in dialog.findChildren(QLineEdit)} - {""}
+    assert inside <= PROMPTS, inside - PROMPTS
+    assert dialog.groups_tab.names_field.example_hint.text() == "Example: *invoice*, *Vol.??*"
+    assert dialog.sites_tab.sites.example_hint.text().startswith("Example: getcomics.org")
+    assert dialog.form.name.example_hint.text() == "Example: Comics"
+    assert "S{2}E{3}" in dialog.form.renamer.example_hint.text()
+    tab = dialog.folders_tab
+    tab.list.setCurrentRow(0)
+    assert tab.path.example_hint.text() == "Example: D:\\Downloads"                  # Default
+    tab.new_item()
+    assert "%default%\\Comics" in tab.path.example_hint.text()
+
+
 def test_the_group_lists_offer_only_what_is_not_picked_yet(app, tmp_path):
     dialog = RulesDialog([Rule("R", [Condition("type", ["Comics"])])], str(tmp_path))
     picker = dialog.form.types
