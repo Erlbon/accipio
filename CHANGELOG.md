@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#01 -- File > Add Links works again
+
+- **File > Add Links… (Ctrl+N) crashed** with "setPlainText … unexpected type 'bool'": the menu passed its on/off state along as the text of the Add box. It opens the box again, with the paste bar's links or the clipboard's.
+
 ## 2026-11-05#06 -- The taskbar button shows the downloads
 
 - **A progress bar on Accipio's taskbar button** for all unfinished downloads together. It is in your Windows accent colour while they run (Windows 11 picks the colour), yellow when all are paused, and red when a download failed while the window was in the background. It stays red until you bring Accipio to the front. When no size is known, as with some videos, the bar slides.

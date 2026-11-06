@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
 
     def _build_menus(self) -> None:
         spec = StandardMenuSpec(
-            file=[MenuAction("add_links", "&Add Links…", self.open_add_dialog, shortcut="Ctrl+N"),
+            file=[MenuAction("add_links", "&Add Links…", lambda: self.open_add_dialog(), shortcut="Ctrl+N"),  # not "checked"
                   Separator(),
                   MenuAction("clear_finished", "&Clear Finished", self.clear_finished),
                   Separator(),

@@ -476,6 +476,15 @@ def open_box(win, text, answer):
     return win.open_add_dialog(text)
 
 
+def test_file_add_links_opens_the_add_box_with_the_paste_bar(world):
+    win = world[0]
+    seen = []
+    win._show_add_dialog = lambda dialog: seen.append(dialog.text.toPlainText()) or False
+    win.paste.setText("https://a.org/x.zip")
+    win.actions_by_key["add_links"].trigger()             # the menu passes "checked" along: it must not become the text
+    assert seen == ["https://a.org/x.zip"]
+
+
 def test_the_add_box_checks_every_link_and_shows_where_it_goes(world):
     win, engine, prober, base = world
     prober.serve("https://a.org/tool.zip", "tool.zip", size=88 * 1024 * 1024)
