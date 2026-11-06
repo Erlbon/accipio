@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#04 -- shared part moves to redactor_common 2026-11-06#01
+
+- redactor_common's menu items no longer pass Qt's "checked" flag into the action they call. That flag is what crashed File > Add Links and View > Show Done (fixed here in #01 and #02); now no menu item can hit it again. No visible change.
+
 ## 2026-11-06#03 -- ffmpeg under Settings
 
 - **Settings has an ffmpeg row** under "Video sites". It shows the ffmpeg Accipio uses, or says in amber that none was found and what that costs (lower quality from video sites, no mp3).
