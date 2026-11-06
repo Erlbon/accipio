@@ -134,8 +134,10 @@ session does not reopen what is settled. Keep it current when a decision changes
   Uninstall: graceful `taskkill`, waits for aria2 to exit, asks before deleting `%APPDATA%\Accipio` (default keep).
   Never remove other download managers; the README tells users to switch off a competing extension.
   Verified 2026-11-04 silently: install, update over a running Accipio, uninstall while running, all clean.
-- Icon (mockup A, picked 2026-10-29): master `accipio/gui/appicon/accipio.svg`; `tools/make_icons.py` writes the
-  .ico, the 256 PNG and `extension/icons/` (all committed). The app loads only the .ico, so the exe needs no QtSvg.
+- Icon (Q63B, 2026-11-06; replaced the arrow-into-tray, which looked like a setup still running): master
+  `art/accipio-glove.png` (his drawing, keyed out, outside the package so the exe does not carry it);
+  `tools/make_icons.py` tilts it 35°, puts it on a teal tile and writes the .ico, `accipio-setup.ico` (with a box
+  badge, the installer's only: Q62A), the 256 PNG and `extension/icons/` (all committed). The app loads only the .ico.
 - Look (mockup 1 "soft", picked 2026-10-29): `gui/style.py` is one stylesheet applied in `app.py` after the
   family theme. Shades are mixed from the palette (`@border`, `@hover`...), never `palette(mid)` (near-black in
   light mode). Keep radii <= half the widget height or Qt draws square corners. A styled QComboBox loses its

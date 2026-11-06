@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#10 -- A new icon: a glove reaching to catch
+
+- **Accipio has a new icon**: a work glove reaching to catch, on a teal tile. The old one, an arrow dropping into a tray, looked like a setup program still running.
+- **The installer has an icon of its own**: the same glove with a small box in the corner, so `accipio-setup.exe` and Accipio itself can be told apart. The Chrome extension's icon changes with the app's; reload its card under chrome://extensions to see it.
+
 ## 2026-11-06#09 -- Closing the window keeps Accipio running in the tray
 
 - **The window's X (or Alt+F4) now hides Accipio to the tray** instead of quitting, so downloads go on and the browser can still hand files over. The first time, a notification says so. Click the tray icon to bring the window back.
