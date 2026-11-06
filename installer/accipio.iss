@@ -76,10 +76,12 @@ Filename: "{app}\Accipio.exe"; Description: "Start Accipio"; Flags: postinstall 
 Filename: "{app}\Accipio.exe"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
-; Without /F: Accipio closes as if its window were closed, and stops aria2 on the way out.
-Filename: "{sys}\taskkill.exe"; Parameters: "/IM Accipio.exe"; RunOnceId: "CloseAccipio"; Flags: runhidden waituntilterminated
-; aria2 takes a few seconds to exit on Windows; until it has, its exe cannot be deleted. Only this install's processes.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -Command ""Get-Process Accipio,aria2c -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -like '{app}\*' } | Wait-Process -Timeout 20 -ErrorAction SilentlyContinue"""; RunOnceId: "WaitForAccipio"; Flags: runhidden waituntilterminated
+; Stop Accipio the way File > Exit does (it saves aria2's session) and wait until it is gone. A plain close request
+; (taskkill without /F) is not enough: the window's X, and so WM_CLOSE, only hides Accipio to the tray.
+Filename: "{app}\Accipio.exe"; Parameters: "--quit"; RunOnceId: "QuitAccipio"; Flags: runhidden waituntilterminated
+; aria2 takes a few seconds to exit on Windows; until it has, its exe cannot be deleted. Only this install's
+; processes; whatever still runs after 20 seconds is stopped by force, or the uninstaller would leave files behind.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -Command ""$mine = {{ Get-Process Accipio,aria2c -ErrorAction SilentlyContinue | Where-Object {{ $_.Path -like '{app}\*' } }; & $mine | Wait-Process -Timeout 20 -ErrorAction SilentlyContinue; & $mine | Stop-Process -Force -ErrorAction SilentlyContinue"""; RunOnceId: "WaitForAccipio"; Flags: runhidden waituntilterminated
 
 [UninstallDelete]
 Type: files; Name: "{userappdata}\Accipio\native-host.cmd"
@@ -139,6 +141,59 @@ begin
   FindManagersIn(HKLM64);
   FindManagersIn(HKLM32);
   Result := True;
+end;
+
+{ The next number of a dotted version, removed from the front of S. }
+function NextPart(var S: String): Integer;
+var
+  P: Integer;
+begin
+  P := Pos('.', S);
+  if P = 0 then
+  begin
+    Result := StrToIntDef(S, 0);
+    S := '';
+  end
+  else
+  begin
+    Result := StrToIntDef(Copy(S, 1, P - 1), 0);
+    S := Copy(S, P + 1, Length(S));
+  end;
+end;
+
+{ Builds from 2026.11.6.12 understand "Accipio.exe --quit"; an older one would take it for a second start and
+  only bring its window to the front. }
+function InstalledKnowsQuit: Boolean;
+var
+  V: String;
+  A, B, C, D: Integer;
+begin
+  Result := False;
+  if not RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6C0E5D8A-3F7B-4B8E-9A51-2D4C7E1A9B30}_is1', 'DisplayVersion', V) then
+    exit;
+  A := NextPart(V);
+  B := NextPart(V);
+  C := NextPart(V);
+  D := NextPart(V);
+  if A <> 2026 then
+    Result := A > 2026
+  else if B <> 11 then
+    Result := B > 11
+  else if C <> 6 then
+    Result := C > 6
+  else
+    Result := D >= 12;
+end;
+
+{ Before files are replaced: stop a running Accipio the way File > Exit does, so aria2's session is saved. Since
+  the X only hides Accipio, Windows' close request would not end it and CloseApplications would kill it. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  if IsUpdate and InstalledKnowsQuit and FileExists(ExpandConstant('{app}\Accipio.exe')) then
+    Exec(ExpandConstant('{app}\Accipio.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
 function Relaunch: Boolean;

@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#12 -- Uninstalling and updating stop Accipio properly again
+
+- **Uninstalling a running Accipio failed** since the window's X hides it to the tray (#09): the uninstaller's close request only hid it, so after a wait it gave up, left Accipio running and left its files behind. An update closed it by force instead, which skips saving aria2's download session.
+- **New: `Accipio.exe --quit`** stops the running Accipio the way File > Exit does and waits until it is gone. The uninstaller uses it, then stops by force only what is still running after 20 seconds; the installer uses it before replacing files when the installed build knows it (this one onward).
+
 ## 2026-11-06#11 -- A playlist downloads only after you say yes
 
 - **A video link that comes from a playlist is just that video.** A YouTube link such as `watch?v=…&list=…` used to fetch every video in the list. Now the video starts at once, and Accipio comes to the front and asks: **Just this video** (the default; Esc gives it too) or **All N videos**. The list is looked up beside the queue, so other links are not held up while it is counted.

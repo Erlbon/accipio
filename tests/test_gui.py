@@ -542,6 +542,21 @@ def test_ping_show_and_nonsense(world):
     assert ipc.send(win.services.folder, {"type": "format c:"})["ok"] is False
 
 
+def test_quit_from_the_command_line_stops_accipio_the_way_exit_does(world, monkeypatch):
+    """Accipio.exe --quit, which the installer and uninstaller run: since the X only hides Accipio (Q57A), a
+    plain close request (taskkill, Windows' installer tools) no longer ends it."""
+    from accipio.core import settings as settings_mod
+    from accipio.gui import app as app_mod
+    win, *_ = world
+    monkeypatch.setattr(settings_mod, "config_dir", lambda: win.services.folder)
+    quits, waited = [], []
+    monkeypatch.setattr(win, "quit_app", lambda: quits.append(1))
+    monkeypatch.setattr(app_mod, "wait_for_exit", lambda pid, timeout: waited.append(pid) or True)
+    assert app_mod.main(["Accipio.exe", "--quit"]) == 0
+    QApplication.processEvents()
+    assert quits == [1] and waited == [os.getpid()]                    # it waits for that very process to end
+
+
 def test_a_second_start_hands_over_and_quits(world, monkeypatch):
     from accipio.core import settings as settings_mod
     from accipio.gui import app as app_mod

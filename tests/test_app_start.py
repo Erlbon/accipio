@@ -18,6 +18,25 @@ def test_register_points_the_browsers_at_accipio_and_quits_without_a_window(tmp_
     assert calls == [str(tmp_path)]
 
 
+def test_quit_with_nothing_running_ends_at_once_without_a_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "config_dir", lambda: str(tmp_path))
+    import redactor_common.gui.app_bootstrap as bootstrap
+    monkeypatch.setattr(bootstrap, "run_app", lambda *a, **k: (_ for _ in ()).throw(AssertionError("window opened")))
+    assert app.main(["Accipio.exe", "--quit"]) == 0
+
+
+def test_waiting_for_a_process_to_end(tmp_path):
+    import subprocess
+    quick = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.3)"])
+    assert app.wait_for_exit(quick.pid, timeout=10) is True
+    slow = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        assert app.wait_for_exit(slow.pid, timeout=0.3) is False
+    finally:
+        slow.kill()
+        slow.wait(5)
+
+
 def test_minimized_is_read_from_the_command_line():
     assert app.start_minimized(["Accipio.exe", "--minimized"])
     assert not app.start_minimized(["Accipio.exe"])

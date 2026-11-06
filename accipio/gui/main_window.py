@@ -63,6 +63,7 @@ def ytdlp_version() -> Optional[str]:
 class Bridge(QObject):
     """Carries requests from the pipe's thread to the window's thread."""
     show_requested = pyqtSignal()
+    quit_requested = pyqtSignal()                 # Accipio.exe --quit (the installer, the uninstaller)
     message = pyqtSignal(str)
     browser_seen = pyqtSignal()
 
@@ -228,6 +229,7 @@ class MainWindow(QMainWindow):
 
         self.bridge = Bridge(self)
         self.bridge.show_requested.connect(self.bring_to_front)
+        self.bridge.quit_requested.connect(lambda: self.quit_app())
         self.bridge.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.bridge.browser_seen.connect(self.browser_connected)
         try:
@@ -256,6 +258,9 @@ class MainWindow(QMainWindow):
         if kind == "show":
             self.bridge.show_requested.emit()
             return {"ok": True}
+        if kind == "quit":                          # stop the way File > Exit does; the caller waits for the pid
+            self.bridge.quit_requested.emit()
+            return {"ok": True, "pid": os.getpid()}
         if kind == "add":
             links = links_in(str(message.get("url") or ""))
             if not links:
