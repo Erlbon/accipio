@@ -211,6 +211,11 @@ class MainWindow(QMainWindow):
         self.notices = notices.Notices(services.settings.notice_kinds())
         self._clicked_path = ""
         self.tray = self._build_tray()
+        self._quitting = False                     # Exit, or Windows ending the session; else the X hides to the tray
+        app = QApplication.instance()
+        if app is not None:
+            app.setQuitOnLastWindowClosed(False)   # a message box closed while hidden must not end Accipio
+            app.commitDataRequest.connect(self._session_ending)
         self.unread_failures = taskbar.UnreadFailures()
         self.taskbar_button = TaskbarButton(self)         # tests put a fake here
         self._look: Optional[taskbar.Look] = None
@@ -299,7 +304,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction(f"Show {APP_NAME}", self.bring_to_front)
         menu.addSeparator()
-        menu.addAction(labels.EXIT, self.close)
+        menu.addAction(labels.EXIT, self.quit_app)
         tray.setContextMenu(menu)
         tray.activated.connect(lambda reason: self.bring_to_front()
                                if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -361,7 +366,7 @@ class MainWindow(QMainWindow):
                   Separator(),
                   MenuAction("clear_finished", "&Clear Finished", self.clear_finished),
                   Separator(),
-                  MenuAction("exit", labels.EXIT, self.close, shortcut=QKeySequence.StandardKey.Quit)],
+                  MenuAction("exit", labels.EXIT, self.quit_app, shortcut=QKeySequence.StandardKey.Quit)],
             edit=[MenuAction("paste_links", "&Paste Links", self.paste_links, shortcut="Ctrl+Shift+V"),
                   Separator(),
                   MenuAction("select_all", "Select &All", self.table.selectAll, shortcut="Ctrl+A")],
@@ -807,7 +812,30 @@ class MainWindow(QMainWindow):
         if header is not None:
             self.table.horizontalHeader().restoreState(header)
 
+    def quit_app(self) -> None:
+        """File > Exit, the tray's Exit and Ctrl+Q: stop for real."""
+        self._quitting = True
+        self.close()
+
+    def _session_ending(self, *_):
+        self._quitting = True                      # Windows logs off or shuts down: never hold it up
+
+    def _hide_to_tray(self) -> None:
+        """The window's X (Q57A): downloads go on in the tray. Said once per PC, in a notification."""
+        self.hide()
+        stored = self._layout_store()
+        if not stored.value("window/told_tray", False, type=bool):
+            stored.setValue("window/told_tray", True)
+            self.tray.showMessage(APP_NAME, f"{APP_NAME} is still running here, so downloads go on. Click this icon to "
+                                  "open it; right-click it and choose Exit to quit.",
+                                  QSystemTrayIcon.MessageIcon.Information, 8000)
+
     def closeEvent(self, event):
+        # only a close the user made (the X, Alt+F4) hides; close() from code (Exit, Restart, the updaters) quits
+        if event.spontaneous() and not self._quitting and self.tray is not None and self.tray.isVisible():
+            event.ignore()
+            self._hide_to_tray()
+            return
         stored = self._layout_store()
         stored.setValue("window/geometry", self.saveGeometry())
         stored.setValue("window/header", self.table.horizontalHeader().saveState())
@@ -826,3 +854,4 @@ class MainWindow(QMainWindow):
                 stop()
         self.services.store.close()
         super().closeEvent(event)
+        QApplication.quit()                        # quit-on-last-window is off (see __init__)

@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-06#09 -- Closing the window keeps Accipio running in the tray
+
+- **The window's X (or Alt+F4) now hides Accipio to the tray** instead of quitting, so downloads go on and the browser can still hand files over. The first time, a notification says so. Click the tray icon to bring the window back.
+- **To quit**, use File > Exit (Ctrl+Q) or right-click the tray icon and choose Exit. Updates, Restart and Windows shutting down still close Accipio as before. Where the desktop has no tray, the X quits as it used to.
+
 ## 2026-11-06#08 -- Downloads work on a PC without IPv6
 
 - **vikingfile downloads failed** with "Network problem has occurred. cause: A socket operation was attempted to an unreachable network". The file sits on a storage server with an IPv6 address; on a PC with no IPv6 route the download engine tried that address and gave up, where Chrome quietly used IPv4. Accipio now checks at start whether the PC can reach IPv6 at all (nothing is sent) and, if not, keeps the engine on IPv4.

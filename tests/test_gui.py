@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import QApplication, QFileDialog, QHeaderView, QMessageBox 
 from accipio.core import cron, rules, settings, taskbar  # noqa: E402
 from accipio.core.rules import Condition, Rule  # noqa: E402
 from accipio.core.store import ACTIVE, COMPLETE, PAUSED  # noqa: E402
-from PyQt6.QtGui import QColor  # noqa: E402
+from PyQt6.QtGui import QCloseEvent, QColor  # noqa: E402
 
 from accipio.gui import main_window as mw, style  # noqa: E402
 from accipio.gui.queue_model import COLUMNS, NAME, STATUS  # noqa: E402
@@ -252,6 +252,71 @@ def test_closing_stops_the_engine_and_remembers_the_columns(world):
     win.table.horizontalHeader().resizeSection(NAME, 333)
     win.close()
     assert engine.stopped and os.path.isfile(os.path.join(win.services.folder, "window.ini"))
+
+
+class FakeTray:
+    def __init__(self):
+        self.messages = []
+
+    def isVisible(self):
+        return True
+
+    def showMessage(self, title, text, *a):
+        self.messages.append(text)
+
+    def hide(self):
+        pass
+
+
+class ClickedX(QCloseEvent):
+    """A close the user made (the X, Alt+F4): Qt marks those spontaneous; close() from code is not."""
+    def spontaneous(self):
+        return True
+
+
+def click_x(win) -> QCloseEvent:
+    event = ClickedX()
+    win.closeEvent(event)
+    return event
+
+
+def test_the_x_keeps_accipio_running_in_the_tray(world):
+    """2026-11-06 (Q57A): the window's X hides Accipio to the tray, so downloads go on; the first time it says
+    so. Only Exit (File menu, the tray's menu or Ctrl+Q) stops it."""
+    win, engine, prober, base = world
+    win.tray = FakeTray()
+    win.show()
+    assert not click_x(win).isAccepted()
+    assert not win.isVisible() and not engine.stopped and win.timer.isActive()
+    assert len(win.tray.messages) == 1 and "still running" in win.tray.messages[0]
+    win.bring_to_front()
+    assert win.isVisible()
+    click_x(win)
+    assert len(win.tray.messages) == 1                        # told once, not every time
+    win.actions_by_key["exit"].trigger()
+    assert engine.stopped
+
+
+def test_a_close_from_code_still_quits_so_updates_and_restarts_work(world):
+    """The updater (ours and redactor_common's) and Restart call close() and quit when it returns True."""
+    win, engine, prober, base = world
+    win.tray = FakeTray()
+    win.show()
+    assert win.close() and engine.stopped and not win.tray.messages
+
+
+def test_without_a_tray_the_x_quits(world):
+    win, engine, prober, base = world
+    win.tray = None
+    win.show()
+    assert click_x(win).isAccepted() and engine.stopped
+
+
+def test_windows_shutting_down_is_never_held_up_by_the_tray(world):
+    win, engine, prober, base = world
+    win.tray = FakeTray()
+    win._session_ending()                    # what QApplication.commitDataRequest calls
+    assert click_x(win).isAccepted() and engine.stopped and not win.tray.messages
 
 
 # ---- updating yt-dlp -------------------------------------------------------------------------------------
