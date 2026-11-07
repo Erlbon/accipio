@@ -209,7 +209,26 @@ class Aria2:
 
     # ---- JSON-RPC ----------------------------------------------------------------------------------------
 
+    RETRIES = 2                 # a dropped connection on a read call is tried this many more times
+    RETRY_PAUSE = 0.25          # seconds between those tries
+
     def call(self, method: str, *params: Any, timeout: float = 10.0) -> Any:
+        """One JSON-RPC call. A connection aria2 resets or aborts (2026-11-07: right after the first start that
+        followed an install over a running Accipio) is tried again for a read call (tell..., get...); when it
+        stays down, or a call that changes something drops (it may have reached aria2: never sent twice), it is an
+        Aria2Error. Other OSErrors (aria2 not listening yet) pass through: start() waits on those."""
+        reads = method.startswith(("tell", "get"))
+        attempt = 0
+        while True:
+            try:
+                return self._call_once(method, params, timeout)
+            except (ConnectionResetError, ConnectionAbortedError) as error:
+                if not reads or attempt >= self.RETRIES:
+                    raise Aria2Error(f"aria2 dropped the connection during {method}: {error}") from error
+                attempt += 1
+                time.sleep(self.RETRY_PAUSE)
+
+    def _call_once(self, method: str, params: tuple, timeout: float) -> Any:
         self._ids += 1
         body = json.dumps({"jsonrpc": "2.0", "id": self._ids, "method": "aria2." + method,
                            "params": ["token:" + self.secret, *params]}).encode()

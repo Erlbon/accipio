@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#04 -- Installing over a running Accipio, and the first start after it
+
+- **Installing over a running Accipio no longer closes it, or aria2, by force.** The installer already asked Accipio to stop the way File > Exit does, but then waited only for Accipio itself. aria2 takes about four seconds longer to exit, so Windows found it still running and closed it. The installer now waits, for up to 30 seconds, until no program in Accipio's folder is running (redactor_common 2026-11-07-07).
+- **The first start after such an install could crash** with "An existing connection was forcibly closed by the remote host": aria2 answered once and then dropped the connection while Accipio read the download list. A dropped connection is now tried twice more for anything that only reads. If it stays down, Accipio says it cannot start its download engine instead of showing the crash dialog. A call that changes something (adding a download) is never sent twice.
+
 ## 2026-11-07#03 -- The first release offered through the update framework
 
 - The same program as 2026-11-07#02 (below, a pre-release). This one went through the full release gate before anyone was offered it: a copy of 2026-11-07#02 was installed in a scratch folder, updated itself to this release with its own Check for Updates code, reported the new version, and uninstalled cleanly.

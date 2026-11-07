@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.11.7.3"
+version = "2026.11.7.4"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = "MIT"
 dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
-    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-05",   # pin a tag, never @main
+    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-07",   # pin a tag, never @main
 ]
 
 [tool.setuptools.packages.find]
