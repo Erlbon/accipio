@@ -1,7 +1,7 @@
 """Where Accipio keeps its files, and the settings the user can change.
 
 Everything lives in one folder: ``%APPDATA%\\Accipio`` on Windows, ``$XDG_CONFIG_HOME/accipio`` (or
-``~/.config/accipio``) elsewhere. In it: ``settings.json``, ``rules.json``, the queue database and aria2's
+``~/.config/accipio``) elsewhere, or REDACTOR_CONFIG_DIR when that is set (the release gate's scratch profile). In it: ``settings.json``, ``rules.json``, the queue database and aria2's
 saved session. Files are written to a temporary name and swapped in, so a crash never leaves half a file.
 """
 from __future__ import annotations
@@ -13,10 +13,15 @@ import sys
 from dataclasses import asdict, dataclass, fields
 from typing import Dict, List, Optional, Tuple
 
+from redactor_common.core import app_paths
+
 from accipio.core import rules
 
 
 def config_dir() -> str:
+    override = app_paths.config_override()          # REDACTOR_CONFIG_DIR: the family's scratch profile (release gate)
+    if override is not None:
+        return str(override)
     if sys.platform == "win32":
         return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Accipio")
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "accipio")

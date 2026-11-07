@@ -6,6 +6,9 @@ starts with the window minimized (the "Start with Windows" entry). A second star
 Accipio ever runs. At every start the native host is registered for Chrome and Edge (only for this user).
 ``--quit`` asks the running Accipio to stop the way File > Exit does and waits until its process is gone: the
 installer and uninstaller run it, because the window's X (and so a plain close request) only hides Accipio.
+``--version``, ``--check-update`` and ``--update`` are the family's update command line
+(redactor_common.core.update_cli), answered before anything else so the release gate can ask an old copy; with
+REDACTOR_CONFIG_DIR set, settings, rules and the queue live there instead (core/settings.config_dir).
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import sys
 import time
 
 from accipio.core import aria2, browser, ipc, settings, ytdlp_update
-from accipio.core.version import APP_NAME
+from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
 
 QUIT_WAIT = 30.0                               # seconds --quit waits for Accipio to finish stopping
 
@@ -62,6 +65,10 @@ def main(argv=None) -> int:
     if "--native-host" in argv:
         from accipio import native_host
         return native_host.main()
+    from redactor_common.core import update_cli
+    answered = update_cli.handle(argv, APP_NAME, APP_VERSION, APP_REPO_URL)
+    if answered is not None:
+        return answered
 
     folder = settings.config_dir()
     if "--quit" in argv:

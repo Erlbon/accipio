@@ -10,8 +10,16 @@
 #ifndef AppVersion
   #error Pass /DAppVersion, /DBuildTag and /DBuildName (build_exe.bat does)
 #endif
+#ifndef UpdateContract
+  #error Pass /DUpdateContract (build_exe.bat does: python -m redactor_common.release contract-path)
+#endif
 
 #define AppName "Accipio"
+; The family's installer contract (included at the end): relaunch after an update, update-channel, and stopping a
+; running Accipio the way File > Exit does before files are replaced.
+#define UpdateExe "Accipio.exe"
+#define UpdateQuitArgs "--quit"
+#define UpdateQuitCheck "InstalledKnowsQuit"
 #define HostKey "no.erlbon.accipio"
 
 [Setup]
@@ -72,8 +80,6 @@ Filename: "{cmd}"; Parameters: "/c winget install --id Gyan.FFmpeg --exact --sil
 ; Chrome will not open its own extensions page for another program, so this opens a page with the steps and copy buttons.
 Filename: "{app}\_internal\accipio\gui\help\connect-browser.html"; Description: "Show how to add the browser extension (one minute, once)"; Check: OfferExtension; Flags: postinstall shellexec nowait
 Filename: "{app}\Accipio.exe"; Description: "Start Accipio"; Flags: postinstall nowait skipifsilent
-; Help > Check for Updates runs this installer quietly with /relaunch=yes after closing Accipio: start it again.
-Filename: "{app}\Accipio.exe"; Flags: nowait; Check: Relaunch
 
 [UninstallRun]
 ; Stop Accipio the way File > Exit does (it saves aria2's session) and wait until it is gone. A plain close request
@@ -162,7 +168,7 @@ begin
 end;
 
 { Builds from 2026.11.6.12 understand "Accipio.exe --quit"; an older one would take it for a second start and
-  only bring its window to the front. }
+  only bring its window to the front. The update contract asks before it runs --quit (UpdateQuitCheck). }
 function InstalledKnowsQuit: Boolean;
 var
   V: String;
@@ -183,22 +189,6 @@ begin
     Result := C > 6
   else
     Result := D >= 12;
-end;
-
-{ Before files are replaced: stop a running Accipio the way File > Exit does, so aria2's session is saved. Since
-  the X only hides Accipio, Windows' close request would not end it and CloseApplications would kill it. }
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  Code: Integer;
-begin
-  Result := '';
-  if IsUpdate and InstalledKnowsQuit and FileExists(ExpandConstant('{app}\Accipio.exe')) then
-    Exec(ExpandConstant('{app}\Accipio.exe'), '--quit', '', SW_HIDE, ewWaitUntilTerminated, Code);
-end;
-
-function Relaunch: Boolean;
-begin
-  Result := WizardSilent and (Lowercase(ExpandConstant('{param:relaunch|no}')) = 'yes');
 end;
 
 function OfferExtension: Boolean;
@@ -227,3 +217,5 @@ begin
               mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
       DelTree(ExpandConstant('{userappdata}\Accipio'), True, True, True);
 end;
+
+#include UpdateContract

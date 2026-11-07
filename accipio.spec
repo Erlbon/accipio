@@ -87,3 +87,8 @@ coll = COLLECT(
     upx_exclude=[],
     name="Accipio",
 )
+
+# The update framework's channel (redactor_common docs/update-framework.md): the folder build, as the zip carries it,
+# cannot replace itself. The installer copies this file and then overwrites it with "windows-installer".
+with open(os.path.join(DISTPATH, "Accipio", "update-channel"), "w", encoding="utf-8") as channel:
+    channel.write("windows-zip\n")

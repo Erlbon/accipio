@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.11.6.14"
+version = "2026.11.7.1"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = "MIT"
 dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
-    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-06-01",   # pin a tag, never @main
+    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-03",   # pin a tag, never @main
 ]
 
 [tool.setuptools.packages.find]
@@ -16,6 +16,25 @@ include = ["accipio*"]     # only the program: "extension" and "tools" are not P
 
 [project.gui-scripts]
 accipio = "accipio.gui.app:main"
+
+# python -m redactor_common.release publish: build, manifest, pre-release, the update gate, then Latest.
+[tool.redactor-release]
+app = "accipio"
+name = "Accipio"
+repo = "Erlbon/accipio"
+version_file = "accipio/core/version.py"
+build = ["cmd", "/c", "call build_exe.bat < nul"]
+exe = "Accipio.exe"
+installer_app_id = "{6C0E5D8A-3F7B-4B8E-9A51-2D4C7E1A9B30}"     # installer\accipio.iss AppId (a test keeps them equal)
+after_gate = [["python", "-m", "accipio", "--register"]]       # the scratch install pointed Chrome and Edge at itself
+
+[tool.redactor-release.zip]
+folder = "dist/Accipio"
+file = "dist/Accipio-{build}-windows-x64.zip"
+
+[tool.redactor-release.packages]
+windows-installer = "dist/Accipio-{build}-windows-x64-setup.exe"
+windows-zip = "dist/Accipio-{build}-windows-x64.zip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

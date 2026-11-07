@@ -29,6 +29,7 @@ from redactor_common.core.selfupdate import KEY_CHECK_FOR_UPDATES
 from redactor_common.gui.about_dialog import CreditsDialog
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
+from redactor_common.gui.update_controller import UpdateController
 
 from accipio.core import aria2, ipc, notices, ranges, rules, settings as settings_mod, taskbar, ytdlp_update
 from accipio.core.queue import Queue
@@ -39,7 +40,6 @@ from accipio.gui.archive_box import ArchiveBox
 from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
 from accipio.gui.playlist_question import PlaylistQuestion
 from accipio.gui.taskbar_button import TaskbarButton
-from accipio.gui.updates import AccipioUpdates
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
 LINK = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
@@ -211,7 +211,10 @@ class MainWindow(QMainWindow):
 
         self.build_label = QLabel(f"Build {APP_VERSION}")
         self.statusBar().addPermanentWidget(self.build_label)
-        self.updates = AccipioUpdates(self, os.path.join(services.folder, UPDATES_FILE))
+        # The family's update framework: the installer writes update-channel = windows-installer beside the exe, the zip
+        # carries windows-zip, and each release's update-manifest.json names the file. close() from code quits for real.
+        self.updates = UpdateController(self, APP_NAME, APP_VERSION, APP_REPO_URL,
+                                        os.path.join(services.folder, UPDATES_FILE))
         self._build_menus()
         self._restore_layout()
         self.notices = notices.Notices(services.settings.notice_kinds())
