@@ -41,7 +41,8 @@ from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
 MAX_RESTARTS = 3
-AT_ONCE_GRACE = 5           # seconds a finished row stays with "as soon as they finish": the window sees it finish
+INSIDE_OTHERS = 0.10        # share of an archive (by size) that may land under other rules before Accipio asks (78A)
+AT_ONCE_GRACE = 5          # seconds a finished row stays with "as soon as they finish": the window sees it finish
 
 
 def trash(path: str) -> None:
@@ -413,19 +414,53 @@ class Queue:
             return
         placement = self._place(Download(url=row.url, filename=row.filename, page_url=row.page_url, mime=row.mime,
                                          size=row.size, when=row.added_at))
+        choice, folder, why = placement.unpack, placement.folder, f"the archive's own rule ({placement.rule_numbers})"
+        if not choice and not row.pinned:
+            choice, folder, why = self._choice_from_inside(row, entries)
         debug_log.note("archive", row=row_id, filename=row.filename, files_inside=len(entries),
                        rules=placement.rule_numbers or "none", rule_choice=placement.unpack or "none",
                        folder_by_hand=row.pinned,
-                       decision=(f"unpack ({placement.unpack}) by rule" if placement.unpack and not row.pinned
-                                 else "ask: folder chosen by hand" if placement.unpack
-                                 else "ask: no rule that matches this file says what to do with an archive"))
-        if placement.unpack and not row.pinned:
+                       decision=(f"unpack ({choice}) by {why}" if choice and not row.pinned
+                                 else "ask: folder chosen by hand" if choice else f"ask: {why}"))
+        if choice and not row.pinned:
             try:
-                self.unpack_archive(row_id, placement.unpack, folder=placement.folder, entries=entries, by_rule=True)
+                self.unpack_archive(row_id, choice, folder=folder, entries=entries, by_rule=True)
             except unpack.UnpackError as error:
                 self.store.update(row_id, unpack={"state": "failed", "message": str(error)})
             return
         self._wait_for_choice(row, entries)
+
+    def _choice_from_inside(self, row: Row, entries: List[unpack.Entry]) -> Tuple[str, str, str]:
+        """(choice, folder, why) for an archive whose own name no rule with an archive choice takes (2026-11-07,
+        76C, 77A, 78A): the rule its files land under decides, when that rule has an archive choice, its files are
+        more than half of the archive by size, and files under other rules are at most INSIDE_OTHERS of it (a
+        cover or an .nfo under no rule goes along). Otherwise ("", "", why Accipio asks)."""
+        sizes: Dict[int, int] = {}
+        placements: Dict[int, Placement] = {}
+        rule_list = self.rule_set()
+        total = 0
+        for entry in entries:
+            weight = max(entry.size, 1)
+            total += weight
+            name = os.path.basename(entry.name.replace("\\", "/"))
+            inner = self._inner(row, name)
+            if inner.steps and rule_list[inner.steps[0].number - 1].conditions:
+                number = inner.steps[0].number
+                sizes[number] = sizes.get(number, 0) + weight
+                placements.setdefault(number, inner)
+        if not sizes:
+            return "", "", "no rule that matches this file, or the files inside, says what to do with an archive"
+        top = max(sizes, key=sizes.get)
+        shares = ", ".join(f"rule {n}: {round(100 * s / total)}%" for n, s in sorted(sizes.items()))
+        others = sum(s for n, s in sizes.items() if n != top)
+        choice = placements[top].unpack
+        if not choice:
+            return "", "", f"the files inside land under rule {top}, which has no archive choice ({shares})"
+        if sizes[top] * 2 <= total:
+            return "", "", f"rule {top}'s files are not most of the archive ({shares})"
+        if others > total * INSIDE_OTHERS:
+            return "", "", f"the files inside land under different rules ({shares})"
+        return choice, placements[top].folder, f"rule {top}, which most of the files inside land under ({shares})"
 
     def _wait_for_choice(self, row: Row, entries: List[unpack.Entry]) -> None:
         suggestion = unpack.suggest(entries, lambda name: self._fits_a_rule(row, name))

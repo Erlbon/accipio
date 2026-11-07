@@ -47,6 +47,12 @@ class ArchivesTab(QWidget):
         self.by_rules.setWordWrap(True)
         self.by_rules.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.by_rules)
+        inside = QLabel("A rule's choice also counts for a zip or tar full of its files: a .zip of .cbz comics follows "
+                        "the Comics rule when its comics are most of the zip. If a real share of the files belong to "
+                        "another rule, Accipio asks.")
+        inside.setWordWrap(True)
+        inside.setEnabled(False)
+        layout.addWidget(inside)
         layout.addStretch(1)
         self.refresh()
 

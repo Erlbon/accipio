@@ -235,6 +235,69 @@ def test_a_rule_that_says_sort_unpacks_without_asking(world):
     assert os.path.isfile(os.path.join(base, "Comics", "Saga 001.cbz"))
 
 
+# 2026-11-07, 76C + 77A + 78A: a zip whose own name no rule with an archive choice takes follows the rule its
+# files would land under (getcomics.org packs: a .zip of .cbz files, and a Comics rule that says "unpacked as a
+# folder there"), when that rule's files are most of the zip by size; files under other rules make Accipio ask
+# once they are more than a small part (a cover or an .nfo goes along).
+
+def comics_unpack(rule_list, choice="folder"):
+    comics = next(r for r in rule_list if r.name == "Comics")
+    comics.unpack = choice
+    return comics
+
+
+def test_a_zip_of_comics_follows_the_comics_rules_archive_choice(world):
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list)
+    row_id = arrive(world, "https://getcomics.org/dlds/Saga.Vol.1-6.zip",
+                    {"Saga 001.cbz": b"PK" * 5000, "Saga 002.cbz": b"PK" * 5000, "cover.jpg": b"\xff\xd8" * 200,
+                     "info.nfo": b"x" * 50})
+    row = q.store.get(row_id)
+    assert row.unpack["state"] == "done" and row.unpack["mode"] == "folder" and row.unpack["by_rule"]
+    folder = os.path.join(base, "Comics", "Saga.Vol.1-6")
+    for name in ("Saga 001.cbz", "Saga 002.cbz", "cover.jpg", "info.nfo"):    # the extras go along
+        assert os.path.isfile(os.path.join(folder, name))
+
+
+def test_a_pack_with_its_own_top_folder_is_not_wrapped_in_a_second_one(world):
+    """79C: "as a folder" never repeats the folder the zip already has inside."""
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list)
+    arrive(world, "https://getcomics.org/dlds/Saga.zip", {"Saga/Saga 001.cbz": b"PK" * 100, "Saga/Saga 002.cbz": b"PK"})
+    assert os.path.isfile(os.path.join(base, "Comics", "Saga", "Saga 001.cbz"))
+    assert not os.path.exists(os.path.join(base, "Comics", "Saga", "Saga"))
+
+
+def test_sorted_by_the_rules_puts_the_comics_straight_in_the_comics_folder(world):
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list, "sort")
+    arrive(world, "https://getcomics.org/dlds/Saga.zip", {"Saga/Saga 001.cbz": b"PK" * 100})
+    assert os.path.isfile(os.path.join(base, "Comics", "Saga 001.cbz"))
+
+
+def test_a_zip_mostly_of_something_else_still_asks(world):
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list)
+    row_id = arrive(world, "https://a.org/mixed.zip", {"one.cbz": b"PK" * 10, "big.bin": b"x" * 5000})
+    assert q.store.get(row_id).unpack["state"] == "waiting"
+
+
+def test_files_under_two_rules_make_accipio_ask(world):
+    """78A: comics and a real share of ebooks: which rule's choice is meant is a guess, so Accipio asks."""
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list)
+    row_id = arrive(world, "https://a.org/both.zip", {"one.cbz": b"PK" * 3000, "book.epub": b"PK" * 1000})
+    assert q.store.get(row_id).unpack["state"] == "waiting"
+
+
+def test_the_zips_own_rule_choice_still_comes_first(world):
+    q, engine, prober, base, rule_list = world
+    comics_unpack(rule_list, "folder")
+    rule_list.insert(0, rules_mod().remembered_rule("Archives", "", "sort", "Archives"))
+    row_id = arrive(world, "https://a.org/pack.zip", {"Saga 001.cbz": b"PK"})
+    assert q.store.get(row_id).unpack["mode"] == "sort"
+
+
 def test_the_archive_can_go_to_the_recycle_bin_after_unpacking(world, monkeypatch):
     q, engine, prober, base, _ = world
     trashed = []
