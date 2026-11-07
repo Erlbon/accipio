@@ -49,6 +49,10 @@ def test_the_release_ships_the_installer_and_the_zip():
     build = APP_VERSION.replace("#", "-")
     assert cfg.package_paths()[update_manifest.WINDOWS_INSTALLER] == ROOT / "dist" / f"Accipio-{build}-windows-x64-setup.exe"
     assert cfg.zip_folder == "dist/Accipio"
+    # 81A: the gate runs Accipio the way a user does, and stops it the way the installer does
+    assert (cfg.gate_run, cfg.gate_quit, cfg.gate_crash_log) == (["--minimized"], ["--quit"], "crash.log")
+    script = (ROOT / "installer" / "accipio.iss").read_text(encoding="utf-8")
+    assert '#define UpdateQuitArgs "' + " ".join(cfg.gate_quit) + '"' in script
 
 
 def test_the_update_command_line_is_answered_before_anything_starts(monkeypatch, tmp_path):

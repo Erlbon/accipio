@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#08 -- The release gate runs Accipio
+
+- Releases are now tested the way you hit today's problems by hand (redactor_common 2026-11-07-09). Before a release is offered, the previous Accipio runs, minimized and with a scratch profile, while it updates itself. It has to stop by itself (no program closed by force, as the installer's log shows). Then the new Accipio has to start, run for 20 seconds without a crash log, and stop when asked.
+
 ## 2026-11-07#07 -- A zip of comics follows the Comics rule
 
 - **A comic pack from getcomics.org (a .zip of .cbz files) asked what to do, although the Comics rule said "archives are unpacked as a folder there".** That choice applied only to downloads the rule itself matched, and a .zip is not a comic. Now, when no rule with an archive choice matches the archive's own name, Accipio looks at the files inside. If they land under one rule with an archive choice, and they are more than half of the archive by size, that rule's choice is used, in that rule's folder. A cover or an .nfo goes along. If more than a tenth of the archive would land under another rule (comics and ebooks together), Accipio asks, and the debug log says which rules and how much of each.

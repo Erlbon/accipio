@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.11.7.7"
+version = "2026.11.7.8"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = "MIT"
 dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
-    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-07",   # pin a tag, never @main
+    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-09",   # pin a tag, never @main
 ]
 
 [tool.setuptools.packages.find]
@@ -27,6 +27,14 @@ build = ["build_exe.bat"]                                         # called by it
 exe = "Accipio.exe"
 installer_app_id = "{6C0E5D8A-3F7B-4B8E-9A51-2D4C7E1A9B30}"     # installer\accipio.iss AppId (a test keeps them equal)
 after_gate = [["python", "-m", "accipio", "--register"]]       # the scratch install pointed Chrome and Edge at itself
+
+# The gate runs Accipio as a user does (81A): the old copy runs while it updates itself and must stop by itself;
+# the new one must run 20 s (minimized, scratch profile) with no crash.log and stop on --quit.
+[tool.redactor-release.gate]
+run = ["--minimized"]
+quit = ["--quit"]
+crash_log = "crash.log"
+live = 20
 
 [tool.redactor-release.zip]
 folder = "dist/Accipio"
