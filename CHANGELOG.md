@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#09 -- A sound of its own for each notice
+
+- **Added, finished and failed downloads now sound different.** Settings > Notify when has one line per notice: a checkbox, its sound and a **Play** button. The sounds are Windows' notification sounds (by default: Windows' notification for added, New mail for finished, Reminder for failed), No sound, or **A sound file…** of your own (.wav).
+- Accipio now hands its notices to Windows itself, not through the tray, so Windows plays only the sound picked for that notice. Before, Windows played its one notification sound for every notice. Do not disturb and the switches under Windows Settings > System > Notifications > Accipio apply as for any app. A sound file of yours plays beside a silent notice, and keeps quiet while Windows holds notices back. Clicking a "finished" notice still shows the file in its folder.
+- Windows needs to know Accipio by name for this, so Accipio writes one registry key, `HKCU\Software\Classes\AppUserModelId\Erlbon.Accipio`, which the uninstaller removes. If Windows cannot show the notice, Accipio uses the tray's message as before.
+- The program is about 1.2 MB larger (PyWinRT, the library that talks to Windows' notices).
+
 ## 2026-11-07#08 -- The release gate runs Accipio
 
 - Releases are now tested the way you hit today's problems by hand (redactor_common 2026-11-07-09). Before a release is offered, the previous Accipio runs, minimized and with a scratch profile, while it updates itself. It has to stop by itself (no program closed by force, as the installer's log shows). Then the new Accipio has to start, run for 20 seconds without a crash log, and stop when asked.

@@ -46,6 +46,11 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+class RefusingToaster:
+    def show(self, title, text, sound, path=""):
+        return False
+
+
 @pytest.fixture
 def world(app, tmp_path):
     folder = str(tmp_path / "config")
@@ -53,6 +58,8 @@ def world(app, tmp_path):
     settings.save_rules(folder, samples.sorting_rules(), samples.sorting_library())
     engine, prober = Engine(), FakeProber()
     win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober, video_engine=False), tick_ms=60_000)
+    win.toaster = RefusingToaster()        # never a real Windows notice from a test; the tray (a FakeTray) tells it
+    win.play_sound = lambda sound: None
     yield win, engine, prober, str(tmp_path / "Downloads")
     try:
         win.flush()

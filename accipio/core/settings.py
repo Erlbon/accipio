@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple
 
 from redactor_common.core import app_paths
 
-from accipio.core import rules
+from accipio.core import rules, toasts
 
 
 def config_dir() -> str:
@@ -51,6 +51,9 @@ class Settings:
     notify_added: bool = True             # Windows notifications (see notices.py)
     notify_finished: bool = True
     notify_failed: bool = True
+    sound_added: str = "Notification.Default"      # each notice's sound (74, 83B): a toasts.WINDOWS_SOUNDS name,
+    sound_finished: str = "Notification.Mail"      # toasts.NO_SOUND or a .wav file's path
+    sound_failed: str = "Notification.Reminder"
     browser_connected: bool = False       # the extension has talked to Accipio once; until then a start shows how
     unpack_archives: bool = False         # the archive trial (2026-11-05): look inside zips and tars, ask what to do
     after_unpack: str = "keep"            # or "delete" (the archive goes to the Recycle Bin)
@@ -62,7 +65,13 @@ class Settings:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),
                                       ("failed", self.notify_failed)) if on]
 
+    def sound_for(self, kind: str) -> str:
+        return getattr(self, f"sound_{kind}")
+
     def __post_init__(self):
+        for kind in ("added", "finished", "failed"):
+            if not toasts.valid(self.sound_for(kind)):
+                setattr(self, f"sound_{kind}", next(f.default for f in fields(Settings) if f.name == f"sound_{kind}"))
         if not self.base_folder:
             self.base_folder = default_download_folder()
         if self.clear_finished not in CLEAR_CHOICES:

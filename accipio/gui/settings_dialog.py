@@ -14,7 +14,8 @@ from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialo
                              QSpinBox, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
-from accipio.core import debug_log, video
+from accipio.core import debug_log, toasts, video
+from accipio.core.notices import ADDED, FAILED, FINISHED, KINDS
 from accipio.core.settings import CLEAR_AFTER, CLEAR_AT_ONCE, CLEAR_AT_START, CLEAR_CHOICES, CLEAR_NEVER, Settings
 from accipio.core.video import QUALITIES
 from accipio.gui.style import WARNING_COLOR
@@ -38,6 +39,69 @@ def install_ffmpeg_with_progress(parent) -> Optional[str]:
     finally:
         box.close()
     return None
+
+
+class SoundLine(QHBoxLayout):
+    """One notice's line (82D): [x] when it is shown, its sound, and Play. The sounds are Windows' notification
+    sounds, No sound, and a .wav file of the user's picked with "A sound file…" (core/toasts.py)."""
+
+    def __init__(self, text: str, on: bool, sound: str, play: Callable[[str], None], parent):
+        super().__init__()
+        self.parent_widget = parent
+        self.box = QCheckBox(text)
+        self.box.setChecked(on)
+        self.combo = QComboBox()
+        self.combo.addItem("No sound", toasts.NO_SOUND)
+        for name, label in toasts.WINDOWS_SOUNDS.items():
+            self.combo.addItem(label, name)
+        self.combo.addItem("A sound file…", toasts.PICK_FILE)
+        self._chosen = sound
+        if toasts.is_file(sound):
+            self._add_file(sound)
+        self.combo.setCurrentIndex(max(self.combo.findData(sound), 0))
+        self.combo.currentIndexChanged.connect(self._changed)
+        self.play = QPushButton("Play")
+        self.play.setToolTip("Play this sound now")
+        self.play.clicked.connect(lambda: play(self.sound()))
+        self.box.toggled.connect(self._show_on)
+        for widget in (self.box, self.combo, self.play):
+            self.addWidget(widget)
+        self.addStretch(1)
+        self._show_on(on)
+
+    def _add_file(self, path: str) -> None:
+        """The picked file, just above "A sound file…", replacing the one picked before."""
+        old = next((i for i in range(self.combo.count())
+                    if self.combo.itemData(i) != toasts.PICK_FILE and toasts.is_file(self.combo.itemData(i))), None)
+        if old is not None:
+            self.combo.removeItem(old)
+        self.combo.insertItem(self.combo.findData(toasts.PICK_FILE), os.path.basename(path), path)
+        self.combo.setItemData(self.combo.findData(path), path, Qt.ItemDataRole.ToolTipRole)
+
+    def ask_for_file(self, start: str) -> str:
+        path, _ = QFileDialog.getOpenFileName(self.parent_widget, "Pick a sound", start, "Sounds (*.wav)")
+        return path
+
+    def _changed(self, index: int) -> None:
+        if self.combo.itemData(index) != toasts.PICK_FILE:
+            self._chosen = self.combo.itemData(index)
+            return
+        start = os.path.dirname(self._chosen) if toasts.is_file(self._chosen) else os.path.join(
+            os.environ.get("SystemRoot", "C:\\Windows"), "Media")
+        path = self.ask_for_file(start)
+        self.combo.blockSignals(True)
+        if path:
+            self._chosen = os.path.normpath(path)
+            self._add_file(self._chosen)
+        self.combo.setCurrentIndex(self.combo.findData(self._chosen))
+        self.combo.blockSignals(False)
+
+    def _show_on(self, on: bool) -> None:
+        self.combo.setEnabled(on)
+        self.play.setEnabled(on)
+
+    def sound(self) -> str:
+        return self._chosen
 
 
 class SettingsDialog(QDialog):
@@ -97,16 +161,17 @@ class SettingsDialog(QDialog):
         self.ask_playlists.setChecked(current.ask_playlists)
         form.addRow("Playlists", self.ask_playlists)
         form.addRow("Finished", self._build_clear_finished(current))
-        notify_row = QHBoxLayout()
-        self.notify_added = QCheckBox("Added")
-        self.notify_finished = QCheckBox("Finished")
-        self.notify_failed = QCheckBox("Failed")
-        for box, on in ((self.notify_added, current.notify_added), (self.notify_finished, current.notify_finished),
-                        (self.notify_failed, current.notify_failed)):
-            box.setChecked(on)
-            notify_row.addWidget(box)
-        notify_row.addStretch(1)
-        form.addRow("Notify when", notify_row)
+        self.play_sound: Callable[[str], None] = toasts.play         # tests put a fake here
+        notify_column = QVBoxLayout()
+        self.sound_lines = {}
+        for kind, text in ((ADDED, "A download is added"), (FINISHED, "A download finishes"),
+                           (FAILED, "A download fails")):
+            line = SoundLine(text, getattr(current, f"notify_{kind}"), current.sound_for(kind),
+                             lambda sound: self.play_sound(sound), self)
+            self.sound_lines[kind] = line
+            notify_column.addLayout(line)
+        self.notify_added, self.notify_finished, self.notify_failed = (self.sound_lines[k].box for k in KINDS)
+        form.addRow("Notify when", notify_column)
         self.check_updates = QCheckBox("Check for a new version once a day")
         self.check_updates.setToolTip("At startup, at most once a day, ask GitHub whether a newer version has been "
                                       "released, and offer it if so. Nothing about you or your files is sent. "
@@ -227,6 +292,9 @@ class SettingsDialog(QDialog):
                                    video_quality=self.video_quality.currentData(),
                                    notify_added=self.notify_added.isChecked(),
                                    notify_finished=self.notify_finished.isChecked(),
-                                   notify_failed=self.notify_failed.isChecked(), ffmpeg_path=self.ffmpeg_path,
+                                   notify_failed=self.notify_failed.isChecked(),
+                                   sound_added=self.sound_lines[ADDED].sound(),
+                                   sound_finished=self.sound_lines[FINISHED].sound(),
+                                   sound_failed=self.sound_lines[FAILED].sound(), ffmpeg_path=self.ffmpeg_path,
                                    ask_playlists=self.ask_playlists.isChecked(),
                                    debug_log=self.debug_log.isChecked())

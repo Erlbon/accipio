@@ -73,6 +73,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; Written by Accipio itself; listed here only so the uninstaller removes them.
 Root: HKCU; Subkey: "Software\Google\Chrome\NativeMessagingHosts\{#HostKey}"; Flags: dontcreatekey uninsdeletekey
 Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\{#HostKey}"; Flags: dontcreatekey uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\Erlbon.Accipio"; Flags: dontcreatekey uninsdeletekey
 
 [Run]
 Filename: "{app}\Accipio.exe"; Parameters: "--register"; StatusMsg: "Connecting Chrome and Edge to Accipio..."; Flags: runhidden waituntilterminated

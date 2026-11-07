@@ -32,7 +32,7 @@ from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 from redactor_common.gui.update_controller import UpdateController
 
-from accipio.core import (aria2, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar,
+from accipio.core import (aria2, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar, toasts,
                           ytdlp_update)
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
@@ -68,6 +68,7 @@ class Bridge(QObject):
     quit_requested = pyqtSignal()                 # Accipio.exe --quit (the installer, the uninstaller)
     message = pyqtSignal(str)
     browser_seen = pyqtSignal()
+    notice_clicked = pyqtSignal(str)              # a Windows notice was clicked: its finished file, or ""
 
 
 TAKEOVER_WAIT = 8.0       # seconds a download Chrome hands over may take to check (under ipc.TIMEOUT, 10)
@@ -242,6 +243,11 @@ class MainWindow(QMainWindow):
         self.bridge.quit_requested.connect(lambda: self.quit_app())
         self.bridge.message.connect(lambda text: self.statusBar().showMessage(text, 6000))
         self.bridge.browser_seen.connect(self.browser_connected)
+        self.bridge.notice_clicked.connect(self.notice_clicked)
+        from accipio.gui import appicon
+        self.toaster = toasts.Toaster(appicon.PNG, self.bridge.notice_clicked.emit)   # tests put fakes in these three
+        self.play_sound: Callable[[str], None] = toasts.play
+        self.quiet_now: Callable[[], bool] = toasts.quiet_now
         try:
             self.ipc: Optional[ipc.Server] = ipc.Server(services.folder, self.handle_message).start()
         except OSError as error:
@@ -368,23 +374,38 @@ class MainWindow(QMainWindow):
             self._button_told = self.taskbar_button.show(look)
 
     def _show_notice(self, notice: notices.Notice) -> None:
+        self._notify(notice.title, notice.text, self.services.settings.sound_for(notice.kind), notice.path,
+                     warning=notice.kind == notices.FAILED)
+
+    def _notify(self, title: str, text: str, sound: str, path: str = "", warning: bool = False,
+                tray_ms: int = 6000) -> None:
+        """One notice with one sound (core/toasts.py): through Windows with the sound named in it, a sound file of
+        the user's played beside a silent one; else the tray's message, with Windows' sound. Nothing where the
+        desktop has no tray."""
         if self.tray is None:
             return
-        self._clicked_path = notice.path
-        icon = (QSystemTrayIcon.MessageIcon.Warning if notice.kind == notices.FAILED
-                else QSystemTrayIcon.MessageIcon.Information)
-        self.tray.showMessage(notice.title, notice.text, icon, 6000)
+        if self.toaster.show(title, text, sound, path):
+            if toasts.is_file(sound) and not self.quiet_now():
+                self.play_sound(sound)
+            return
+        self._clicked_path = path
+        icon = QSystemTrayIcon.MessageIcon.Warning if warning else QSystemTrayIcon.MessageIcon.Information
+        self.tray.showMessage(title, text, icon, tray_ms)
 
-    def notice_clicked(self) -> None:
-        """A click on one finished file shows it in its folder; any other notice brings the window up."""
-        path = self._clicked_path
+    def notice_clicked(self, path: Optional[str] = None) -> None:
+        """A click on one finished file shows it in its folder; any other notice brings the window up. A Windows
+        notice names its file; the tray's message has the one it showed last."""
+        path = self._clicked_path if path is None else path
         if path and os.path.isfile(path):
-            if sys.platform == "win32":
-                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-            else:
-                QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
+            self._show_in_folder(path)
         else:
             self.bring_to_front()
+
+    def _show_in_folder(self, path: str) -> None:
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        else:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
     # ---- menus -----------------------------------------------------------------------------------------------
 
@@ -907,9 +928,9 @@ class MainWindow(QMainWindow):
         stored = self._layout_store()
         if not stored.value("window/told_tray", False, type=bool):
             stored.setValue("window/told_tray", True)
-            self.tray.showMessage(APP_NAME, f"{APP_NAME} is still running here, so downloads go on. Click this icon to "
-                                  "open it; right-click it and choose Exit to quit.",
-                                  QSystemTrayIcon.MessageIcon.Information, 8000)
+            self._notify(APP_NAME, f"{APP_NAME} is still running here, so downloads go on. Click its icon in the "
+                         "notification area to open it; right-click the icon and choose Exit to quit.",
+                         "Notification.Default", tray_ms=8000)
 
     def closeEvent(self, event):
         # only a close the user made (the X, Alt+F4) hides; close() from code (Exit, Restart, the updaters) quits

@@ -24,6 +24,7 @@ the GPL-3.0, and the source of everything in it is public.
 - **[PyQt6](https://www.riverbankcomputing.com/software/pyqt/)** (GPL-3.0) and **[Qt 6](https://www.qt.io/)**
   (LGPL-3.0): the window and everything in it.
 - **[Python](https://www.python.org/)** 3.15 (PSF licence).
+- **[PyWinRT](https://github.com/pywinrt/pywinrt)** (MIT): hands Accipio's notices to Windows, each with its own sound.
 - Libraries yt-dlp uses: **requests** (Apache-2.0), **urllib3** and **brotli** (MIT), **websockets** and
   **pycryptodomex** (BSD), **certifi** (MPL-2.0), **mutagen** (GPL-2.0-or-later).
 

@@ -34,8 +34,10 @@ a = Analysis(
     ] + copy_metadata("yt-dlp"),     # its version, read at start to tell whether a yt-dlp update is newer (ytdlp_update)
     # Found by name when they are needed, so the static analysis cannot see them: Accipio's lazily loaded parts and
     # yt-dlp's site extractors (it picks them by name at run time). redactor_common is NOT collected whole: its
-    # preview players would drag in Qt Multimedia and Qt Pdf; the parts Accipio imports are found as usual.
-    hiddenimports=collect_submodules("accipio") + collect_submodules("yt_dlp"),
+    # preview players would drag in Qt Multimedia and Qt Pdf; the parts Accipio imports are found as usual. winrt's
+    # parts load each other at run time (load_projection), so its notices need it collected whole (only the five
+    # small packages core/toasts.py uses are installed).
+    hiddenimports=collect_submodules("accipio") + collect_submodules("yt_dlp") + collect_submodules("winrt"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
