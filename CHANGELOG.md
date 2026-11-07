@@ -2,7 +2,12 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
-## 2026-11-07#02 -- Updates through the family's update framework
+## 2026-11-07#03 -- The first release offered through the update framework
+
+- The same program as 2026-11-07#02 (below, a pre-release). This one went through the full release gate before anyone was offered it: a copy of 2026-11-07#02 was installed in a scratch folder, updated itself to this release with its own Check for Updates code, reported the new version, and uninstalled cleanly.
+- Copies of 2026-11-06-04 and -13: install this release once by hand with the installer from the release page. After that, Check for Updates installs updates itself.
+
+## 2026-11-07#02 -- Updates through the family's update framework (pre-release)
 
 - **Check for Updates no longer guesses.** Accipio now uses the update framework every app of the family shares (redactor_common 2026-11-07-05). Each release carries `update-manifest.json`, which names the exact installer and zip with their sizes and checksums, and each copy knows how it was put on the PC: the installer marks its copy as installed, and the zip's copy says it came from the zip. An installed Accipio downloads the installer the manifest names, checks it, closes and is updated and started again.
 - **Every "cannot update" says why**, in the update box, next to Open Download Page, with a Copy Details button. That covers a copy from the zip, a release from before the framework, and a download that does not match its checksum.
