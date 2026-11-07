@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#11 -- A download no longer goes back to Chrome when aria2 drops the connection
+
+- **A download from the browser could open Chrome's own download window** when aria2, Accipio's download engine, dropped the connection just as the download was handed to it (seen in the debug log as "engine refused ... aria2 dropped the connection during addUri"). Accipio could not tell whether aria2 had it, so it left the download to Chrome rather than risk fetching it twice. Now Accipio gives each download its own id first: after a dropped connection it asks aria2 for that id and sends the download again only if aria2 does not have it. The same goes for starting a download over.
+- Built with redactor_common 2026-11-07-11 (its release tool's fixes; nothing in Accipio's window changes).
+
 ## 2026-11-07#10 -- Notices in the debug log
 
 - With the debug log on, each notice writes one line: which notice, its sound, whether Windows showed it or the tray's message had to, and whether a sound file of yours was played (or kept quiet while Windows held notices back). A click on a notice is noted too.

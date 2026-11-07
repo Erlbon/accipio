@@ -41,6 +41,14 @@ class Aria2Error(RuntimeError):
     """aria2c could not start, or refused a call; the message is fit to show."""
 
 
+def new_gid() -> str:
+    """An id for a new download in aria2's form: 16 hex digits, never all zero (aria2's "gid" option)."""
+    while True:
+        gid = secrets.token_hex(8)
+        if int(gid, 16):
+            return gid
+
+
 def find_aria2c() -> Optional[str]:
     """The aria2c to use: next to the exe (a frozen build), in the checkout's ``bin/``, or on PATH."""
     places = []
@@ -263,7 +271,37 @@ class Aria2:
             options["user-agent"] = user_agent
         if paused:
             options["pause"] = "true"
-        return self.call("addUri", [url], options)
+        return self._add_once([url], options)
+
+    def _add_once(self, uris: List[str], options: Dict[str, Any]) -> str:
+        """addUri with an id Accipio chose, so a dropped connection is safe to try again (2026-11-07: aria2 reset
+        it during addUri and the download went back to Chrome). When it drops, aria2 is asked for that id: if it
+        has it, the download got there; if not, it is sent again. Never twice into aria2."""
+        gid = new_gid()
+        options = dict(options, gid=gid)
+        attempt = 0
+        while True:
+            try:
+                return self._call_once("addUri", (uris, options), 10.0)
+            except (ConnectionResetError, ConnectionAbortedError) as error:
+                dropped = error
+            except Aria2Error:
+                if attempt and self._has(gid):        # sent again after all: aria2 refuses the id it already has
+                    return gid
+                raise
+            if self._has(gid):
+                return gid
+            if attempt >= self.RETRIES:
+                raise Aria2Error(f"aria2 dropped the connection during addUri: {dropped}") from dropped
+            attempt += 1
+            time.sleep(self.RETRY_PAUSE)
+
+    def _has(self, gid: str) -> bool:
+        try:
+            self.call("tellStatus", gid, ["gid"])
+        except Aria2Error:                            # "GID ... is not found", or aria2 stays unreachable
+            return False
+        return True
 
     def pause(self, gid: str) -> None:
         self.call("pause", gid)
@@ -298,7 +336,7 @@ class Aria2:
             if leftover and os.path.isfile(leftover):
                 os.remove(leftover)
         kept = {k: v for k, v in options.items() if k in ("dir", "out", "header", "referer", "user-agent")}
-        return self.call("addUri", uris, kept)
+        return self._add_once(uris, kept)
 
     def status(self, gid: str) -> Status:
         return Status.from_rpc(self.call("tellStatus", gid, STATUS_KEYS))
