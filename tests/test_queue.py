@@ -369,10 +369,10 @@ def test_after_a_restart_lost_and_interrupted_rows_become_retryable_errors(tmp_p
     assert store.get(probing).state == ERROR and "closed while checking" in store.get(probing).error
 
 
-def test_finished_rows_are_forgotten_at_start_unless_history_is_on(tmp_path):
+def test_finished_rows_are_forgotten_at_start_unless_kept(tmp_path):
     store = Store(str(tmp_path / "q.db"))
     store.add("https://a.org/f", state=COMPLETE)
-    Queue(store, FakeEngine(), rules.default_rules, str(tmp_path), prober=FakeProber(), keep_history=True)
+    Queue(store, FakeEngine(), rules.default_rules, str(tmp_path), prober=FakeProber(), clear_finished="never")
     assert len(store.rows()) == 1
     Queue(store, FakeEngine(), rules.default_rules, str(tmp_path), prober=FakeProber())
     assert store.rows() == []

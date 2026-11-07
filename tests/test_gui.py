@@ -218,15 +218,21 @@ def test_settings_are_saved_and_reach_the_engine(world, tmp_path):
     dialog = SettingsDialog(win.services.settings, win)
     dialog.max_downloads.setValue(5)
     dialog.speed_limit.setValue(300)
-    dialog.keep_history.setChecked(True)
+    assert dialog.clear_buttons[settings.CLEAR_AT_START].isChecked()          # the default (51A)
+    assert not dialog.clear_after_minutes.isEnabled()
+    dialog.clear_buttons[settings.CLEAR_AFTER].setChecked(True)
+    assert dialog.clear_after_minutes.isEnabled()
+    dialog.clear_after_minutes.setValue(20)
     win.apply_settings(dialog.result_settings())
+    assert (win.queue.clear_finished_how, win.queue.clear_after_minutes) == (settings.CLEAR_AFTER, 20)
     win.flush()
     assert {"max_downloads": 5} in engine.limits and win.queue.speed_limit == 300 * 1024
     win.tick()                                         # the queue shares the total out on its next refresh
     win.flush()
     assert engine.limits[-1] == {"speed_limit": 300 * 1024}
     again = settings.load_settings(win.services.folder)
-    assert (again.max_downloads, again.keep_history, again.base_folder) == (5, True, base)
+    assert (again.max_downloads, again.clear_finished, again.clear_after_minutes, again.base_folder) == \
+        (5, settings.CLEAR_AFTER, 20, base)
 
 
 def test_the_default_folder_is_set_in_the_folders_tab(world, tmp_path, monkeypatch):

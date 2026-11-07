@@ -27,6 +27,14 @@ def config_dir() -> str:
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "accipio")
 
 
+# When finished downloads leave the list (only the list: the files stay). Edit > Clear Finished works with each.
+CLEAR_NEVER = "never"           # until cleared by hand (was "keep history" on)
+CLEAR_AT_START = "start"        # at the next start (the default; was "keep history" off)
+CLEAR_AFTER = "after"           # clear_after_minutes after they finished
+CLEAR_AT_ONCE = "done"          # as soon as they finish
+CLEAR_CHOICES = (CLEAR_NEVER, CLEAR_AT_START, CLEAR_AFTER, CLEAR_AT_ONCE)
+
+
 def default_download_folder() -> str:
     return os.path.join(os.path.expanduser("~"), "Downloads")
 
@@ -37,7 +45,8 @@ class Settings:
     max_downloads: int = 3
     connections: int = 8                  # per file
     speed_limit_kib: int = 0              # total, KiB/s; 0 = no limit
-    keep_history: bool = False            # finished downloads are forgotten at the next start unless on
+    clear_finished: str = "start"         # when finished downloads leave the list: CLEAR_CHOICES (71A, 75A)
+    clear_after_minutes: int = 15         # for CLEAR_AFTER
     video_quality: str = "best"           # best, 1080, 720 or audio (see video.QUALITIES)
     notify_added: bool = True             # Windows notifications (see notices.py)
     notify_finished: bool = True
@@ -55,6 +64,11 @@ class Settings:
     def __post_init__(self):
         if not self.base_folder:
             self.base_folder = default_download_folder()
+        if self.clear_finished not in CLEAR_CHOICES:
+            self.clear_finished = CLEAR_AT_START
+        if not isinstance(self.clear_after_minutes, int) or isinstance(self.clear_after_minutes, bool) \
+                or not 1 <= self.clear_after_minutes <= 24 * 60:
+            self.clear_after_minutes = 15
 
 
 def write_atomically(path: str, text: str) -> None:
@@ -72,6 +86,10 @@ def load_settings(folder: str) -> Settings:
             data = json.load(f)
     except (OSError, ValueError):
         return Settings()
+    if not isinstance(data, dict):
+        return Settings()
+    if "keep_history" in data and "clear_finished" not in data:     # before 2026-11-07: one switch
+        data["clear_finished"] = CLEAR_NEVER if data["keep_history"] is True else CLEAR_AT_START
     names = {f.name for f in fields(Settings)}
     return Settings(**{k: v for k, v in data.items() if k in names})
 

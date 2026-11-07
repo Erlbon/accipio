@@ -183,7 +183,24 @@ class Store:
         with self._lock:
             self._db.execute("DELETE FROM downloads WHERE id = ?", (row_id,))
 
-    def forget_finished(self) -> int:
-        """Remove every completed row (the "Clear finished" button, and startup without history). Returns how many."""
+    def forget_finished(self, before: str = "", keep_waiting: bool = False) -> int:
+        """Remove completed rows (Edit > Clear Finished: all of them). `before`: only those that finished before that
+        moment (an ISO time, as `finished` holds it). `keep_waiting`: not an archive still waiting for the user's
+        choice (the automatic clearing, Settings). Returns how many went."""
         with self._lock:
-            return self._db.execute("DELETE FROM downloads WHERE state = ?", (COMPLETE,)).rowcount
+            found = self._db.execute("SELECT id, finished, unpack FROM downloads WHERE state = ?",
+                                     (COMPLETE,)).fetchall()
+            gone = []
+            for row_id, finished, unpack in found:
+                if before and not (finished and finished < before):
+                    continue
+                if keep_waiting:
+                    try:
+                        waiting = json.loads(unpack or "{}").get("state") == "waiting"
+                    except (ValueError, AttributeError):
+                        waiting = False
+                    if waiting:
+                        continue
+                gone.append((row_id,))
+            self._db.executemany("DELETE FROM downloads WHERE id = ?", gone)
+            return len(gone)

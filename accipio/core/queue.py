@@ -40,6 +40,7 @@ from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
 
 MAX_RESTARTS = 3
+AT_ONCE_GRACE = 5           # seconds a finished row stays with "as soon as they finish": the window sees it finish
 
 
 def trash(path: str) -> None:
@@ -81,7 +82,8 @@ class Preview:
 class Queue:
     def __init__(self, store: Store, engine: aria2.Aria2, rule_set: Callable[[], List[Rule]], base_folder: str, *,
                  prober: Callable[..., probe.Probe] = probe.probe, exists: Callable[[str], bool] = os.path.exists,
-                 keep_history: bool = False, clock: Callable[[], datetime.datetime] = datetime.datetime.now,
+                 clear_finished: str = "start", clear_after_minutes: int = 15,
+                 clock: Callable[[], datetime.datetime] = datetime.datetime.now,
                  video_engine=None, video_prober: Optional[Callable[..., Optional[VideoProbe]]] = None,
                  library_set: Optional[Callable[[], rules.Library]] = None, speed_limit: int = 0):
         self.store = store
@@ -104,9 +106,27 @@ class Queue:
         # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
         self.in_background: Callable[..., None] = \
             lambda fn, *args: threading.Thread(target=fn, args=args, daemon=True, name="accipio-list").start()
-        if not keep_history:
-            store.forget_finished()
+        self.clear_finished_how = clear_finished          # settings.CLEAR_*: when finished rows leave the list
+        self.clear_after_minutes = clear_after_minutes
+        if clear_finished != "never":                     # at the start every automatic choice clears what is due
+            self.tidy(at_start=True)
         self._reconcile()
+
+    def tidy(self, at_start: bool = False) -> int:
+        """Finished rows leave the list as Settings says (2026-11-07, 71A): at the start ("start"), the given
+        minutes after they finished ("after"), or at once ("done"). An archive still waiting for the user's choice
+        stays. Only rows go, never files. Returns how many went."""
+        how = self.clear_finished_how
+        if how == "after":
+            cutoff = self.clock() - datetime.timedelta(minutes=self.clear_after_minutes)
+            return self.store.forget_finished(before=cutoff.isoformat(timespec="seconds"), keep_waiting=True)
+        if how == "done" and not at_start:
+            # a few seconds' grace: the window must see the row finish, or its "finished" notice never comes
+            cutoff = self.clock() - datetime.timedelta(seconds=AT_ONCE_GRACE)
+            return self.store.forget_finished(before=cutoff.isoformat(timespec="seconds"), keep_waiting=True)
+        if how in ("done", "start") and at_start:
+            return self.store.forget_finished(keep_waiting=True)
+        return 0
 
     # ---- start-up --------------------------------------------------------------------------------------------
 
@@ -312,6 +332,7 @@ class Queue:
                 self.store.update(row.id, state=state, done=status.done, total=status.total or row.total)
             changed.append(self.store.get(row.id))
         self._share_speed()
+        self.tidy()
         return changed
 
     def _share_speed(self) -> None:

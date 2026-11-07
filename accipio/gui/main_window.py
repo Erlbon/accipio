@@ -106,7 +106,8 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
         settings_mod.save_rules(folder, rule_list, library)
     holder = {"rules": rule_list, "library": library}
     kwargs = {"prober": prober} if prober else {}
-    queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, keep_history=current.keep_history,
+    queue = Queue(store, engine, lambda: holder["rules"], current.base_folder, clear_finished=current.clear_finished,
+                  clear_after_minutes=current.clear_after_minutes,
                   video_engine=video_engine or None, video_prober=video_prober,
                   library_set=lambda: holder["library"], speed_limit=current.speed_limit_kib * 1024, **kwargs)
     queue.unpack_on, queue.after_unpack = current.unpack_archives, current.after_unpack
@@ -765,7 +766,7 @@ class MainWindow(QMainWindow):
         settings_mod.save_settings(self.services.folder, new)
         self.queue.base_folder = new.base_folder
         self.model.base_folder = new.base_folder
-        self.queue.keep_history = new.keep_history
+        self.queue.clear_finished_how, self.queue.clear_after_minutes = new.clear_finished, new.clear_after_minutes
         self.queue.unpack_on, self.queue.after_unpack = new.unpack_archives, new.after_unpack
         self.queue.ask_playlists = new.ask_playlists
         self.notices.enabled = set(new.notice_kinds())

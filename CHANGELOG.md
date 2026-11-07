@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#05 -- Choose when finished downloads leave the list
+
+- **Settings > Finished** replaces "Keep finished downloads in the list after a restart" with four choices: keep them until you clear them, clear them at the next start (the default, as before), clear them a number of minutes after they finish (15 unless you change it), or clear them as soon as they finish (after a few seconds, so the "finished" notification still comes). Your old setting carries over.
+- Only the list is cleared: the files stay where they were saved. An archive still waiting for your choice stays until you have made it. Edit > Clear Finished works with every choice.
+
 ## 2026-11-07#04 -- Installing over a running Accipio, and the first start after it
 
 - **Installing over a running Accipio no longer closes it, or aria2, by force.** The installer already asked Accipio to stop the way File > Exit does, but then waited only for Accipio itself. aria2 takes about four seconds longer to exit, so Windows found it still running and closed it. The installer now waits, for up to 30 seconds, until no program in Accipio's folder is running (redactor_common 2026-11-07-07).

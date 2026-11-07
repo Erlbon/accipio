@@ -9,12 +9,13 @@ import threading
 from typing import Callable, Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
-                             QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QSpinBox, QVBoxLayout)
+from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+                             QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QRadioButton,
+                             QSpinBox, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
 from accipio.core import video
-from accipio.core.settings import Settings
+from accipio.core.settings import CLEAR_AFTER, CLEAR_AT_ONCE, CLEAR_AT_START, CLEAR_CHOICES, CLEAR_NEVER, Settings
 from accipio.core.video import QUALITIES
 from accipio.gui.style import WARNING_COLOR
 
@@ -95,9 +96,7 @@ class SettingsDialog(QDialog):
                                       "before anything downloads.")
         self.ask_playlists.setChecked(current.ask_playlists)
         form.addRow("Playlists", self.ask_playlists)
-        self.keep_history = QCheckBox("Keep finished downloads in the list after a restart")
-        self.keep_history.setChecked(current.keep_history)
-        form.addRow("History", self.keep_history)
+        form.addRow("Finished", self._build_clear_finished(current))
         notify_row = QHBoxLayout()
         self.notify_added = QCheckBox("Added")
         self.notify_finished = QCheckBox("Finished")
@@ -126,6 +125,46 @@ class SettingsDialog(QDialog):
         box.accepted.connect(self.accept)
         box.rejected.connect(self.reject)
         layout.addWidget(box)
+
+    # ---- when finished downloads leave the list (2026-11-07, 71A + 75A: radio buttons) ------------------------
+
+    def _build_clear_finished(self, current: Settings) -> QVBoxLayout:
+        column = QVBoxLayout()
+        self.clear_choice = QButtonGroup(self)
+        self.clear_after_minutes = QSpinBox()
+        self.clear_after_minutes.setRange(1, 24 * 60)
+        self.clear_after_minutes.setValue(current.clear_after_minutes)
+        texts = {CLEAR_NEVER: "Keep them until I clear them", CLEAR_AT_START: "Clear them at the next start",
+                 CLEAR_AFTER: "Clear them", CLEAR_AT_ONCE: "Clear them as soon as they finish"}
+        self.clear_buttons = {}
+        for index, how in enumerate(CLEAR_CHOICES):
+            button = QRadioButton(texts[how])
+            self.clear_choice.addButton(button, index)
+            self.clear_buttons[how] = button
+            if how == CLEAR_AFTER:
+                row = QHBoxLayout()
+                row.addWidget(button)
+                row.addWidget(self.clear_after_minutes)
+                row.addWidget(QLabel("minutes after they finish"))
+                row.addStretch(1)
+                column.addLayout(row)
+            else:
+                column.addWidget(button)
+        self.clear_buttons[current.clear_finished].setChecked(True)
+        self.clear_choice.idToggled.connect(lambda *_: self._show_clear_minutes())
+        self._show_clear_minutes()
+        note = QLabel("Only the list: the files stay where they were saved. Edit > Clear Finished works with every "
+                      "choice, and an archive waiting for your choice stays until you have made it.")
+        note.setWordWrap(True)
+        note.setEnabled(False)
+        column.addWidget(note)
+        return column
+
+    def _show_clear_minutes(self) -> None:
+        self.clear_after_minutes.setEnabled(self.clear_buttons[CLEAR_AFTER].isChecked())
+
+    def clear_finished_choice(self) -> str:
+        return next(how for how, button in self.clear_buttons.items() if button.isChecked())
 
     # ---- ffmpeg ----------------------------------------------------------------------------------------------
 
@@ -166,7 +205,9 @@ class SettingsDialog(QDialog):
 
     def result_settings(self) -> Settings:
         return dataclasses.replace(self.current, max_downloads=self.max_downloads.value(), connections=self.connections.value(),
-                                   speed_limit_kib=self.speed_limit.value(), keep_history=self.keep_history.isChecked(),
+                                   speed_limit_kib=self.speed_limit.value(),
+                                   clear_finished=self.clear_finished_choice(),
+                                   clear_after_minutes=self.clear_after_minutes.value(),
                                    video_quality=self.video_quality.currentData(),
                                    notify_added=self.notify_added.isChecked(),
                                    notify_finished=self.notify_finished.isChecked(),
