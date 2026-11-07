@@ -374,20 +374,25 @@ class MainWindow(QMainWindow):
             self._button_told = self.taskbar_button.show(look)
 
     def _show_notice(self, notice: notices.Notice) -> None:
-        self._notify(notice.title, notice.text, self.services.settings.sound_for(notice.kind), notice.path,
-                     warning=notice.kind == notices.FAILED)
+        self._notify(notice.kind, notice.title, notice.text, self.services.settings.sound_for(notice.kind),
+                     notice.path, warning=notice.kind == notices.FAILED)
 
-    def _notify(self, title: str, text: str, sound: str, path: str = "", warning: bool = False,
+    def _notify(self, kind: str, title: str, text: str, sound: str, path: str = "", warning: bool = False,
                 tray_ms: int = 6000) -> None:
         """One notice with one sound (core/toasts.py): through Windows with the sound named in it, a sound file of
         the user's played beside a silent one; else the tray's message, with Windows' sound. Nothing where the
-        desktop has no tray."""
+        desktop has no tray. The debug log says how it went (85A)."""
         if self.tray is None:
             return
         if self.toaster.show(title, text, sound, path):
-            if toasts.is_file(sound) and not self.quiet_now():
-                self.play_sound(sound)
+            played = "no"
+            if toasts.is_file(sound):
+                played = "quiet" if self.quiet_now() else "yes"
+                if played == "yes":
+                    self.play_sound(sound)
+            debug_log.note("notice", kind=kind, title=title, sound=sound, shown="windows", played=played)
             return
+        debug_log.note("notice", kind=kind, title=title, sound=sound, shown="tray", played="no")
         self._clicked_path = path
         icon = QSystemTrayIcon.MessageIcon.Warning if warning else QSystemTrayIcon.MessageIcon.Information
         self.tray.showMessage(title, text, icon, tray_ms)
@@ -396,6 +401,7 @@ class MainWindow(QMainWindow):
         """A click on one finished file shows it in its folder; any other notice brings the window up. A Windows
         notice names its file; the tray's message has the one it showed last."""
         path = self._clicked_path if path is None else path
+        debug_log.note("notice clicked", path=path)
         if path and os.path.isfile(path):
             self._show_in_folder(path)
         else:
@@ -928,7 +934,7 @@ class MainWindow(QMainWindow):
         stored = self._layout_store()
         if not stored.value("window/told_tray", False, type=bool):
             stored.setValue("window/told_tray", True)
-            self._notify(APP_NAME, f"{APP_NAME} is still running here, so downloads go on. Click its icon in the "
+            self._notify("still running", APP_NAME, f"{APP_NAME} is still running here, so downloads go on. Click its icon in the "
                          "notification area to open it; right-click the icon and choose Exit to quit.",
                          "Notification.Default", tray_ms=8000)
 

@@ -181,7 +181,7 @@ class SettingsDialog(QDialog):
         debug_row = QHBoxLayout()
         self.debug_log = QCheckBox("Write a debug log")
         self.debug_log.setToolTip("What the browser offered or left to Chrome, how each link was checked and placed, "
-                                  "and what was decided for archives, in debug.log in Accipio's folder. Cookies are "
+                                  "what was decided for archives, and how each notice was shown, in debug.log in Accipio's folder. Cookies are "
                                   "never written. Help > Open Debug Log shows it.")
         self.debug_log.setChecked(current.debug_log)
         self.debug_delete = QPushButton("Delete the log")

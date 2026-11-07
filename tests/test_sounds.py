@@ -145,6 +145,33 @@ def test_clicking_a_windows_notice_shows_the_finished_file(world, monkeypatch, t
     assert opened == [str(shown_file)]
 
 
+def test_the_debug_log_tells_how_each_notice_went(world, tmp_path):
+    """85A: which notice, its sound, and whether Windows showed it or the tray had to."""
+    from accipio.core import debug_log
+    win, *_ = world
+    debug_log.LOG.configure(str(tmp_path), True)
+    try:
+        toaster, played = windows_notices(win)
+        win.services.settings.sound_failed = r"C:\Sounds\oops.wav"
+        win._show_notice(notices.Notice(notices.FINISHED, "Download finished", "a.zip"))
+        win._show_notice(notices.Notice(notices.FAILED, "Download failed", "b.zip"))
+        win.quiet_now = lambda: True
+        win._show_notice(notices.Notice(notices.FAILED, "Download failed", "c.zip"))
+        toaster.works = False
+        win._show_notice(notices.Notice(notices.ADDED, "Download added", "d.zip"))
+        win.notice_clicked("")
+        lines = (tmp_path / debug_log.FILE).read_text(encoding="utf-8").splitlines()
+    finally:
+        debug_log.LOG.configure(str(tmp_path), False)
+    notes = [line.split("  ", 1)[1] for line in lines]
+    assert notes[0] == ('notice  kind="finished" title="Download finished" sound="Notification.Mail" '
+                        'shown="windows" played="no"')
+    assert "oops.wav" in notes[1] and notes[1].endswith('shown="windows" played="yes"')
+    assert notes[2].endswith('shown="windows" played="quiet"')
+    assert 'kind="added"' in notes[3] and notes[3].endswith('shown="tray" played="no"')
+    assert notes[4].startswith("notice clicked")
+
+
 # ---- Settings: one line per notice (82D) -------------------------------------------------------------------
 
 def test_each_notice_has_a_line_with_its_sound_and_a_play_button(world):

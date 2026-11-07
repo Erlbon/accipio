@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#10 -- Notices in the debug log
+
+- With the debug log on, each notice writes one line: which notice, its sound, whether Windows showed it or the tray's message had to, and whether a sound file of yours was played (or kept quiet while Windows held notices back). A click on a notice is noted too.
+
 ## 2026-11-07#09 -- A sound of its own for each notice
 
 - **Added, finished and failed downloads now sound different.** Settings > Notify when has one line per notice: a checkbox, its sound and a **Play** button. The sounds are Windows' notification sounds (by default: Windows' notification for added, New mail for finished, Reminder for failed), No sound, or **A sound file…** of your own (.wav).
