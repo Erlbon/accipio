@@ -236,6 +236,7 @@ class _Job:
     temp_files: set = field(default_factory=set)
     stop: str = ""                                                  # "", "pause" or "remove"
     thread: Optional[threading.Thread] = None
+    run: int = 0                     # each start is a new run; an older run still winding down leaves the job alone
 
     @property
     def done(self) -> int:
@@ -284,16 +285,14 @@ class VideoEngine:
                 self._cond.notify_all()
 
     def resume(self, gid: str) -> None:
+        """Also right after a pause the download has not noticed yet. Always a new run: the old one may be past the
+        point of no return (2026-11-07: a resume while it ended started nothing and left the video "active")."""
         with self._cond:
             job = self._jobs[gid]
-            if job.state != "paused":
-                return
-            if job.thread and job.thread.is_alive():          # still winding down from the pause
-                job.stop = ""
-                job.state = "active"
+            if job.state != "paused" and job.stop != "pause":
                 return
             job.stop, job.state = "", "waiting"
-        self._launch(job)
+            self._launch(job)
 
     def remove(self, gid: str) -> None:
         """Stop and forget a download, deleting its half-finished parts (never a finished file)."""
@@ -352,49 +351,59 @@ class VideoEngine:
                       "video" if job.state == "error" else "", job.message)
 
     def _launch(self, job: _Job) -> None:
-        job.thread = threading.Thread(target=self._run, args=(job,), name=f"video-{job.gid}", daemon=True)
+        job.run += 1
+        previous = job.thread
+        job.thread = threading.Thread(target=self._run, args=(job, job.run, previous), name=f"video-{job.gid}",
+                                      daemon=True)
         job.thread.start()
 
-    def _run(self, job: _Job) -> None:
+    @staticmethod
+    def _stopped(job: _Job) -> str:
+        return "paused" if job.stop == "pause" else "removed"
+
+    def _run(self, job: _Job, run: int, previous: Optional[threading.Thread]) -> None:
+        if previous is not None:
+            previous.join()                               # never two runs writing the same .part
         with self._cond:
-            while self._running >= self.max_downloads and not job.stop:
+            while self._running >= self.max_downloads and not job.stop and job.run == run:
                 self._cond.wait(0.5)
+            if job.run != run:
+                return                                    # resumed again meanwhile: the newer run goes on
             if job.stop:
-                job.state = "paused" if job.stop == "pause" else "removed"
+                job.state = self._stopped(job)
                 return
             self._running += 1
             job.state = "active"
+        state, message = "complete", ""
         try:
-            self._downloader(self._options(job), job.url)
-            with self._cond:
-                job.state = "complete" if not job.stop else ("paused" if job.stop == "pause" else "removed")
+            self._downloader(self._options(job, run), job.url)
         except _Stop:
-            with self._cond:
-                job.state = "paused" if job.stop == "pause" else "removed"
+            state = "stopped"
         except Exception as error:                       # yt-dlp's DownloadError, a network error, ...
-            with self._cond:
-                if job.stop:
-                    job.state = "paused" if job.stop == "pause" else "removed"
-                else:
-                    job.state, job.message = "error", _clean(error)
+            state, message = "error", _clean(error)
         finally:
-            with self._cond:
+            with self._cond:                              # one locked step: a resume never lands halfway
                 self._running -= 1
-                job.speed = 0
+                if job.run == run:
+                    if job.stop or state == "stopped":
+                        job.state = self._stopped(job)
+                    else:
+                        job.state, job.message = state, message
+                    job.speed = 0
                 self._cond.notify_all()
 
-    def _options(self, job: _Job) -> Dict[str, Any]:
+    def _options(self, job: _Job, run: int = 0) -> Dict[str, Any]:
         stem = rules.split_name(job.filename)[0] if "." in job.filename else job.filename
         headers = dict(h.split(": ", 1) for h in job.headers if ": " in h)
         options = {**_base_options(headers, self.ffmpeg), **format_options(self.quality, self.ffmpeg),
                    "outtmpl": os.path.join(job.folder, stem.replace("%", "%%") + ".%(ext)s"),
                    "noplaylist": True, "continuedl": True, "overwrites": False, "nopart": False,
-                   "progress_hooks": [functools.partial(self._progress, job)],
+                   "progress_hooks": [functools.partial(self._progress, job, run=run)],
                    "post_hooks": [functools.partial(self._finished, job)]}
         return options
 
-    def _progress(self, job: _Job, d: Dict[str, Any]) -> None:
-        if job.stop:
+    def _progress(self, job: _Job, d: Dict[str, Any], run: int = 0) -> None:
+        if job.stop or (run and job.run != run):          # paused, removed, or a newer run took over
             from yt_dlp.utils import DownloadCancelled
             raise DownloadCancelled("stopped by Accipio")           # yt-dlp lets this one through untouched
         name = d.get("filename") or ""

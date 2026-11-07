@@ -2,6 +2,12 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#13 -- A video resumed soon after a pause no longer gets stuck
+
+- **A video could hang as "active" with nothing downloading** when it was resumed just as its pause took hold: Resume saw the paused download still winding down, counted on it to carry on, and started nothing. A busy PC widens that moment. Every Resume now starts the video again; the new start waits until the old one has let go, so the two never write the same file.
+- A Resume clicked before the download had noticed the pause was ignored, and the video ended up paused. It now goes on.
+- Built with redactor_common 2026-11-07-12 (its release tool can run on its own, `--detach`; nothing in Accipio's window changes).
+
 ## 2026-11-07#12 -- Every dropped connection is caught, and logged
 
 - aria2 can drop the connection in two ways: while Accipio reads its answer, or while Accipio is still sending the request. #11 caught only the first. Both are now treated alike: a read is tried again, and a new download is checked and, if aria2 does not have it, sent again.

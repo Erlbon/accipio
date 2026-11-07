@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.11.7.12"
+version = "2026.11.7.13"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = "MIT"
 dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
-    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-11",   # pin a tag, never @main
+    "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-07-12",   # pin a tag, never @main
     # Windows' own notices, each with its sound (core/toasts.py); about 1.2 MB
     "winrt-runtime>=3.2; sys_platform == 'win32'",
     "winrt-Windows.Data.Xml.Dom>=3.2; sys_platform == 'win32'",

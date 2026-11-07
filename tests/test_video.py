@@ -163,6 +163,48 @@ def test_pause_keeps_the_part_and_resume_starts_again(tmp_path):
     assert gate.started == ["https://v/1", "https://v/1"]
 
 
+def test_a_resume_right_after_pause_is_not_lost(tmp_path):
+    """Resume before the download has noticed the pause: it must go on, not end up paused."""
+    gate = Gate()
+    engine = VideoEngine(downloader=gate)
+    gid = engine.add("https://v/1", str(tmp_path), "a.mp4")
+    wait_state(engine, gid, {"active"})
+    engine.pause(gid)
+    engine.resume(gid)
+    gate.go.set()
+    assert wait_state(engine, gid, {"complete", "paused"}).state == "complete"
+
+
+class SlowToLetGo(threading.Condition):
+    """Holds a video thread back for a moment each time it takes the lock after its job was marked paused: the gap
+    a busy PC leaves between "paused" and the thread's end."""
+
+    def __init__(self, jobs):
+        super().__init__()
+        self.jobs = jobs
+
+    def __enter__(self):
+        if threading.current_thread().name.startswith("video-") and any(j.state == "paused" for j in self.jobs()):
+            time.sleep(0.3)
+        return super().__enter__()
+
+
+def test_a_resume_while_the_paused_thread_ends_starts_it_again(tmp_path):
+    """2026-11-07: a resume in that gap marked the video active and started nothing: "still active" for ever
+    (test_real_yt_dlp_pauses_and_resumes failed under load)."""
+    gate = Gate()
+    engine = VideoEngine(downloader=gate)
+    engine._cond = SlowToLetGo(lambda: list(engine._jobs.values()))
+    gid = engine.add("https://v/1", str(tmp_path), "a.mp4")
+    wait_state(engine, gid, {"active"})
+    engine.pause(gid)
+    wait_state(engine, gid, {"paused"})
+    engine.resume(gid)
+    gate.go.set()
+    assert wait_state(engine, gid, {"complete"}).state == "complete"
+    assert gate.started == ["https://v/1", "https://v/1"]
+
+
 def test_remove_deletes_only_the_half_finished_parts(tmp_path):
     gate = Gate()
     engine = VideoEngine(downloader=gate)
