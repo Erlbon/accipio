@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#12 -- Every dropped connection is caught, and logged
+
+- aria2 can drop the connection in two ways: while Accipio reads its answer, or while Accipio is still sending the request. #11 caught only the first. Both are now treated alike: a read is tried again, and a new download is checked and, if aria2 does not have it, sent again.
+- With the debug log on, each drop writes an "aria2 dropped" line: which call, which try, and what happened next (tried again, aria2 had it, sent again, or gave up). That shows how often aria2 drops connections on your PC, and when. It happened for about one in five downloads there, but only once in about 2,300 calls in a test here with a real aria2 downloading at full speed, so something on that PC makes it far more frequent.
+
 ## 2026-11-07#11 -- A download no longer goes back to Chrome when aria2 drops the connection
 
 - **A download from the browser could open Chrome's own download window** when aria2, Accipio's download engine, dropped the connection just as the download was handed to it (seen in the debug log as "engine refused ... aria2 dropped the connection during addUri"). Accipio could not tell whether aria2 had it, so it left the download to Chrome rather than risk fetching it twice. Now Accipio gives each download its own id first: after a dropped connection it asks aria2 for that id and sends the download again only if aria2 does not have it. The same goes for starting a download over.

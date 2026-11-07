@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from accipio.core import debug_log
+
 EXE_NAME = "aria2c.exe" if sys.platform == "win32" else "aria2c"
 FILE_EXISTS = "13"         # aria2's exit codes, as they come back in a status
 CANNOT_RESUME = "8"
@@ -39,6 +41,14 @@ STATUS_KEYS = ["gid", "status", "totalLength", "completedLength", "downloadSpeed
 
 class Aria2Error(RuntimeError):
     """aria2c could not start, or refused a call; the message is fit to show."""
+
+
+def dropped(error: OSError) -> bool:
+    """aria2 reset or aborted the RPC connection: raised as is while the answer is read, wrapped in a URLError while
+    the request is still being sent."""
+    if isinstance(error, urllib.error.URLError):
+        error = error.reason
+    return isinstance(error, (ConnectionResetError, ConnectionAbortedError))
 
 
 def new_gid() -> str:
@@ -230,8 +240,13 @@ class Aria2:
         while True:
             try:
                 return self._call_once(method, params, timeout)
-            except (ConnectionResetError, ConnectionAbortedError) as error:
-                if not reads or attempt >= self.RETRIES:
+            except OSError as error:
+                if not dropped(error):
+                    raise
+                given_up = not reads or attempt >= self.RETRIES
+                debug_log.note("aria2 dropped", method=method, attempt=attempt + 1,
+                               then="gave up" if given_up else "tries again", error=str(error))
+                if given_up:
                     raise Aria2Error(f"aria2 dropped the connection during {method}: {error}") from error
                 attempt += 1
                 time.sleep(self.RETRY_PAUSE)
@@ -283,16 +298,23 @@ class Aria2:
         while True:
             try:
                 return self._call_once("addUri", (uris, options), 10.0)
-            except (ConnectionResetError, ConnectionAbortedError) as error:
-                dropped = error
             except Aria2Error:
                 if attempt and self._has(gid):        # sent again after all: aria2 refuses the id it already has
                     return gid
                 raise
+            except OSError as error:
+                if not dropped(error):
+                    raise
+                lost = error
             if self._has(gid):
+                debug_log.note("aria2 dropped", method="addUri", attempt=attempt + 1, then="aria2 had it", gid=gid,
+                               error=str(lost))
                 return gid
-            if attempt >= self.RETRIES:
-                raise Aria2Error(f"aria2 dropped the connection during addUri: {dropped}") from dropped
+            given_up = attempt >= self.RETRIES
+            debug_log.note("aria2 dropped", method="addUri", attempt=attempt + 1,
+                           then="gave up" if given_up else "sends it again", gid=gid, error=str(lost))
+            if given_up:
+                raise Aria2Error(f"aria2 dropped the connection during addUri: {lost}") from lost
             attempt += 1
             time.sleep(self.RETRY_PAUSE)
 

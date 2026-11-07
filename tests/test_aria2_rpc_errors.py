@@ -99,6 +99,49 @@ def test_an_add_that_keeps_dropping_is_an_aria2_error():
     assert fake.methods.count("aria2.addUri") == 1 + aria2.Aria2.RETRIES
 
 
+def wrapped_reset():
+    """A reset while the request is still being sent: urllib hands it on wrapped in a URLError (seen 2026-11-07
+    against a real aria2c downloading at full speed)."""
+    import urllib.error
+    return urllib.error.URLError(ConnectionResetError(10054, "An existing connection was forcibly closed"))
+
+
+def test_a_reset_wrapped_by_urllib_is_a_dropped_connection_too():
+    opener = Opener([wrapped_reset()], result=[])
+    assert engine(opener).call("tellActive") == []
+    with pytest.raises(aria2.Aria2Error, match="addUri"):
+        engine(Opener([wrapped_reset()])).call("addUri", ["https://example.org/a.zip"], {})
+
+
+def test_an_add_dropped_while_sending_is_sent_again(monkeypatch):
+    fake = Aria2Fake([None])
+    a = engine(fake)
+    real = a._call_once
+    first = [True]
+
+    def drop_first_send(method, params, timeout):
+        if method == "addUri" and first.pop() if first else False:
+            raise wrapped_reset()
+        return real(method, params, timeout)
+    monkeypatch.setattr(a, "_call_once", drop_first_send)
+    gid = a.add("https://example.org/a.zip", "D:\\d", "a.zip")
+    assert fake.gids == {gid} and fake.methods == ["aria2.tellStatus", "aria2.addUri"]
+
+
+def test_every_drop_is_in_the_debug_log(tmp_path):
+    """Whether it was recovered or not, so the log shows how often aria2 drops connections on that PC."""
+    from accipio.core import debug_log
+    debug_log.LOG.configure(str(tmp_path), True)
+    try:
+        engine(Opener([ConnectionResetError(10054, "reset")], result=[])).call("tellActive")
+        engine(Aria2Fake(["drop"], got_it=True)).add("https://example.org/a.zip", "D:\\d", "a.zip")
+        text = (tmp_path / debug_log.FILE).read_text(encoding="utf-8")
+    finally:
+        debug_log.LOG.configure(str(tmp_path), False)
+    assert text.count("aria2 dropped") == 2
+    assert 'method="tellActive"' in text and 'method="addUri"' in text
+
+
 def test_starting_over_adds_the_same_safe_way(monkeypatch):
     fake = Aria2Fake([None])
     a = engine(fake)
