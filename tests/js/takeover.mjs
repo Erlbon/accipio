@@ -59,14 +59,20 @@ state.cancelled = [];
 suggested = await determine({ ...link, id: 2 });
 if (!suggested || state.cancelled.length) fail("a download Accipio did not take must go back to Chrome");
 
-// Incognito, a blob: link, and the takeover switched off: straight back to Chrome, nothing offered.
+// Incognito, a blob: link, and the takeover switched off: straight back to Chrome, nothing offered. Accipio's debug
+// log gets a note ("seen", 2026-11-07) for the last two, never for incognito.
 state.reply = { ok: true };
-for (const [what, item, takeover] of [["incognito", { ...link, id: 3, incognito: true }, true],
-                                      ["blob link", { ...link, id: 4, url: "blob:https://a.org/x" }, true],
-                                      ["takeover off", { ...link, id: 5 }, false]]) {
+for (const [what, item, takeover, noted] of [["incognito", { ...link, id: 3, incognito: true }, true, false],
+                                             ["blob link", { ...link, id: 4, url: "blob:https://a.org/x" }, true, true],
+                                             ["takeover off", { ...link, id: 5 }, false, true]]) {
   state.takeover = takeover;
   const before = state.sent.length;
-  if (!(await determine(item)) || state.sent.length !== before) fail(what + " must go to Chrome without asking Accipio");
+  const goesToChrome = await determine(item);
+  const after = state.sent.slice(before);
+  if (!goesToChrome || after.some((m) => m.type !== "seen")) fail(what + " must go to Chrome without asking Accipio");
+  if (after.length !== (noted ? 1 : 0)) fail(what + (noted ? " must be noted for the debug log" : " must never be noted"));
+  if (noted && (after[0].url !== item.url || !after[0].reason || "cookies" in after[0]))
+    fail("the note is wrong: " + JSON.stringify(after[0]));
 }
 
 console.log("ok");

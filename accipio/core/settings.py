@@ -56,6 +56,7 @@ class Settings:
     after_unpack: str = "keep"            # or "delete" (the archive goes to the Recycle Bin)
     ffmpeg_path: str = ""                 # picked with Browse… under Settings; empty = find it (video.find_ffmpeg)
     ask_playlists: bool = True            # a video link with a list: offer the rest (a list link itself always asks)
+    debug_log: bool = False               # write debug.log (core/debug_log.py, 72B); off unless switched on
 
     def notice_kinds(self) -> List[str]:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),

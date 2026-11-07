@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-07#06 -- A debug log
+
+- **Preferences > Debug log** (off unless you switch it on) writes `debug.log` in Accipio's folder, with one line for each thing Accipio saw or decided. That covers what the browser offered, and each download the extension left to Chrome without asking Accipio, with the reason. It also covers how long each check of a link took and what it found, which rule placed it and why, and the answer sent back to Chrome (taken, or why not, including "took too long"). The end of each download is there too, and for an archive, why it was unpacked or why Accipio asks.
+- Cookies and other header values are never written, only that they were there. The log stays under 5 MB, with one older file beside it, and **Delete the log** removes both.
+- **Help > Open Debug Log** shows it. **Help > Copy Debug Log for a Bug Report** puts the version, how this copy was installed and the last 400 lines on the clipboard.
+- The browser extension is now 0.1.3. Chrome loads the new version the next time it starts, or reload it on the extensions page.
+
 ## 2026-11-07#05 -- Choose when finished downloads leave the list
 
 - **Settings > Finished** replaces "Keep finished downloads in the list after a restart" with four choices: keep them until you clear them, clear them at the next start (the default, as before), clear them a number of minutes after they finish (15 unless you change it), or clear them as soon as they finish (after a few seconds, so the "finished" notification still comes). Your old setting carries over.

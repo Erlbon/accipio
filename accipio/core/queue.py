@@ -31,10 +31,11 @@ import datetime
 import os
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from accipio.core import aria2, probe, rules, sniff, unpack, video, zone
+from accipio.core import aria2, debug_log, probe, rules, sniff, unpack, video, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
@@ -190,18 +191,26 @@ class Queue:
     def _start(self, row_id: int, folder: str = "", filename: str = "") -> None:
         row = self.store.get(row_id)
         self.store.update(row_id, state=PROBING, error="")
+        debug_log.note("check", row=row_id, url=row.url, page=row.page_url, headers=row.headers)
+        started = time.monotonic()
         try:
             found_video = None
             if self.video_prober:
                 found_video = self.video_prober(row.url, headers=row.headers, playlist=row.video.get("playlist", ""),
                                                 whole_list=bool(row.video.get("whole_list")))
+                debug_log.note("video check", row=row_id, seconds=round(time.monotonic() - started, 2),
+                               video=found_video is not None)
             if found_video is not None:
                 self._start_video(row_id, found_video, folder, filename)
                 return
+            link_started = time.monotonic()
             found = self.prober(row.url, headers=row.headers)
         except probe.ProbeError as error:
+            debug_log.note("check failed", row=row_id, seconds=round(time.monotonic() - started, 2), error=str(error))
             self.store.update(row_id, state=ERROR, error=str(error))
             return
+        debug_log.note("link check", row=row_id, seconds=round(time.monotonic() - link_started, 2), final_url=found.url,
+                       filename=found.filename, mime=found.mime, size=found.size, resumable=found.resumable)
         placement = self._place(self._download(found, row.page_url, row.added_at, filename))
         target = os.path.normpath(folder) if folder else placement.folder
         name = rules.safe_part(filename, placement.filename) if filename else placement.filename
@@ -209,9 +218,12 @@ class Queue:
         why = placement.why()
         if folder:
             why += f" Folder chosen by hand: {target}."
+        debug_log.note("placed", row=row_id, rules=placement.rule_numbers or "none", folder=target, filename=name,
+                       archive_choice=placement.unpack or "none", by_hand=bool(folder), why=why)
         try:
             gid = self.engine.add(row.url, target, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
         except aria2.Aria2Error as error:
+            debug_log.note("engine refused", row=row_id, error=str(error))
             self.store.update(row_id, state=ERROR, error=f"The engine refused it: {error}")
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime=found.mime,
@@ -352,6 +364,8 @@ class Queue:
                               why=row.why + " The server cannot resume, so it started over.")
             return
         self.speeds.pop(row.id, None)
+        debug_log.note("failed", row=row.id, code=status.error_code, error=status.error_message, done=status.done,
+                       total=status.total)
         self.store.update(row.id, state=ERROR, error=status.error_message or f"aria2 error {status.error_code}")
 
     def _finish(self, row: Row, status: aria2.Status) -> None:
@@ -380,6 +394,8 @@ class Queue:
                           finished=self.clock().isoformat(timespec="seconds"))
         self.speeds.pop(row.id, None)
         self.engine_of(row).remove(row.gid)               # forget the result in the engine; the row keeps it
+        debug_log.note("finished", row=row.id, folder=folder, filename=name, size=status.total, rules=numbers or "none",
+                       archive=unpack.is_archive(name), archive_trial_on=self.unpack_on)
         if self.unpack_on and unpack.is_archive(name):
             self._archive_arrived(row.id)
 
@@ -392,10 +408,17 @@ class Queue:
         try:
             entries = unpack.contents(row.path)
         except unpack.UnpackError as error:
+            debug_log.note("archive unreadable", row=row_id, error=str(error))
             self.store.update(row_id, unpack={"state": "failed", "message": str(error)})
             return
         placement = self._place(Download(url=row.url, filename=row.filename, page_url=row.page_url, mime=row.mime,
                                          size=row.size, when=row.added_at))
+        debug_log.note("archive", row=row_id, filename=row.filename, files_inside=len(entries),
+                       rules=placement.rule_numbers or "none", rule_choice=placement.unpack or "none",
+                       folder_by_hand=row.pinned,
+                       decision=(f"unpack ({placement.unpack}) by rule" if placement.unpack and not row.pinned
+                                 else "ask: folder chosen by hand" if placement.unpack
+                                 else "ask: no rule that matches this file says what to do with an archive"))
         if placement.unpack and not row.pinned:
             try:
                 self.unpack_archive(row_id, placement.unpack, folder=placement.folder, entries=entries, by_rule=True)

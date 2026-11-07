@@ -75,6 +75,38 @@ def select(win, position):
     win.table.selectRow(position)
 
 
+# ---- the debug log (2026-11-07, 72B) ---------------------------------------------------------------------
+
+def test_the_debug_log_is_off_until_switched_on_and_then_tells_what_the_browser_did(world):
+    from accipio.core import debug_log
+    win, engine, prober, base = world
+    path = os.path.join(win.services.folder, debug_log.FILE)
+    win.handle_message({"type": "seen", "via": "browser", "reason": "takeover off", "url": "https://x.org/a.zip"})
+    assert not os.path.exists(path)                                    # off by default
+    dialog = SettingsDialog(win.services.settings, win)
+    assert not dialog.debug_log.isChecked()
+    dialog.debug_log.setChecked(True)
+    win.apply_settings(dialog.result_settings())
+    win.handle_message({"type": "seen", "via": "browser", "reason": "takeover off", "url": "https://x.org/a.zip",
+                        "cookies": "sid=SECRET"})
+    prober.serve("https://getcomics.org/dlds/b.zip", "b.zip")
+    answer = win.handle_message({"type": "add", "via": "browser", "takeover": True,
+                                 "url": "https://getcomics.org/dlds/b.zip", "cookies": "sid=SECRET"})
+    win.flush()
+    text = open(path, encoding="utf-8").read()
+    assert answer["ok"] and "left to Chrome by the extension" in text and "takeover off" in text
+    for event in ("from browser", "link check", "placed", "answer to Chrome"):
+        assert f"  {event}  " in text
+    assert "SECRET" not in text
+    report = debug_log.LOG.report(header="h")
+    assert report.startswith("h\n") and "answer to Chrome" in report
+    dialog = SettingsDialog(win.services.settings, win)
+    dialog.debug_log.setChecked(False)
+    dialog._delete_debug_log()
+    win.apply_settings(dialog.result_settings())
+    assert not os.path.exists(path) and not debug_log.LOG.on
+
+
 # ---- the main window -------------------------------------------------------------------------------------
 
 def test_the_menu_bar_follows_the_family_skeleton(world):

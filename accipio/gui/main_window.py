@@ -25,13 +25,15 @@ from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QHBo
                              QTableView, QVBoxLayout, QWidget)
 
 from redactor_common.core import labels
+from redactor_common.core import selfupdate
 from redactor_common.core.selfupdate import KEY_CHECK_FOR_UPDATES
 from redactor_common.gui.about_dialog import CreditsDialog
 from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 from redactor_common.gui.update_controller import UpdateController
 
-from accipio.core import aria2, ipc, notices, ranges, rules, settings as settings_mod, taskbar, ytdlp_update
+from accipio.core import (aria2, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar,
+                          ytdlp_update)
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -87,6 +89,10 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
     """Load settings and rules, open the queue database, and start aria2 and the yt-dlp engine (unless
     engines are given; tests pass fakes, and ``video_engine=False`` leaves video sites out)."""
     current = settings_mod.load_settings(folder)
+    debug_log.LOG.configure(folder, current.debug_log)
+    debug_log.note("start", version=APP_VERSION, channel=selfupdate.channel_of(), folder=folder,
+                   archives=current.unpack_archives, finished=current.clear_finished,
+                   ask_playlists=current.ask_playlists)
     rule_list = settings_mod.load_rules(folder)
     store = Store(os.path.join(folder, "queue.db"))
     if engine is None:
@@ -257,6 +263,11 @@ class MainWindow(QMainWindow):
         kind = message.get("type")
         if message.get("via") == "browser":
             self.bridge.browser_seen.emit()
+        if kind in ("add", "seen"):
+            debug_log.note("from browser" if kind == "add" else "left to Chrome by the extension",
+                           **{k: v for k, v in message.items() if k not in ("type", "user_agent")})
+        if kind == "seen":
+            return {"ok": True}
         if kind == "ping":
             return {"ok": True, "version": APP_VERSION}
         if kind == "show":
@@ -273,7 +284,9 @@ class MainWindow(QMainWindow):
                        (("cookies", "Cookie"), ("referrer", "Referer"), ("user_agent", "User-Agent")) if message.get(key)}
             added = self.run(self.queue.add, links[0], page_url=str(message.get("page_url") or ""), headers=headers)
             if message.get("takeover"):
-                return self._taken_over(added, links[0])
+                answer = self._taken_over(added, links[0])
+                debug_log.note("answer to Chrome", url=links[0], taken=answer.get("ok"), error=answer.get("error", ""))
+                return answer
             self.bridge.message.emit(f"From the browser: {links[0]}")
             return {"ok": True}
         return {"ok": False, "error": f"unknown message {kind!r}"}
@@ -287,6 +300,7 @@ class MainWindow(QMainWindow):
         except concurrent.futures.TimeoutError:
             # Chrome goes on with it, so Accipio's late copy must not run beside it
             added.add_done_callback(lambda f: f.exception() is None and self.run(self.queue.remove, f.result()))
+            debug_log.note("takeover timed out", url=link, waited=TAKEOVER_WAIT)
             return {"ok": False, "error": "Accipio took too long to check the link; Chrome downloads it."}
         except Exception as error:
             return {"ok": False, "error": str(error)}
@@ -404,6 +418,9 @@ class MainWindow(QMainWindow):
                    Separator(),
                    MenuAction("preferences", labels.PREFERENCES, self.open_settings, shortcut="Ctrl+,")],
             help=standard_help_items(APP_NAME, self.open_changelog, self.show_credits, self.about,
+                                     extra=[MenuAction("open_debug_log", "Open &Debug Log", self.open_debug_log),
+                                            MenuAction("copy_debug_log", "Copy Debug Log for a &Bug Report",
+                                                       self.copy_debug_log)],
                                      updates_slot=self.updates.check_now),
         )
         self.menus = build_standard_menu_bar(self, spec)
@@ -715,6 +732,29 @@ class MainWindow(QMainWindow):
     def show_credits(self) -> None:
         CreditsDialog(os.path.join(resource_dir(), "CREDITS.md"), self).exec()
 
+    # ---- the debug log (72B) ---------------------------------------------------------------------------------
+
+    def _debug_log_missing(self) -> bool:
+        path = os.path.join(self.services.folder, debug_log.FILE)
+        if os.path.isfile(path):
+            return False
+        state = "on, but nothing has been written yet" if debug_log.LOG.on else \
+            "off. Switch it on under Tools > Preferences (Debug log), then do what went wrong again"
+        QMessageBox.information(self, "Debug Log", f"The debug log is {state}.")
+        return True
+
+    def open_debug_log(self) -> None:
+        if not self._debug_log_missing():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.join(self.services.folder, debug_log.FILE)))
+
+    def copy_debug_log(self) -> None:
+        """The version, the channel and the last lines, ready to paste into a bug report."""
+        if self._debug_log_missing():
+            return
+        header = f"{APP_NAME} {APP_VERSION} ({selfupdate.channel_of() or 'channel unknown'})"
+        QApplication.clipboard().setText(debug_log.LOG.report(header=header))
+        self.statusBar().showMessage("The debug log's last lines are on the clipboard.", 6000)
+
     def connect_browser(self) -> None:
         ConnectDialog(self).exec()
 
@@ -769,6 +809,9 @@ class MainWindow(QMainWindow):
         self.queue.clear_finished_how, self.queue.clear_after_minutes = new.clear_finished, new.clear_after_minutes
         self.queue.unpack_on, self.queue.after_unpack = new.unpack_archives, new.after_unpack
         self.queue.ask_playlists = new.ask_playlists
+        debug_log.LOG.configure(self.services.folder, new.debug_log)
+        debug_log.note("settings saved", archives=new.unpack_archives, finished=new.clear_finished,
+                       ask_playlists=new.ask_playlists)
         self.notices.enabled = set(new.notice_kinds())
         self.queue.speed_limit = new.speed_limit_kib * 1024        # a total; refresh() shares it between the engines
         for engine in (self.services.engine, self.services.video_engine):

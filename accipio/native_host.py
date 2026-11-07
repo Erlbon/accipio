@@ -57,11 +57,12 @@ def launch_app() -> None:
 
 def relay(message: Dict, folder: str, launch: Callable[[], None] = launch_app, wait: float = START_WAIT,
           sleep: Callable[[float], None] = time.sleep) -> Dict:
-    """Pass one message to Accipio, starting it first when needed (not for a mere ping)."""
+    """Pass one message to Accipio, starting it first when needed (not for a mere ping, or the extension's note
+    about a download it left to Chrome: that only matters to a running Accipio's debug log)."""
     try:
         return ipc.send(folder, message)
     except OSError:
-        if message.get("type") == "ping":
+        if message.get("type") in ("ping", "seen"):
             return {"ok": False, "error": "Accipio is not running"}
     launch()
     deadline = time.monotonic() + wait

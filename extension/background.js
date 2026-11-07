@@ -34,12 +34,29 @@ export async function offer(url, pageUrl, referrer = "", takeover = false) {
   });
 }
 
+// For Accipio's debug log (off unless switched on there): a download left to Chrome before Accipio was asked, and
+// why. Never for incognito. A closed Accipio is not started for it (native_host.relay).
+function leftToChrome(item, reason) {
+  send({ type: "seen", reason, url: item.finalUrl || item.url, original_url: item.url, page_url: item.referrer || "",
+         mime: item.mime || "", filename: item.filename || "" });
+}
+
 // Whether Accipio takes this download (false: leave it to Chrome).
 async function decide(item) {
   const url = item.finalUrl || item.url;
-  if (item.incognito || !isTakeable(url)) return false;
-  if (passThrough.delete(url) || passThrough.delete(item.url)) return false;
-  if (!(await takeoverOn())) return false;
+  if (item.incognito) return false;
+  if (!isTakeable(url)) {
+    leftToChrome(item, "not an http, https or ftp link (blob:, data: and file: stay in the browser)");
+    return false;
+  }
+  if (passThrough.delete(url) || passThrough.delete(item.url)) {
+    leftToChrome(item, "Download with Chrome instead");
+    return false;
+  }
+  if (!(await takeoverOn())) {
+    leftToChrome(item, "taking over downloads is switched off in the extension");
+    return false;
+  }
   const reply = await offer(url, item.referrer, item.referrer, true);
   if (!reply || !reply.ok) {
     console.warn("Accipio did not take the download:", reply && reply.error);

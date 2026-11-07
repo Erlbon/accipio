@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialo
                              QSpinBox, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
-from accipio.core import video
+from accipio.core import debug_log, video
 from accipio.core.settings import CLEAR_AFTER, CLEAR_AT_ONCE, CLEAR_AT_START, CLEAR_CHOICES, CLEAR_NEVER, Settings
 from accipio.core.video import QUALITIES
 from accipio.gui.style import WARNING_COLOR
@@ -113,6 +113,18 @@ class SettingsDialog(QDialog):
                                       "Help > Check for Updates works whether this is on or not.")
         self.check_updates.setChecked(check_updates)
         form.addRow("Updates", self.check_updates)
+        debug_row = QHBoxLayout()
+        self.debug_log = QCheckBox("Write a debug log")
+        self.debug_log.setToolTip("What the browser offered or left to Chrome, how each link was checked and placed, "
+                                  "and what was decided for archives, in debug.log in Accipio's folder. Cookies are "
+                                  "never written. Help > Open Debug Log shows it.")
+        self.debug_log.setChecked(current.debug_log)
+        self.debug_delete = QPushButton("Delete the log")
+        self.debug_delete.clicked.connect(self._delete_debug_log)
+        debug_row.addWidget(self.debug_log)
+        debug_row.addWidget(self.debug_delete)
+        debug_row.addStretch(1)
+        form.addRow("Debug log", debug_row)
         archives = QLabel("Under Rules > 5 · Archives")
         archives.setEnabled(False)
         form.addRow("Archives", archives)
@@ -166,6 +178,10 @@ class SettingsDialog(QDialog):
     def clear_finished_choice(self) -> str:
         return next(how for how, button in self.clear_buttons.items() if button.isChecked())
 
+    def _delete_debug_log(self) -> None:
+        debug_log.LOG.delete()
+        self.debug_delete.setText("Deleted")
+
     # ---- ffmpeg ----------------------------------------------------------------------------------------------
 
     def _show_ffmpeg(self) -> None:
@@ -212,4 +228,5 @@ class SettingsDialog(QDialog):
                                    notify_added=self.notify_added.isChecked(),
                                    notify_finished=self.notify_finished.isChecked(),
                                    notify_failed=self.notify_failed.isChecked(), ffmpeg_path=self.ffmpeg_path,
-                                   ask_playlists=self.ask_playlists.isChecked())
+                                   ask_playlists=self.ask_playlists.isChecked(),
+                                   debug_log=self.debug_log.isChecked())
