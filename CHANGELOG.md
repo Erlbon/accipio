@@ -2,15 +2,19 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
-## 2026-11-07#01 -- Updates through the family's update framework
+## 2026-11-07#02 -- Updates through the family's update framework
 
-- **Check for Updates no longer guesses.** Accipio now uses the update framework every app of the family shares (redactor_common 2026-11-07-03). Each release carries `update-manifest.json`, which names the exact installer and zip with their sizes and checksums, and each copy knows how it was put on the PC: the installer marks its copy as installed, and the zip's copy says it came from the zip. An installed Accipio downloads the installer the manifest names, checks it, closes and is updated and started again.
+- **Check for Updates no longer guesses.** Accipio now uses the update framework every app of the family shares (redactor_common 2026-11-07-05). Each release carries `update-manifest.json`, which names the exact installer and zip with their sizes and checksums, and each copy knows how it was put on the PC: the installer marks its copy as installed, and the zip's copy says it came from the zip. An installed Accipio downloads the installer the manifest names, checks it, closes and is updated and started again.
 - **Every "cannot update" says why**, in the update box, next to Open Download Page, with a Copy Details button. That covers a copy from the zip, a release from before the framework, and a download that does not match its checksum.
 - **New releases are tested before anyone gets them.** A release is first published as a pre-release. The previous release is installed in a scratch folder and has to update itself to the new one with its own updater, then uninstall cleanly. Only then does the release become the one Check for Updates offers.
 - `Accipio.exe --version`, `--check-update` and `--update` answer from the command line, and `REDACTOR_CONFIG_DIR` points Accipio at a scratch profile.
 - Accipio's own update code is gone, and releases no longer carry the extra `accipio-setup.exe`. Copies of 2026-11-06-04 and -13 cannot update to this release by themselves (they look for a file name no release has); install it once by hand with the installer from the release page. From then on, Check for Updates installs updates itself.
 
-## 2026-11-06#14 -- Check for Updates installs again (not released; replaced by 2026-11-07#01)
+## 2026-11-07#01 -- (not released)
+
+- The first build on the update framework; its release stopped at the build step (the release tool could not start `build_exe.bat`). Everything it held is in 2026-11-07#02.
+
+## 2026-11-06#14 -- Check for Updates installs again (not released; replaced by 2026-11-07#02)
 
 - **An installed Accipio only offered "Open Download Page"** since 2026-11-06-04. The shared update code (redactor_common 2026-11-06-01) learned to recognise installed copies on its own and then looked for a file called `accipio-setup-setup.exe`, found none it could verify, and gave up on installing. Accipio now keeps to its own installer flow, so **Update Now** downloads `accipio-setup.exe`, checks it and runs it, as before.
 - (Planned here: releases would also carry the installer under the odd name. Decided 2026-11-07: no such bridge file; those copies are updated by hand once.)
