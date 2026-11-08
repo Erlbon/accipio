@@ -2,6 +2,11 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-08#02 -- Updates get through when GitHub's download address fails
+
+- **Help > Check for Updates no longer stops at a GitHub download error.** On 2026-11-08, github.com's release downloads answered "504 Gateway Time-out" for almost two hours while GitHub's API served the same files. The update check now fetches the release's manifest and installer through the API when their usual address fails; each file is still checked against the checksum GitHub lists for it. This helps updates from this build on: a copy updating from an older build still uses the old way once.
+- Built with redactor_common 2026-11-08-02 (also: a failed release gate stops the programs it started).
+
 ## 2026-11-08#01 -- The fix in 2026-11-07#13, released
 
 - Built with redactor_common 2026-11-07-13: its detached release run no longer breaks the installer build, which stopped #13's release before anything was published. Nothing in Accipio changes beyond #13.
