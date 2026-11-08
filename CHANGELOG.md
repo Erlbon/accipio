@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-08#01 -- The fix in 2026-11-07#13, released
+
+- Built with redactor_common 2026-11-07-13: its detached release run no longer breaks the installer build, which stopped #13's release before anything was published. Nothing in Accipio changes beyond #13.
+
 ## 2026-11-07#13 -- A video resumed soon after a pause no longer gets stuck
 
 - **A video could hang as "active" with nothing downloading** when it was resumed just as its pause took hold: Resume saw the paused download still winding down, counted on it to carry on, and started nothing. A busy PC widens that moment. Every Resume now starts the video again; the new start waits until the old one has let go, so the two never write the same file.
