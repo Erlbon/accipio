@@ -72,6 +72,7 @@ class Bridge(QObject):
 
 
 TAKEOVER_WAIT = 8.0       # seconds a download Chrome hands over may take to check (under ipc.TIMEOUT, 10)
+OPEN = "Open"             # the right-click menu says "Run setup.exe" for a finished program instead (92A)
 UPDATES_FILE = "accipio_updates.json"    # the family's update-check file (on/off, last check, skipped version)
 
 
@@ -432,6 +433,7 @@ class MainWindow(QMainWindow):
                 MenuAction("resume", "&Resume", self.resume_selected),
                 MenuAction("retry", "Re&try", self.retry_selected, shortcut="Ctrl+R"),
                 Separator(),
+                MenuAction("open_file", OPEN, self.open_selected),   # no Ctrl+O: in the family that is Open Files
                 MenuAction("open_folder", "Show in &Folder", self.open_folder_of_selected, shortcut="Ctrl+Shift+F"),
                 MenuAction("copy_link", "&Copy Link", self.copy_link_of_selected, shortcut="Ctrl+C"),
                 MenuAction("open_in_browser", "Open Link in &Browser", self.open_link_of_selected),
@@ -703,9 +705,29 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(rows[0].folder))
 
     def open_item(self, index: QModelIndex) -> None:
-        row = self.model.row_at(self.proxy.mapToSource(index))
-        if row and row.state == COMPLETE and os.path.isfile(row.path):
+        self._open(self.model.row_at(self.proxy.mapToSource(index)))
+
+    def open_selected(self) -> None:
+        rows = self.selected_rows()
+        if rows:
+            self._open(rows[0])
+
+    @staticmethod
+    def _openable(row: Optional[Row]) -> bool:
+        return bool(row and row.state == COMPLETE and os.path.isfile(row.path))
+
+    def _open(self, row: Optional[Row]) -> None:
+        """A finished file opens in its own program; a program (setup.exe, an .msi) runs, and Windows still shows
+        its own warning for a file from the internet (92A)."""
+        if self._openable(row):
             QDesktopServices.openUrl(QUrl.fromLocalFile(row.path))
+
+    @staticmethod
+    def _open_label(row: Optional[Row]) -> str:
+        """"Run setup.exe" for a finished program, "Open" for everything else."""
+        if MainWindow._openable(row) and rules.split_name(os.path.basename(row.path))[1] in rules.GROUPS["Programs"]:
+            return f"Run {os.path.basename(row.path)}"
+        return OPEN
 
     def copy_link_of_selected(self) -> None:
         rows = self.selected_rows()
@@ -733,8 +755,9 @@ class MainWindow(QMainWindow):
             return
         states = {r.state for r in rows}
         menu = QMenu(self)
+        self.actions_by_key["open_file"].setText(self._open_label(rows[0]))
         for key, enabled in (("pause", ACTIVE in states), ("resume", PAUSED in states), ("retry", ERROR in states),
-                             (None, True), ("open_folder", True), ("copy_link", True), ("why_here", True),
+                             (None, True), ("open_file", self._openable(rows[0])), ("open_folder", True), ("copy_link", True), ("why_here", True),
                              (None, True), ("remove", True)):
             if key is None:
                 menu.addSeparator()
@@ -747,8 +770,9 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction("Undo unpacking", lambda: [self._undo_unpack(r.id) for r in unpacked])
         menu.exec(self.table.viewport().mapToGlobal(point))
-        for key in ("pause", "resume", "retry"):
+        for key in ("pause", "resume", "retry", "open_file"):
             self.actions_by_key[key].setEnabled(True)
+        self.actions_by_key["open_file"].setText(OPEN)
 
     def set_filter(self, name: str) -> None:
         self.chips[name].setChecked(True)

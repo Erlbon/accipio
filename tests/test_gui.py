@@ -203,6 +203,34 @@ def test_a_web_page_link_fails_with_a_way_to_open_it_in_the_browser(world, monke
     assert opened == [page]
 
 
+def test_a_finished_program_runs_from_the_right_click_menu_and_other_files_open(world, monkeypatch):
+    from PyQt6.QtGui import QDesktopServices
+    win, engine, prober, base = world
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(os.path.normpath(url.toLocalFile())) or True)
+    shown = []
+    run = win.actions_by_key["open_file"]
+    monkeypatch.setattr(mw.QMenu, "exec", lambda menu, *a: shown.append(
+        [(a.text(), a.isEnabled()) for a in menu.actions() if a is run]))
+    add(win, prober, "https://a.org/setup.exe", "setup.exe")
+    select(win, 0)
+    win.show_context_menu(win.table.visualRect(win.proxy.index(0, 0)).center())
+    assert shown[-1][0] == ("Open", False)                         # not finished yet
+    win.actions_by_key["open_file"].trigger()                      # from the menu bar: nothing to open yet
+    assert opened == []
+    engine.finish(win.model.rows[0].gid, b"MZ")
+    win.tick()
+    win.flush()
+    select(win, 0)
+    win.show_context_menu(win.table.visualRect(win.proxy.index(0, 0)).center())
+    assert shown[-1][0] == ("Run setup.exe", True)
+    win.actions_by_key["open_file"].trigger()
+    assert opened == [win.model.rows[0].path] and os.path.isfile(opened[0])
+    win.table.doubleClicked.emit(win.proxy.index(0, 0))           # the double-click does the same
+    assert len(opened) == 2
+
+
 def test_space_pauses_and_resumes_the_selection(world):
     win, engine, prober, base = world
     add(win, prober, "https://a.org/a.zip", "a.zip")

@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-08#03 -- Run a downloaded program from the list
+
+- **Right-click a finished program and pick "Run setup.exe"** (the name of the file you downloaded). The same line says "Open" for any other finished file, and it is also under Downloads > Open. It does what a double-click on the row already did, which is to start the file the way Windows would, with Windows' own warning for a file from the internet. "Programs" means the file types the Programs rule uses (exe, msi, msix, bat, ps1 and so on).
+
 ## 2026-11-08#02 -- Updates get through when GitHub's download address fails
 
 - **Help > Check for Updates no longer stops at a GitHub download error.** On 2026-11-08, github.com's release downloads answered "504 Gateway Time-out" for almost two hours while GitHub's API served the same files. The update check now fetches the release's manifest and installer through the API when their usual address fails; each file is still checked against the checksum GitHub lists for it. This helps updates from this build on: a copy updating from an older build still uses the old way once.
