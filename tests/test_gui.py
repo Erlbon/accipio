@@ -637,7 +637,7 @@ def test_a_file_the_browser_saved_itself_is_filed_by_the_rules_unless_switched_o
     assert third.exists() and win.model.rows[1].folder == str(chrome)
     told = SettingsDialog(win.services.settings, win, browsers=asking).browser_note.text()
     assert "Chrome (Me)" in told and "asks where to save each file" in told and "leaves the file there" in told
-    assert "No Chrome or Edge settings" in SettingsDialog(win.services.settings, win).browser_note.text()
+    assert "No Chrome, Edge or Opera settings" in SettingsDialog(win.services.settings, win).browser_note.text()
     win.read_browsers = lambda: []
 
     dialog = SettingsDialog(win.services.settings, win)

@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#02 -- Edge and Opera
+
+- **Accipio's extension works in Edge and Opera as it does in Chrome**, loaded by hand the same way (Developer mode, Load unpacked, the same folder). No change to the extension was needed. Tried on 2026-11-17 in a real Edge 157 and a real Opera 140, each with a fresh profile: the extension loads under the same ID, reaches Accipio, and has everything it uses for the hand-over. A full download by a click in those browsers has not been tried yet.
+- The help page, the Connect your browser box, the installer and the README now name all three browsers. The help page shows the extensions address of the browser it is open in (`edge://extensions`, `opera://extensions`); `chrome://extensions` works in all three.
+- **Settings > Browser's own files** now also reads Opera's own settings (where it saves, whether it asks where to save), and a file Opera saved itself is treated by Opera's setting, not Chrome's. No company policies are read for Opera.
+- Brave and Vivaldi call themselves Chrome, so Accipio takes them for Chrome and reads Chrome's settings for them. They have not been tried.
+
 ## 2026-11-17#01 -- Files the browser has to download itself are filed by the rules
 
 - **Some files only the browser can fetch, and they used to stay in its own download folder, untouched by your rules.** The first kind is a file a page builds itself (an export button, a "blob:" link): it exists only inside that tab, so Accipio cannot download it. The second is a download the site refuses Accipio, which Chrome then finishes. Now the extension tells Accipio when Chrome has saved such a file, and Accipio moves it to where the rules say and lists it as finished. "Why here?" says where it came from. Seen with OCR text files built inside a Library of Congress tab.

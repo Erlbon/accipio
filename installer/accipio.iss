@@ -76,7 +76,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Edge\NativeMessagingHosts\{#HostKey}"; F
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\Erlbon.Accipio"; Flags: dontcreatekey uninsdeletekey
 
 [Run]
-Filename: "{app}\Accipio.exe"; Parameters: "--register"; StatusMsg: "Connecting Chrome and Edge to Accipio..."; Flags: runhidden waituntilterminated
+Filename: "{app}\Accipio.exe"; Parameters: "--register"; StatusMsg: "Connecting your browsers to Accipio..."; Flags: runhidden waituntilterminated
 Filename: "{cmd}"; Parameters: "/c winget install --id Gyan.FFmpeg --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity"; StatusMsg: "Installing ffmpeg with winget (this can take a minute)..."; Tasks: ffmpeg; Flags: runhidden waituntilterminated
 ; Chrome will not open its own extensions page for another program, so this opens a page with the steps and copy buttons.
 Filename: "{app}\_internal\accipio\gui\help\connect-browser.html"; Description: "Show how to add the browser extension (one minute, once)"; Check: OfferExtension; Flags: postinstall shellexec nowait
@@ -95,7 +95,7 @@ Type: files; Name: "{userappdata}\Accipio\native-host.cmd"
 Type: files; Name: "{userappdata}\Accipio\{#HostKey}.json"
 
 [Messages]
-FinishedLabel=Accipio is installed.%n%nOne step is left, once: adding the browser extension, so the downloads you click in Chrome or Edge come to Accipio. The help page below shows how; Accipio shows the same steps until it is done.
+FinishedLabel=Accipio is installed.%n%nOne step is left, once: adding the browser extension, so the downloads you click in Chrome, Edge or Opera come to Accipio. The help page below shows how; Accipio shows the same steps until it is done.
 
 [Code]
 var

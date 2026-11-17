@@ -171,9 +171,9 @@ class SettingsDialog(QDialog):
         self.file_browser_saves.setChecked(current.file_browser_saves)
         browser_column = QVBoxLayout()
         browser_column.addWidget(self.file_browser_saves)
-        # what Chrome and Edge are set to do themselves, read from their own settings (never changed by Accipio)
+        # what Chrome, Edge and Opera are set to do themselves, read from their own settings (never changed by Accipio)
         told = [browser_settings.describe(profile) for profile in browsers] or \
-            ["No Chrome or Edge settings were found on this PC."]
+            ["No Chrome, Edge or Opera settings were found on this PC."]
         if any(profile.asks for profile in browsers):
             told.append("Where the browser asks where to save, you chose the place, so Accipio leaves the file there.")
         self.browser_note = QLabel("\n".join(told))

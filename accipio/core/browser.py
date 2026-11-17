@@ -17,6 +17,7 @@ from typing import Callable, List, Optional
 
 HOST = "no.erlbon.accipio"
 EXTENSION_ID = "ongnefecmhlaofpaaoehcdmdinnlgble"
+# Opera has no key of its own here and still finds the host (tried in a real Opera 140, 2026-11-17)
 REGISTRY_KEYS = [rf"Software\Google\Chrome\NativeMessagingHosts\{HOST}",
                  rf"Software\Microsoft\Edge\NativeMessagingHosts\{HOST}"]
 LINUX_FOLDERS = ["~/.config/google-chrome", "~/.config/chromium", "~/.config/microsoft-edge", "~/.config/BraveSoftware/Brave-Browser"]

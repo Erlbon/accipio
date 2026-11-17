@@ -31,11 +31,12 @@
 <body>
 <main>
   <h1>Connect your browser to Accipio</h1>
-  <p class="lead">One step is left, once: add Accipio's extension to Chrome or Edge. Then the downloads you click
-    there come to Accipio. It takes about a minute.</p>
+  <p class="lead">One step is left, once: add Accipio's extension to Chrome, Edge or Opera. Then the downloads you
+    click there come to Accipio. It takes about a minute. Do it in each browser you download with.</p>
   <ol>
     <li>Open the extensions page: copy this address and paste it into the address bar of a new tab.
-      (In Edge it is <b>edge://extensions</b>.)
+      (Chrome: <b>chrome://extensions</b>, Edge: <b>edge://extensions</b>, Opera: <b>opera://extensions</b>. The box
+      below shows the one for the browser this page is open in.)
       <div class="copy"><code id="page">chrome://extensions</code><button data-copy="page">Copy</button></div></li>
     <li>Switch on <b>Developer mode</b>, the switch at the top right of that page.</li>
     <li>Click <b>Load unpacked</b> (top left). In the folder box that opens, paste this folder and choose
@@ -46,7 +47,7 @@
   </ol>
   <p class="note">If Free Download Manager, Internet Download Manager or another download manager has a browser
     extension, switch that one off in the same page: both would try to take the same downloads.</p>
-  <p class="note">Why by hand? Until Accipio is in the Chrome Web Store, Chrome only accepts it this way.
+  <p class="note">Why by hand? Accipio's extension is not in the browsers' stores, and they only accept it this way.
     Accipio's own window also shows these steps (Tools &gt; Connect Browser).</p>
 </main>
 <script>
@@ -57,6 +58,11 @@
     parts.splice(parts.length - 4, 4, "extension");
     var folder = parts.join(navigator.platform.indexOf("Win") === 0 ? "\\" : "/");
     document.getElementById("folder").textContent = folder;
+    // the extensions page of the browser this page is open in (Edge says "Edg/", Opera "OPR/")
+    var agent = navigator.userAgent;
+    var page = agent.indexOf("Edg/") >= 0 ? "edge://extensions" : agent.indexOf("OPR/") >= 0 ? "opera://extensions"
+      : "chrome://extensions";
+    document.getElementById("page").textContent = page;
   })();
   document.querySelectorAll("button[data-copy]").forEach(function (button) {
     button.addEventListener("click", function () {

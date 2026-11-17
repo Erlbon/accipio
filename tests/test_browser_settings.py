@@ -77,6 +77,9 @@ def test_asks_is_known_only_when_every_profile_of_that_browser_agrees():
     chrome_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
     edge_ua = chrome_ua + " Edg/157.0.0.0"
     assert bs.browser_of(chrome_ua) == CHROME and bs.browser_of(edge_ua) == EDGE and bs.browser_of("") == ""
+    assert bs.browser_of(chrome_ua + " OPR/140.0.0.0") == bs.OPERA      # as a real Opera 140 says it
+    opera = [BrowserProfile(CHROME, "a", asks=False), BrowserProfile(bs.OPERA, "o", asks=True)]
+    assert bs.asks(opera, chrome_ua + " OPR/140.0.0.0") is True and bs.asks(opera, chrome_ua) is False
     profiles = [BrowserProfile(CHROME, "a", asks=True), BrowserProfile(CHROME, "b", asks=True),
                 BrowserProfile(EDGE, "c", asks=False)]
     assert bs.asks(profiles, chrome_ua) is True and bs.asks(profiles, edge_ua) is False
@@ -88,5 +91,12 @@ def test_asks_is_known_only_when_every_profile_of_that_browser_agrees():
 
 def test_the_real_reader_never_fails_on_this_machine():
     """Whatever is installed here: a list comes back, and the policy reader gives a dict."""
-    assert isinstance(bs.windows_policies(CHROME), dict)
-    assert all(len(pair) == 2 for pair in bs.user_data_folders())
+    assert isinstance(bs.windows_policies(CHROME), dict) and bs.windows_policies(bs.OPERA) == {}
+    assert [browser for browser, _ in bs.user_data_folders()] == [CHROME, EDGE, bs.OPERA]
+
+
+def test_opera_keeps_the_same_files_and_is_read_the_same_way(tmp_path):
+    opera = make_browser(str(tmp_path / "Opera Stable"), {"Default": ("Me", {"prompt_for_download": True})})
+    found = bs.read([(bs.OPERA, opera)], no_policies)
+    assert found == [BrowserProfile(bs.OPERA, "Me", "", True)]
+    assert bs.describe(found[0]).startswith("Opera (Me): ")

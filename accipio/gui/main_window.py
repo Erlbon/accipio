@@ -131,7 +131,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.services = services
         self.queue = services.queue
-        self.read_browsers = browser_settings.read                 # Chrome's and Edge's own settings; tests put a fake here
+        self.read_browsers = browser_settings.read                 # the browsers' own settings; tests put a fake here
         self.queue.browser_asks = lambda user_agent: browser_settings.asks(self.read_browsers(), user_agent)
         self.worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="accipio-queue")
         self.failures: List[str] = []

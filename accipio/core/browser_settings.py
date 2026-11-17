@@ -25,7 +25,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-CHROME, EDGE = "Chrome", "Edge"
+CHROME, EDGE, OPERA = "Chrome", "Edge", "Opera"
+# Opera keeps the same files in the same layout (seen in Opera 140, 2026-11-17); no policy key of its own is read
 POLICY_KEYS = {CHROME: "Software\\Policies\\Google\\Chrome", EDGE: "Software\\Policies\\Microsoft\\Edge"}
 POLICY_VALUES = ("DownloadDirectory", "PromptForDownloadLocation", "DownloadRestrictions")
 BLOCKS_ALL = 3                         # DownloadRestrictions: 1, 2 and 4 block only what the browser judges dangerous
@@ -45,18 +46,22 @@ def user_data_folders() -> List[Tuple[str, str]]:
     home = os.path.expanduser("~")
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA") or os.path.join(home, "AppData", "Local")
+        roaming = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
         return [(CHROME, os.path.join(local, "Google", "Chrome", "User Data")),
-                (EDGE, os.path.join(local, "Microsoft", "Edge", "User Data"))]
+                (EDGE, os.path.join(local, "Microsoft", "Edge", "User Data")),
+                (OPERA, os.path.join(roaming, "Opera Software", "Opera Stable"))]
     if sys.platform == "darwin":
         support = os.path.join(home, "Library", "Application Support")
-        return [(CHROME, os.path.join(support, "Google", "Chrome")), (EDGE, os.path.join(support, "Microsoft Edge"))]
+        return [(CHROME, os.path.join(support, "Google", "Chrome")), (EDGE, os.path.join(support, "Microsoft Edge")),
+                (OPERA, os.path.join(support, "com.operasoftware.Opera"))]
     config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
-    return [(CHROME, os.path.join(config, "google-chrome")), (EDGE, os.path.join(config, "microsoft-edge"))]
+    return [(CHROME, os.path.join(config, "google-chrome")), (EDGE, os.path.join(config, "microsoft-edge")),
+            (OPERA, os.path.join(config, "opera"))]
 
 
 def windows_policies(browser: str) -> Dict[str, Any]:
     """The download policies set for a browser in the registry ({} when none, and off Windows)."""
-    if sys.platform != "win32":
+    if sys.platform != "win32" or browser not in POLICY_KEYS:
         return {}
     import winreg
     found: Dict[str, Any] = {}
@@ -133,10 +138,11 @@ def read(folders: Optional[List[Tuple[str, str]]] = None,
 
 
 def browser_of(user_agent: str) -> str:
-    """Which browser sent a message, from its user agent (Edge says "Edg/"; "" = not known)."""
+    """Which browser sent a message, from its user agent (Edge says "Edg/", Opera "OPR/"; "" = not known). Brave
+    and Vivaldi call themselves Chrome and are taken for it."""
     if not user_agent:
         return ""
-    return EDGE if "Edg/" in user_agent else CHROME
+    return EDGE if "Edg/" in user_agent else OPERA if "OPR/" in user_agent else CHROME
 
 
 def asks(profiles: List[BrowserProfile], user_agent: str = "") -> Optional[bool]:

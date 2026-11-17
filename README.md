@@ -5,16 +5,16 @@ A download manager that puts each file where you want it.
 Accipio ("I receive") sends every download through an ordered list of rules you set up yourself:
 by domain, file type, name, size, time of day, or the channel a video comes from. Folders can rotate
 by date, and missing folders are created on the fly. Direct downloads run on aria2, video sites on
-yt-dlp, and a Chrome/Edge extension hands your clicked downloads straight to the app.
+yt-dlp, and a browser extension (Chrome, Edge, Opera) hands your clicked downloads straight to the app.
 
 ## Install (Windows)
 
 1. Download `Accipio-<build>-windows-x64-setup.exe` from [Releases](https://github.com/Erlbon/accipio/releases)
    and run it. It installs for your user only (`%LOCALAPPDATA%\Programs\Accipio`, no admin rights), points
-   Chrome and Edge at Accipio, and can also start Accipio when you sign in and install ffmpeg (below).
+   Chrome, Edge and Opera at Accipio, and can also start Accipio when you sign in and install ffmpeg (below).
 2. Load the extension, once. The installer's last page offers a help page with the steps; Accipio shows a bar
    with the same steps (**Connect your browser…**, also under **Tools > Connect Browser**) until it is done: open
-   `chrome://extensions`, switch on **Developer mode**, choose **Load unpacked** and pick the
+   `chrome://extensions` (the same address works in Edge and Opera), switch on **Developer mode**, choose **Load unpacked** and pick the
    `_internal\extension` folder in the Accipio folder. Clicked downloads now go to Accipio; the extension's
    toolbar button switches that off and on.
 3. Set up where things go under **Tools > Rules**, in five tabs, in this order:

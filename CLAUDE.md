@@ -79,7 +79,14 @@ session does not reopen what is settled. Keep it current when a decision changes
   `win.read_browsers`) True = the user chose the place, the file stays; known only when all profiles of that browser
   agree, else the name check decides. The Settings window lists the profiles (`browsers=` argument, empty in tests).
   `Settings.file_browser_saves` (default on); with it off the native host does not start a closed Accipio for a `file`
-  message. Never incognito, "Download with Chrome instead" or takeover off. Opera's profile is not read yet.
+  message. Never incognito, "Download with Chrome instead" or takeover off.
+- Edge and Opera (2026-11-17#02): the same unpacked extension, no code change. Checked in real Edge 157 and Opera 140,
+  hidden (`--headless=new`, scratch `--user-data-dir`, `--load-extension` + `--disable-features=
+  DisableLoadExtensionCommandLineSwitch`, then a ping to the native host from the extension's service worker over the
+  DevTools port): same extension ID, host found (Opera has no registry key of its own and still finds it),
+  onDeterminingFilename and storage.session present. Opera says "OPR/" in its user agent; its profile is
+  `%APPDATA%\Opera Software\Opera Stable` in Chrome's layout. Brave/Vivaldi say plain Chrome and are untested.
+  Firefox is a real port (no onDeterminingFilename, own manifest and registry key, needs Mozilla's unlisted signing).
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

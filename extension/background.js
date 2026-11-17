@@ -77,7 +77,7 @@ async function chromeSavedIt(id) {
   if (!item || !item.filename) return;
   send({ type: "file", path: item.filename, suggested: waiting.suggested, url: shortUrl(item.finalUrl || item.url),
          page_url: item.referrer || waiting.page_url, mime: item.mime || "",
-         user_agent: navigator.userAgent });       // Chrome or Edge: Accipio reads that browser's own settings
+         user_agent: navigator.userAgent });       // which browser: Accipio reads its own settings
 }
 
 chrome.downloads.onChanged.addListener((delta) => {
