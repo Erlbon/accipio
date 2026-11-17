@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 import datetime
 import os
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from PyQt6.QtCore import QTime, Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -22,13 +22,13 @@ from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, Q
                              QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTimeEdit, QToolButton, QVBoxLayout,
                              QWidget)
 
-from accipio.core import cron, probe, rules
+from accipio.core import cron, link, probe, rules
 from accipio.core import settings as settings_mod
 from accipio.core.rules import Condition, Download, Rule
 from accipio.gui import style
 from accipio.gui.archives_tab import ArchivesTab
 from accipio.gui.example_hint import hint_label, with_example
-from accipio.gui.library_tabs import FileGroupsTab, FoldersTab, SiteGroupsTab
+from accipio.gui.library_tabs import FileGroupsTab, PlacesTab, SiteGroupsTab
 
 KIND_LABELS = [("type", "In file group"), ("sites", "From site group"), ("domain", "Site"), ("name", "Name"),
                ("size", "Size"), ("time", "Time of day"), ("source", "Source"), ("video", "Video field")]
@@ -638,7 +638,7 @@ class RuleForm(QWidget):
 
         folder_row = QHBoxLayout()
         self.folder = QComboBox()
-        self.folder.setToolTip("A folder from the Folders tab")
+        self.folder.setToolTip("A place from the Places tab: a folder on this PC, or another Accipio")
         self.folder.currentIndexChanged.connect(self.changed)
         self.folder.currentIndexChanged.connect(self._show_where)
         self.where = QLabel()
@@ -723,7 +723,7 @@ class RuleForm(QWidget):
         for f in self.library_of().folders:
             self.folder.addItem(f.name, f.name)
         if chosen and not rules.is_default(chosen) and self.folder.findData(chosen) < 0:
-            self.folder.addItem(f"{chosen} (missing: see Folders)", chosen)
+            self.folder.addItem(f"{chosen} (missing: see Places)", chosen)
         self.folder.setCurrentIndex(max(self.folder.findData(chosen or rules.DEFAULT_FOLDER), 0))
         self._loading = busy
         self._show_where()
@@ -736,7 +736,9 @@ class RuleForm(QWidget):
         if rules.is_default(target):
             text, warn = f"{base} — the same place as no rule at all. Pick a folder?", True
         elif named is None:
-            text, warn = f"There is no folder called “{target}”, so files go to {base}. Pick one, or add it under Folders.", True
+            text, warn = f"There is no place called “{target}”, so files go to {base}. Pick one, or add it under Places.", True
+        elif named.remote:
+            text, warn = "another Accipio; its own rules choose the folder there", False
         else:
             sample = Download("https://example.com/file.zip", "file.zip", when=datetime.datetime.now(),
                               video={"uploader": "Uploader", "channel": "Channel"})
@@ -825,10 +827,16 @@ class RuleForm(QWidget):
 
 
 class RulesDialog(QDialog):
-    """Folders, File Groups, Site Groups and Rules, in the order you set them up; the test box under them all."""
+    """Places, File Groups, Site Groups and Rules, in the order you set them up; the test box under them all.
+
+    ``peers_of`` gives the paired Accipios (link.Peer), ``reach(peer_id)`` asks one whether it answers ("" when it
+    does, else the reason; it blocks, so the Places tab calls it from a thread), ``link_problem`` is why the link
+    cannot work on this PC ("" when it can): then no new place can be another Accipio."""
 
     def __init__(self, rule_list: List[Rule], base_folder: str, parent=None, library: Optional[rules.Library] = None,
-                 archives: bool = False, after_unpack: str = "keep"):
+                 archives: bool = False, after_unpack: str = "keep",
+                 peers_of: Callable[[], List[link.Peer]] = lambda: [],
+                 reach: Optional[Callable[[str], str]] = None, link_problem: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Rules")
         self.resize(1020, 760)
@@ -840,17 +848,18 @@ class RulesDialog(QDialog):
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
-        self.folders_tab = FoldersTab(library.folders, self.result_rules_preview, base_folder)
+        self.places_tab = PlacesTab(library.folders, self.result_rules_preview, base_folder, peers_of=peers_of,
+                                    reach=reach, link_problem=link_problem)
         self.groups_tab = FileGroupsTab(library.groups, self.result_rules_preview)
         self.sites_tab = SiteGroupsTab(library.site_groups, self.result_rules_preview)
-        for tab in (self.folders_tab, self.groups_tab, self.sites_tab):
+        for tab in (self.places_tab, self.groups_tab, self.sites_tab):
             tab.changed.connect(self._library_changed)
             tab.renamed.connect(self._renamed)
         rules_page = QWidget()
         rules_layout = QVBoxLayout(rules_page)
         rules_layout.setContentsMargins(0, 0, 0, 0)
         self.archives_tab = ArchivesTab(archives, after_unpack, self.result_rules_preview)
-        for number, (tab, title) in enumerate(((self.folders_tab, "Folders"), (self.groups_tab, "File Groups"),
+        for number, (tab, title) in enumerate(((self.places_tab, "Places"), (self.groups_tab, "File Groups"),
                                                 (self.sites_tab, "Site Groups"), (rules_page, "Rules"),
                                                 (self.archives_tab, "Archives")), 1):
             self.tabs.addTab(tab, f"{number} · {title}")
@@ -941,18 +950,18 @@ class RulesDialog(QDialog):
         if self.list.count():
             self.list.setCurrentRow(0)
         self.tabs.setCurrentWidget(rules_page)          # most visits are to change a rule
-        for tab in (self.folders_tab, self.groups_tab, self.sites_tab):
+        for tab in (self.places_tab, self.groups_tab, self.sites_tab):
             tab.refresh()                                # "used by", now that the rules are in
         self.update_test()
 
     # ---- the library tabs ------------------------------------------------------------------------------------
 
     def result_library(self) -> rules.Library:
-        return rules.Library(self.folders_tab.items(), self.groups_tab.items(), self.sites_tab.items())
+        return rules.Library(self.places_tab.items(), self.groups_tab.items(), self.sites_tab.items())
 
     def result_base_folder(self) -> str:
         """The Default folder's path (the base folder in the settings)."""
-        return self.folders_tab.default_path().strip() or self.base_folder
+        return self.places_tab.default_path().strip() or self.base_folder
 
     def _library_changed(self):
         self._renumber()                                 # a folder added or gone changes the arrows in the list
@@ -968,10 +977,10 @@ class RulesDialog(QDialog):
 
     def _tab_changed(self, *_):
         page = self.tabs.currentWidget()
-        if page in (self.folders_tab, self.groups_tab, self.sites_tab, self.archives_tab):
+        if page in (self.places_tab, self.groups_tab, self.sites_tab, self.archives_tab):
             page.refresh()                                       # "used by" after rule edits
         elif self.current is not None:
-            self.form.load(self.current.data(Qt.ItemDataRole.UserRole))   # folder list after Folders edits
+            self.form.load(self.current.data(Qt.ItemDataRole.UserRole))   # place list after Places edits
 
     # ---- export and import -----------------------------------------------------------------------------------
 
@@ -1015,7 +1024,7 @@ class RulesDialog(QDialog):
 
     def load_everything(self, rule_list: List[Rule], library: rules.Library) -> None:
         rules.modernize(rule_list, library)
-        self.folders_tab.set_items(library.folders)
+        self.places_tab.set_items(library.folders)
         self.groups_tab.set_items(library.groups)
         self.sites_tab.set_items(library.site_groups)
         self.current = None
@@ -1024,7 +1033,7 @@ class RulesDialog(QDialog):
             self._append(rule)
         if self.list.count():
             self.list.setCurrentRow(0)
-        for tab in (self.folders_tab, self.groups_tab, self.sites_tab):
+        for tab in (self.places_tab, self.groups_tab, self.sites_tab):
             tab.refresh()
         self.update_test()
 
@@ -1051,7 +1060,7 @@ class RulesDialog(QDialog):
         return f"{number}  {rule.name}  → {target}", False
 
     def _renumber(self, *_):
-        folders = self.folders_tab.items()
+        folders = self.places_tab.items()
         for position in range(self.list.count()):
             item = self.list.item(position)
             rule = item.data(Qt.ItemDataRole.UserRole)
@@ -1122,7 +1131,8 @@ class RulesDialog(QDialog):
         placement = rules.place(self.result_rules_preview(), d, self.result_base_folder(), self.result_library())
         hit = {s.number for s in placement.steps}
         skipped = [str(n) for n in range(1, self.list.count() + 1) if n not in hit]
-        text = f"→ {placement.path}\n{placement.why()}"
+        where = f"{placement.remote.name} (another Accipio)" if placement.remote is not None else placement.path
+        text = f"→ {where}\n{placement.why()}"
         if skipped:
             text += f"\nSkipped: rule {', '.join(skipped)} (not matching, switched off, or after the first rule that fits)"
         self.test_result.setText(text)

@@ -32,8 +32,8 @@ from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 from redactor_common.gui.update_controller import UpdateController
 
-from accipio.core import (aria2, browser_settings, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar, toasts,
-                          ytdlp_update)
+from accipio.core import (aria2, browser_settings, debug_log, handover, ipc, link, notices, ranges, rules,
+                          settings as settings_mod, taskbar, toasts, ytdlp_update)
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
 from accipio.core.version import APP_NAME, APP_REPO_URL, APP_VERSION
@@ -88,9 +88,10 @@ class Services:
     queue: Queue
 
 
-def open_services(folder: str, engine=None, prober=None, video_engine=None, video_prober=None) -> Services:
+def open_services(folder: str, engine=None, prober=None, video_engine=None, video_prober=None, keys=None) -> Services:
     """Load settings and rules, open the queue database, and start aria2 and the yt-dlp engine (unless
-    engines are given; tests pass fakes, and ``video_engine=False`` leaves video sites out)."""
+    engines are given; tests pass fakes, and ``video_engine=False`` leaves video sites out). ``keys`` is the key
+    store of the link to other Accipios (the system keyring when None; tests pass a stand-in)."""
     current = settings_mod.load_settings(folder)
     debug_log.LOG.configure(folder, current.debug_log)
     debug_log.note("start", version=APP_VERSION, channel=selfupdate.channel_of(), folder=folder,
@@ -125,6 +126,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
+    services.node = link.Node(folder, keys)
     return services
 
 
@@ -258,6 +260,11 @@ class MainWindow(QMainWindow):
         except OSError as error:
             self.ipc = None
             self.statusBar().showMessage(f"The browser cannot reach Accipio: {error}", 10000)
+
+        # the link to other Accipios: a sender always, a listener only while Settings ask for one
+        self.link = handover.Service(self.queue, services.node, run=self.run)
+        self.link.apply(services.settings.link_accept, services.settings.link_addresses, services.settings.link_port)
+        self._tell_link_problems()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -563,7 +570,7 @@ class MainWindow(QMainWindow):
             folder = self.queue.folder_named(row_id, folder_name) if mode == "folder" else ""
             return self.queue.archive_plan(row_id, mode, folder)
         self.archive_box.show_waiting(
-            row, plan, self.services.settings.base_folder, [rules.DEFAULT_FOLDER] + [f.name for f in library.folders],
+            row, plan, self.services.settings.base_folder, [rules.DEFAULT_FOLDER] + [f.name for f in library.folders if not f.remote],
             self.queue.together_folder(row.id), [g.name for g in library.groups], group,
             [s.name for s in library.site_groups], site)
 
@@ -761,7 +768,8 @@ class MainWindow(QMainWindow):
         rows = self.selected_rows()
         if rows:
             row = rows[0]
-            text = f"{row.path or row.url}\n\n{row.why or 'Not placed yet.'}"
+            where = row.path or (f"{row.remote['place']} (another Accipio)" if row.remote.get("place") else row.url)
+            text = f"{where}\n\n{row.why or 'Not placed yet.'}"
             if row.state == ERROR and row.error:
                 text += f"\n\nError: {row.error}"
             QMessageBox.information(self, "Why here?", text)
@@ -774,7 +782,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         self.actions_by_key["open_file"].setText(self._open_label(rows[0]))
         for key, enabled in (("pause", ACTIVE in states), ("resume", PAUSED in states), ("retry", ERROR in states),
-                             (None, True), ("open_file", self._openable(rows[0])), ("open_folder", True), ("copy_link", True), ("why_here", True),
+                             (None, True), ("open_file", self._openable(rows[0])), ("open_folder", bool(rows[0].folder)), ("copy_link", True), ("why_here", True),
                              (None, True), ("remove", True)):
             if key is None:
                 menu.addSeparator()
@@ -787,7 +795,7 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             menu.addAction("Undo unpacking", lambda: [self._undo_unpack(r.id) for r in unpacked])
         menu.exec(self.table.viewport().mapToGlobal(point))
-        for key in ("pause", "resume", "retry", "open_file"):
+        for key in ("pause", "resume", "retry", "open_file", "open_folder"):
             self.actions_by_key[key].setEnabled(True)
         self.actions_by_key["open_file"].setText(OPEN)
 
@@ -837,7 +845,8 @@ class MainWindow(QMainWindow):
         from accipio.gui.rules_dialog import RulesDialog
         dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self,
                              library=self.services._holder["library"], archives=self.services.settings.unpack_archives,
-                             after_unpack=self.services.settings.after_unpack)
+                             after_unpack=self.services.settings.after_unpack, peers_of=self.link.node.peers,
+                             reach=self.link.reach, link_problem=self.link.unavailable)
         if dialog.exec():
             self.apply_rules(dialog.result_rules(), dialog.result_library())
             unpack_on, after = dialog.archives_tab.result()
@@ -857,12 +866,41 @@ class MainWindow(QMainWindow):
     def open_settings(self) -> None:
         from accipio.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.services.settings, self, check_updates=self.updates.settings.enabled,
-                                browsers=self.read_browsers())
+                                browsers=self.read_browsers(), link_status=self.link_summary,
+                                open_link=self.open_link_dialog)
         if dialog.exec():
             self.updates.settings.update(**{KEY_CHECK_FOR_UPDATES: dialog.check_updates.isChecked()})
-            self.apply_settings(dialog.result_settings())
+            live = self.services.settings        # the Other Accipios window saves at once: its choices are not the dialog's copy
+            self.apply_settings(dataclasses.replace(dialog.result_settings(), link_accept=live.link_accept,
+                                                    link_addresses=list(live.link_addresses), link_port=live.link_port))
         else:
             self._use_ffmpeg(self.services.settings.ffmpeg_path)     # Install ffmpeg counts even after Cancel
+
+    # ---- the link to other Accipios ----------------------------------------------------------------------------
+
+    def link_summary(self) -> str:
+        """For Settings: what the listener does, and how many Accipios are paired."""
+        paired = len(self.link.node.peers())
+        count = "No Accipio is paired." if not paired else \
+            f"{paired} Accipio{'' if paired == 1 else 's'} paired."
+        return f"{self.link.status_text()} {count}" if not self.link.unavailable else self.link.unavailable
+
+    def open_link_dialog(self, parent=None) -> None:
+        """Settings > Other Accipios. The window saves at once, through ``apply_link``."""
+        from accipio.gui.link_dialog import LinkDialog
+        self._show_link_dialog(LinkDialog(self.link, lambda: self.services.settings, self.apply_link, parent or self))
+
+    def _show_link_dialog(self, dialog) -> None:
+        dialog.exec()
+
+    def apply_link(self, accept: bool, addresses: List[str], port: int) -> None:
+        """The three link settings, from the Other Accipios window: saved and applied now."""
+        self.apply_settings(dataclasses.replace(self.services.settings, link_accept=bool(accept),
+                                                link_addresses=list(addresses), link_port=int(port)))
+
+    def _tell_link_problems(self) -> None:
+        if self.link.problems:
+            self.statusBar().showMessage(self.link.status_text(), 10000)
 
     def _use_ffmpeg(self, chosen: str) -> None:
         """Videos added from now on use this ffmpeg (or the one found), without a restart."""
@@ -890,7 +928,9 @@ class MainWindow(QMainWindow):
         if self.services.video_engine is not None:
             self.services.video_engine.quality = new.video_quality
         self._use_ffmpeg(new.ffmpeg_path)
+        self.link.apply(new.link_accept, new.link_addresses, new.link_port)
         self.statusBar().showMessage("Settings saved.", 4000)
+        self._tell_link_problems()
 
     # ---- updating yt-dlp -------------------------------------------------------------------------------------
 
@@ -991,6 +1031,7 @@ class MainWindow(QMainWindow):
         stored.setValue("window/geometry", self.saveGeometry())
         stored.setValue("window/header", self.table.horizontalHeader().saveState())
         self.timer.stop()
+        self.link.stop()                                  # before the worker goes: the listener hands work to it
         if self.tray is not None:
             self.tray.hide()                              # else Windows keeps a dead icon until the mouse passes
         close = getattr(self.taskbar_button, "close", None)

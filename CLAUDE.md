@@ -177,6 +177,34 @@ session does not reopen what is settled. Keep it current when a decision changes
   `Folder(name, path)` and would strip a remote place on save; the Add box preview ignores `Placement.remote`; a SENT
   row whose pairing was forgotten stays "Sent"; a collector's unheard finished rows from a forgotten sender are
   cleared only by hand; a playlist LINK whose check failed on the sender waits for a yes on the collector.
+- Accipio-to-Accipio link, stage 3 of 4: the windows (2026-11-17#10). Everything is off until switched on.
+  `handover.Service(queue, node, run=)` is one Accipio's whole link: a `Sender` ALWAYS (also without pre-shared keys:
+  its rows then fail with `link.why_unavailable()` instead of waiting for ever), a `link.Listener` + `Collector` only
+  while `apply(accept, addresses, port)` is given accepting on and at least one address; same values = nothing
+  happens, a change restarts it; `listening`, `problems`, `status_text()`, `reach(peer_id)` (blocking hello),
+  `forget(peer_id)`, `stop()`. `open_services(..., keys=)` makes `services.node = link.Node(folder, keys)`; the window
+  owns `self.link`, applies it at start and in `apply_settings`, stops it in `closeEvent` before the worker.
+  Settings: `link_accept` (off), `link_addresses` (none), `link_port` (0 or invalid = `link.DEFAULT_PORT`, imported
+  inside `__post_init__` because link.py imports settings.py); keys stay in the keyring. `gui/link_dialog.py`
+  `LinkDialog` = Settings > Other Accipios ("Set up…" on a new Settings row): a window of its own with only Close,
+  everything in it takes effect at once through `MainWindow.apply_link` (my decision: pairing and Forget cannot wait
+  for OK, and a code is only of use while the listener runs); so `open_settings` takes the three link fields from
+  the LIVE settings after OK, never from the dialog's copy. Network names come from `QNetworkInterface`, else from
+  the address range. Pairing runs through `call_in_background`. The Folders tab is `PlacesTab`
+  (`RulesDialog.places_tab`, `peers_of=`, `reach=`, `link_problem=`): Kind, and for another Accipio Machine (picked
+  from the paired ones that have an address, never typed; a peer that is gone stays as "(not paired any more)"),
+  "If it cannot be reached", "Send the site's cookies along"; `read_item` builds the whole `Folder`, so saving the
+  window no longer strips a remote place. Forget on this PC: `Sender._talk` sends the SENT rows of a peer that is
+  gone to `Queue.unpaired` (ERROR, Retry sends anew), `Queue.forget_sender` marks a forgotten sender's rows heard.
+  Add box: the place's name for `Preview.placement.remote`. Rows with no folder: "Show in Folder" disabled, "Why
+  here?" starts with the place. `tests/conftest.py` refuses the real keyring in EVERY test (pass `MemoryKeys`).
+  Tests: `test_link_service.py`, `test_places.py`, `test_link_window.py`. Known gaps: a collector that has forgotten
+  THIS PC answers `Refused`, which may also be a passing fault, so "Sent" rows stay then; `Service.apply` does not
+  retry a listener that failed until a value changes; Cancel in the Pair box abandons the call but the thread may
+  still finish the pairing. `DEFAULT_PORT` 47610 is the user's choice (answer 104, 2026-11-17: keep it; IANA lists
+  47558-47623 as unassigned); it is only what the port box starts at. Next: stage 4, two scratch copies on one PC, then two machines
+  (first use of the real credential store, Windows Firewall's question, an installer build). Design:
+  `C:\Temp\_AI Coding\_Claude\accipio-handover-2026-11-17d.md`.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

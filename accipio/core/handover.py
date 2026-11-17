@@ -22,14 +22,15 @@ answers with the row id; the check and the start (network I/O) go through ``run`
 worker thread. The collector's OWN rules choose folder and name (96A). An Accipio can ask about and remove only
 the downloads it sent itself.
 
-Nothing here starts a listener or decides when one runs: that is the windows' part (stage 3).
+**Service.** ``Service`` is one Accipio's whole link: the sender, and the listener that runs only while the
+settings ask for it. The windows (stage 3) call ``apply`` with the settings and show ``status_text``.
 """
 from __future__ import annotations
 
 import re
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from accipio.core import debug_log, link, torrents
 from accipio.core.store import COMPLETE, HANDED_OVER, OWE_HEARD, OWE_REMOVE, SENT, WAITING, Owed, Row
@@ -149,6 +150,8 @@ class Sender:
             for row in waiting:
                 self.run(self.queue.not_handed, row.id, row.remote.get("ref", ""), str(error), False)
             if peer is None:                              # nobody to tell any more
+                for row in sent:                          # how these went there can never be asked again
+                    self.run(self.queue.unpaired, row.id, row.remote.get("ref", ""))
                 self.queue.store.settle(o.id for o in self.queue.store.owed() if o.peer == peer_id)
             self._not_before[peer_id] = self.clock() + RETRY
 
@@ -185,6 +188,125 @@ class Sender:
             self.queue.store.settle(o.id for o in removes)
         if heard and line.ask(link.status([], heard=[o.remote_id for o in heard])).get("ok"):
             self.queue.store.settle(o.id for o in heard)
+
+
+# -- one Accipio's whole link ----------------------------------------------------------------------------------
+
+def _joined(items: List[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+class Service:
+    """The link of one Accipio: always a ``Sender`` (so rows for another Accipio never wait for ever, also where
+    this Python cannot do the encryption: ``Sender`` then fails them with the reason), and a ``Listener`` that runs
+    only while ``apply`` is given accepting on and at least one address. ``run`` is how the queue's changes reach
+    its worker (the window's; in place by default) and goes to both halves."""
+
+    def __init__(self, queue, node: link.Node, *, run: Optional[Callable] = None, timeout: float = link.TIMEOUT):
+        self.queue = queue
+        self.node = node
+        self.run = run or _in_place
+        self.unavailable = link.why_unavailable()
+        self.sender = Sender(queue, node, run=run, timeout=timeout)
+        self.listener: Optional[link.Listener] = None
+        self.accept = False
+        self.addresses: List[str] = []
+        self.port = 0
+        self._failure = ""                                # why the listener could not start at all
+        self._lock = threading.RLock()
+
+    def apply(self, accept: bool, addresses: List[str], port: int) -> None:
+        """Make the listener what the settings say. Nothing happens when it already is. Never raises."""
+        with self._lock:
+            wanted = (bool(accept), list(addresses), port)
+            if wanted == (self.accept, self.addresses, self.port):
+                return
+            self.accept, self.addresses, self.port = wanted
+            self._stop_listener()
+            self._failure = ""
+            if self.unavailable or not self.accept or not self.addresses:
+                return
+            listener = link.Listener(self.node, Collector(self.queue, run=self.run), self.addresses, self.port)
+            try:
+                listener.start()
+            except link.LinkError as error:
+                self._failure = str(error)
+                debug_log.note("the link could not listen", error=self._failure)
+                return
+            except Exception as error:                    # anything else: the window must still open
+                self._failure = f"{type(error).__name__}: {error}"
+                debug_log.note("the link could not listen", error=self._failure)
+                return
+            self.listener = listener
+            debug_log.note("the link listens", bound=listener.bound, problems=listener.problems)
+
+    def _stop_listener(self) -> None:
+        listener, self.listener = self.listener, None
+        if listener is not None:
+            listener.stop()
+
+    @property
+    def listening(self) -> List[Tuple[str, int]]:
+        listener = self.listener
+        return list(listener.bound) if listener is not None else []
+
+    @property
+    def problems(self) -> Dict[str, str]:
+        """Address -> why it could not be listened on."""
+        listener = self.listener
+        found = dict(listener.problems) if listener is not None else {}
+        if self._failure:
+            found.update({address: self._failure for address in self.addresses})
+        return found
+
+    def status_text(self) -> str:
+        if self.unavailable:
+            return self.unavailable
+        if not self.accept:
+            return "Not accepting downloads from other Accipios."
+        if not self.addresses:
+            return "Accepting is on, but no address is ticked, so nothing listens."
+        bound = self.listening
+        sentences = []
+        if bound:
+            ports = {port for _, port in bound}
+            names = _joined([address for address, _ in bound])
+            sentences.append(f"Listening on {names}, port {ports.pop()}." if len(ports) == 1 else
+                             "Listening on " + _joined([f"{a} (port {p})" for a, p in bound]) + ".")
+        else:
+            sentences.append("Not listening on any address.")
+        for address, reason in self.problems.items():
+            sentences.append(f"Could not listen on {address}: {str(reason).rstrip('.')}.")
+        return " ".join(sentences)
+
+    def reach(self, peer_id: str, timeout: float = 3.0) -> str:
+        """Empty when the paired Accipio answers, else why not, as a sentence. Blocking: call it on a thread."""
+        peer = self.node.peer(peer_id)
+        if peer is None:
+            return "This Accipio is not paired with it (any more)."
+        if not peer.host or not peer.port:
+            return f"No address is known for {peer.name or peer.id}."
+        try:
+            reply = link.send(self.node, peer, link.hello(), timeout)
+        except link.LinkError as error:
+            return str(error)
+        except Exception as error:
+            return f"{peer.name or peer.id} could not be asked ({error})."
+        if reply.get("ok"):
+            return ""
+        return f"{peer.name or peer.id} answered no: {reply.get('error') or 'no reason given'}."
+
+    def forget(self, peer_id: str) -> None:
+        """End the pairing from this side: the key goes, the downloads this PC collected for that Accipio are
+        marked as heard, and the sender's pump finds its rows for a peer that is gone."""
+        self.node.forget(peer_id)
+        self.run(self.queue.forget_sender, peer_id)
+        self.sender.nudge()
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stop_listener()
+            self.accept, self.addresses, self.port = False, [], 0
 
 
 # -- the collector ---------------------------------------------------------------------------------------------

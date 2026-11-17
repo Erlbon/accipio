@@ -31,6 +31,7 @@ from accipio.gui.queue_model import human_size
 COLUMNS = ["", "Name", "Folder", "Rule", "Status"]
 CHECK, NAME, FOLDER, RULE, STATUS = range(len(COLUMNS))
 ERROR_COLOUR = QColor("#c0392b")
+REMOTE_TIP = "Another Accipio: its own rules choose the folder there"
 
 
 @dataclass
@@ -200,6 +201,17 @@ class AddDialog(QDialog):
             return entry.preview.placement.folder, False
         return "", False
 
+    @staticmethod
+    def _place_of(entry: Entry, by_hand: bool) -> str:
+        """The name of the other Accipio this link goes to by the rules, else "". A folder chosen by hand wins:
+        the link is then downloaded here."""
+        placement = entry.preview.placement if entry.preview else None
+        return placement.remote.name if placement is not None and placement.remote is not None and not by_hand else ""
+
+    def _where(self, entry: Entry) -> str:
+        folder, by_hand = self._folder_of(entry)
+        return self._place_of(entry, by_hand) or (self._shown_folder(folder) if folder else "")
+
     def _shown_folder(self, folder: str) -> str:
         try:
             relative = os.path.relpath(folder, self.base_folder)
@@ -225,11 +237,11 @@ class AddDialog(QDialog):
         check.setCheckState(Qt.CheckState.Checked if entry.checked else Qt.CheckState.Unchecked)
         name = entry.preview.filename if entry.preview else (url.rsplit("/", 1)[-1] if child else url)
         status = self._status(entry)
-        cells = [check, QTableWidgetItem(("      " if child else "") + name),
-                 QTableWidgetItem(self._shown_folder(folder) if folder else ""),
+        cells = [check, QTableWidgetItem(("      " if child else "") + name), QTableWidgetItem(self._where(entry)),
                  QTableWidgetItem("" if by_hand or not entry.preview else entry.preview.placement.rule_numbers),
                  QTableWidgetItem(status)]
-        cells[FOLDER].setToolTip(folder + ("  (chosen by hand)" if by_hand else ""))
+        cells[FOLDER].setToolTip(REMOTE_TIP if self._place_of(entry, by_hand) else
+                                 folder + ("  (chosen by hand)" if by_hand else ""))
         cells[STATUS].setToolTip(status)
         cells[NAME].setToolTip(url + (f"\n{entry.preview.placement.why()}" if entry.preview else ""))
         if entry.state == "error":
@@ -248,9 +260,9 @@ class AddDialog(QDialog):
         ticked = sum(e.checked for e in usable)
         check.setCheckState(Qt.CheckState.Checked if usable and ticked == len(usable)
                             else Qt.CheckState.PartiallyChecked if ticked else Qt.CheckState.Unchecked)
-        folders = {self._folder_of(e) for e in entries if self._folder_of(e)[0]}
+        folders = {self._where(e) for e in entries} - {""}
         rules = {e.preview.placement.rule_numbers for e in entries if e.preview and not self._folder_of(e)[1]}
-        folder = self._shown_folder(next(iter(folders))[0]) if len(folders) == 1 else ("(several)" if folders else "")
+        folder = next(iter(folders)) if len(folders) == 1 else ("(several)" if folders else "")
         ready = sum(e.state == "ready" for e in entries)
         failed = sum(e.state == "error" for e in entries)
         checking = len(entries) - ready - failed
@@ -263,6 +275,8 @@ class AddDialog(QDialog):
                  QTableWidgetItem(folder), QTableWidgetItem(next(iter(rules)) if len(rules) == 1 else ""),
                  QTableWidgetItem(status)]
         cells[NAME].setToolTip(group.text + "\nClick to show or hide its links")
+        if any(self._place_of(e, self._folder_of(e)[1]) for e in entries):
+            cells[FOLDER].setToolTip(REMOTE_TIP)
         bold = cells[NAME].font()
         bold.setBold(True)
         cells[NAME].setFont(bold)

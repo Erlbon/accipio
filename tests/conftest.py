@@ -104,6 +104,17 @@ class Handler(BaseHTTPRequestHandler):
     do_HEAD = _route
 
 
+@pytest.fixture(autouse=True)
+def never_the_real_keyring_anywhere(monkeypatch):
+    """No test reaches the system keyring (the link's keys): a stand-in key store is what tests hand to link.Node."""
+    from accipio.core import link
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a test reached for the real keyring (pass link.Node a stand-in key store)")
+    for name in ("get", "set", "delete"):
+        monkeypatch.setattr(link.SystemKeys, name, refuse)
+
+
 @pytest.fixture
 def web():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

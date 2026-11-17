@@ -353,7 +353,7 @@ def test_the_default_folder_is_set_in_the_folders_tab(world, tmp_path, monkeypat
     elsewhere = str(tmp_path / "Elsewhere")
 
     def edit(dialog):
-        tab = dialog.folders_tab
+        tab = dialog.places_tab
         tab.list.setCurrentRow(0)
         assert tab.name.text() == "Default" and tab.name.isReadOnly() and tab.path.text() == base
         tab.path.setText(elsewhere)
@@ -1002,13 +1002,13 @@ def test_the_progress_bars_paint_in_every_state(world):
 def test_the_window_has_the_five_tabs_in_setup_order(app, tmp_path):
     dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
     assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == [
-        "1 · Folders", "2 · File Groups", "3 · Site Groups", "4 · Rules", "5 · Archives"]
+        "1 · Places", "2 · File Groups", "3 · Site Groups", "4 · Rules", "5 · Archives"]
     assert dialog.result_library() == samples.sorting_library()
 
 
 def test_renaming_a_folder_renames_it_in_the_rules(app, tmp_path):
     dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
-    tab = dialog.folders_tab
+    tab = dialog.places_tab
     tab.list.setCurrentRow(1 + [f.name for f in tab.items()].index("Comics"))      # Default is row 0
     tab.name.setText("Comics inbox")
     tab.name.textEdited.emit("Comics inbox")
@@ -1022,7 +1022,7 @@ def test_a_folder_a_rule_uses_cannot_be_deleted(app, tmp_path, monkeypatch):
     told = []
     monkeypatch.setattr(QMessageBox, "information", lambda *a: told.append(a[2]))
     dialog = RulesDialog(samples.sorting_rules(), str(tmp_path), library=samples.sorting_library())
-    tab = dialog.folders_tab
+    tab = dialog.places_tab
     tab.list.setCurrentRow(0)                                            # Default: never deleted
     tab.delete_item()
     assert "cannot be deleted" in told[0] and tab.list.item(0).text() == "Default"
@@ -1086,7 +1086,7 @@ def test_examples_in_the_rules_window_sit_under_the_fields_never_in_them(app, tm
     assert dialog.sites_tab.sites.example_hint.text().startswith("Example: getcomics.org")
     assert dialog.form.name.example_hint.text() == "Example: Comics"
     assert "S{2}E{3}" in dialog.form.renamer.example_hint.text()
-    tab = dialog.folders_tab
+    tab = dialog.places_tab
     tab.list.setCurrentRow(0)
     assert tab.path.example_hint.text() == "Example: D:\\Downloads"                  # Default
     tab.new_item()
@@ -1380,18 +1380,18 @@ def test_the_video_engine_uses_the_ffmpeg_from_settings_at_once(world, tmp_path)
 
 def test_a_new_folder_starts_under_default_and_default_is_a_reserved_name(app, tmp_path):
     dialog = RulesDialog([], str(tmp_path))
-    tab = dialog.folders_tab
+    tab = dialog.places_tab
     assert [tab.list.item(i).text() for i in range(tab.list.count())] == ["Default"]    # nothing else filled in
     tab.new_item()
-    assert tab.path.text() == "%default%\\New folder"
+    assert tab.path.text() == "%default%\\New place"
     tab.name.setText("default")
     tab.name.textEdited.emit("default")
-    assert "Default" in tab.problems.text() and tab.items()[0].name == "New folder"
+    assert "Default" in tab.problems.text() and tab.items()[0].name == "New place"
 
 
 def test_a_folder_browsed_inside_default_is_written_under_percent_default(app, tmp_path):
     dialog = RulesDialog([], str(tmp_path / "Downloads"))
-    tab = dialog.folders_tab
+    tab = dialog.places_tab
     tab.new_item()
     assert tab.written(str(tmp_path / "Downloads" / "Comics" / "Inbox")) == "%default%\\Comics\\Inbox"
     assert tab.written(str(tmp_path / "Downloads")) == "%default%"

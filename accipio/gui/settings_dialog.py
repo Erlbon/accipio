@@ -11,7 +11,7 @@ from typing import Callable, Optional, Sequence
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
                              QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QRadioButton,
-                             QSpinBox, QVBoxLayout)
+                             QSpinBox, QVBoxLayout, QWidget)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
 from accipio.core import browser_settings, debug_log, toasts, torrents, video
@@ -109,7 +109,9 @@ class SettingsDialog(QDialog):
                  find_ffmpeg: Callable[[str], Optional[str]] = video.find_ffmpeg,
                  install_ffmpeg: Callable[..., Optional[str]] = install_ffmpeg_with_progress,
                  browsers: Sequence[browser_settings.BrowserProfile] = (),
-                 find_qbittorrent: Callable[[str], str] = torrents.find_qbittorrent):
+                 find_qbittorrent: Callable[[str], str] = torrents.find_qbittorrent,
+                 link_status: Optional[Callable[[], str]] = None,
+                 open_link: Optional[Callable[[QWidget], None]] = None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.current = current
@@ -118,7 +120,7 @@ class SettingsDialog(QDialog):
         self._find_qbittorrent = find_qbittorrent
         layout = QVBoxLayout(self)
         form = QFormLayout()
-        where = QLabel(f"{current.base_folder}   (the Default folder: change it under Rules > Folders)")
+        where = QLabel(f"{current.base_folder}   (the Default folder: change it under Rules > Places)")
         where.setEnabled(False)
         form.addRow("Downloads go to", where)
         self.max_downloads = QSpinBox()
@@ -198,6 +200,7 @@ class SettingsDialog(QDialog):
             notify_column.addLayout(line)
         self.notify_added, self.notify_finished, self.notify_failed = (self.sound_lines[k].box for k in KINDS)
         form.addRow("Notify when", notify_column)
+        form.addRow("Other Accipios", self._build_link_row(link_status, open_link))
         self.check_updates = QCheckBox("Check for a new version once a day")
         self.check_updates.setToolTip("At startup, at most once a day, ask GitHub whether a newer version has been "
                                       "released, and offer it if so. Nothing about you or your files is sent. "
@@ -228,6 +231,32 @@ class SettingsDialog(QDialog):
         box.accepted.connect(self.accept)
         box.rejected.connect(self.reject)
         layout.addWidget(box)
+
+    # ---- other Accipios (the link): the window that sets it up is opened from here -----------------------------
+
+    def _build_link_row(self, link_status, open_link) -> QHBoxLayout:
+        self._link_status, self._open_link = link_status, open_link
+        row = QHBoxLayout()
+        self.link_label = QLabel()
+        self.link_label.setWordWrap(True)
+        self.link_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.link_button = QPushButton("Set up…")
+        self.link_button.setToolTip("Pair with another Accipio, to send downloads to it or to collect for it. "
+                                    "Changes there take effect at once, not only after OK.")
+        self.link_button.setEnabled(open_link is not None)
+        self.link_button.clicked.connect(self._set_up_link)
+        row.addWidget(self.link_label, 1)
+        row.addWidget(self.link_button, 0, Qt.AlignmentFlag.AlignTop)
+        self._show_link()
+        return row
+
+    def _show_link(self) -> None:
+        self.link_label.setText(self._link_status() if self._link_status is not None else "Not available here.")
+
+    def _set_up_link(self) -> None:
+        if self._open_link is not None:
+            self._open_link(self)
+            self._show_link()                                # what that window did shows here when it closes
 
     # ---- torrents are passed on to a torrent program (2026-11-17#07, core/torrents.py) --------------------------
 

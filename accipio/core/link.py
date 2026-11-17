@@ -46,7 +46,7 @@ from accipio.core.settings import write_atomically
 from accipio.core.version import APP_VERSION
 
 PROTOCOL = 1
-DEFAULT_PORT = 47610
+DEFAULT_PORT = 47610                  # the user's choice (104, 2026-11-17); in IANA's unassigned block 47558-47623
 TIMEOUT = 10.0                        # seconds for connecting, for the handshake and for each answer
 MAX_MESSAGE = 1024 * 1024             # bytes; a link with its cookies is a few KiB
 CIPHER = "ECDHE-PSK-CHACHA20-POLY1305"

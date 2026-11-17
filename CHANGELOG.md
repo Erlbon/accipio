@@ -2,6 +2,22 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#10 -- The windows for sending downloads to another Accipio: Places, and Settings > Other Accipios
+
+- **Third part of "send my downloads to the Accipio on another PC": the windows.** Everything is off until you switch it on. What is still to come is the real test between two PCs.
+- **The Folders tab is now called Places.** A place is a folder on this PC, as before, or another Accipio. For the second kind you pick which paired Accipio it is (from a list, never typed), what happens while it cannot be reached ("Wait for it", the default, or "Download here instead"), and whether the site's login cookies go along (on unless you switch it off). A small note beside the machine says "connected" or "not reachable right now". A rule that points at such a place reads "another Accipio; its own rules choose the folder there".
+- **Settings has a new row, Other Accipios, with a "Set up…" button.** The window it opens takes effect at once and has only Close.
+  - *This PC collects:* a tick "Accept downloads from the Accipios paired below" (off until you tick it), the list of this PC's addresses with the name of each network (nothing is listened on until you tick it), the port, and "Show a pairing code", which shows a code that is good for five minutes, with the time left.
+  - *This PC sends:* the collector's address, port and the code it shows, and "Pair".
+  - *Paired Accipios:* the list, with Forget.
+  - This Accipio's name, as the others show it.
+- **An address that cannot be listened on is named,** in that window, in Settings and in the status bar at start. On a Python without pre-shared keys (older than 3.13) the whole window is switched off and says why.
+- **Forget tidies up.** On the sending PC, a row that was "Sent" to an Accipio you have forgotten fails with the reason (how it went there can no longer be asked); Retry sends it again once the two are paired. On the collecting PC, finished rows from a forgotten sender are no longer kept back from the automatic clearing.
+- **The Add box** shows the place's name ("Collector") for a link that goes to another Accipio, instead of a folder.
+- **Rows without a folder** (waiting for, sent to or finished on another Accipio): "Show in Folder" is greyed out in the right-click menu, and "Why here?" starts with the place instead of an empty path. The archive box no longer offers another Accipio as a folder to unpack into.
+- **Not tried yet:** two real Accipios talking (that is the next step, first two copies on one PC), Windows' own credential store, Windows Firewall's question the first time Accipio listens on a network address, and an installer build.
+- **The port** the box starts at is 47610; it can be changed on each PC.
+
 ## 2026-11-17#09 -- Rules and the queue can send a download to another Accipio (still no window for it)
 
 - **Second part of "send my downloads to the Accipio on another PC".** A place can now be a folder on this PC or another Accipio, and a rule can send downloads there. There is still no window to make such a place or to switch the listening on; that is the next build. Until then nothing changes in daily use.

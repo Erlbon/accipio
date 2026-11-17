@@ -775,11 +775,11 @@ def validate(rule: Rule, library: Optional[Library] = None) -> List[str]:
     if library is not None and rule.target.strip() and not is_default(rule.target):
         named = find_named(library.folders, rule.target)
         if named is None:
-            found.append(f"folder: there is no folder called {rule.target!r} (see Folders)")
+            found.append(f"folder: there is no folder called {rule.target!r} (see Places)")
         elif named.remote:
             folder_template = ""
             if not named.peer.strip():
-                found.append(f"folder: {named.name!r} is another Accipio, but none is chosen for it (see Folders)")
+                found.append(f"folder: {named.name!r} is another Accipio, but none is chosen for it (see Places)")
             if named.away not in (AWAY_WAIT, AWAY_HERE):
                 found.append(f"folder: {named.name!r} must either wait for the other Accipio or download here")
         else:

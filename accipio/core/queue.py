@@ -877,6 +877,18 @@ class Queue:
             debug_log.note("not taken by the other Accipio", row=row_id, place=row.remote.get("place"), error=reason)
             self.store.update(row_id, state=ERROR, error=reason)
 
+    def unpaired(self, row_id: int, ref: str) -> None:
+        """This Accipio is no longer paired with the one that holds this download: how it went there can never be
+        asked again. The row fails (Retry sends it anew) and owes that Accipio nothing."""
+        row = self._handed_row(row_id, ref, SENT)
+        if row is None:
+            return
+        place = row.remote.get("place") or "the other Accipio"
+        debug_log.note("sent row of an Accipio that is not paired any more", row=row_id, place=place)
+        self.store.update(row_id, state=ERROR, remote={k: v for k, v in row.remote.items() if k != "id"},
+                          error=f"{place} is not paired with this Accipio any more, so how this download went there "
+                                "is not known. Pair the two again and retry to send it again.")
+
     def outcome(self, row_id: int, ref: str, report: Dict) -> None:
         """What the other Accipio says about a download it has (the user's 98B): finished there, failed there, or
         no longer listed. "working" changes nothing: there is no live percent."""
@@ -966,6 +978,17 @@ class Queue:
         row = self._from(row_id, peer_id)
         if row is not None and not row.remote.get("heard"):
             self.store.update(row_id, remote={**row.remote, "heard": True})
+
+    def forget_sender(self, peer_id: str) -> int:
+        """This Accipio has stopped being paired with that sender: nobody will ask how its downloads went, so every
+        row of it counts as heard and the automatic clearing no longer keeps it. Rows still downloading go on (they
+        were asked for while the pairing stood). Returns how many were marked."""
+        marked = 0
+        for row in self.store.rows():
+            if row.remote.get("from") == peer_id and not row.remote.get("heard"):
+                self.store.update(row.id, remote={**row.remote, "heard": True})
+                marked += 1
+        return marked
 
     def remove_for(self, row_id: int, peer_id: str) -> None:
         """Remove on that Accipio (103A): an unfinished or failed download from it is stopped and removed here;

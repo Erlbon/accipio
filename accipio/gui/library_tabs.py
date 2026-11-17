@@ -1,4 +1,4 @@
-"""The rules window's first three tabs: Folders, File Groups and Site Groups.
+"""The rules window's first three tabs: Places, File Groups and Site Groups.
 
 Each is a list on the left and the selected item as a form on the right, like the Rules tab. Rules point at
 these by name, so renaming one here renames it in every rule, and one a rule still uses cannot be deleted
@@ -9,14 +9,16 @@ from __future__ import annotations
 import copy
 import datetime
 import os
+import threading
 from typing import Callable, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-                             QListWidgetItem, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+                             QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget)
 
-from accipio.core import rules
+from accipio.core import link, rules
 from accipio.core.rules import Folder, Group, SiteGroup
+from accipio.gui import style
 from accipio.gui.example_hint import with_example
 
 FOLDER_EXAMPLE = "%default%\\Comics   or   D:\\Comics\\_Inbox\\{yyyy}-{MM}"
@@ -229,18 +231,38 @@ class NamedListTab(QWidget):
         self.changed.emit()
 
 
-class FoldersTab(NamedListTab):
-    """Default first (the base folder: everything goes there unless a rule picks another), then your folders,
-    written "%default%\\Comics" or as a full path. Default cannot be renamed or deleted."""
-    kind = "folder"
-    noun = "folder"
-    hint = ("Places downloads go. Everything goes to Default unless a rule picks another folder. Rules pick folders "
-            "by name, so moving a folder here moves every rule that uses it. Write new ones as %default%\\Comics "
-            "(under Default) or as a full path; tokens such as {yyyy} {MM} {domain} {uploader} are allowed.")
+NO_PEERS = "Pair with the other Accipio first: Settings > Other Accipios."
+KIND_CHOICES = ((rules.PLACE_FOLDER, "A folder on this PC"), (rules.PLACE_ACCIPIO, "Another Accipio"))
+AWAY_CHOICES = ((rules.AWAY_WAIT, "Wait for it"), (rules.AWAY_HERE, "Download here instead"))
 
-    def __init__(self, items, rules_of, base_folder: str, parent=None):
+
+class PlacesTab(NamedListTab):
+    """Default first (the base folder: everything goes there unless a rule picks another), then your places. A
+    place is a folder on this PC, written "%default%\\Comics" or as a full path, or another Accipio (a paired
+    one, picked from a list, never typed). Default is always a folder and cannot be renamed or deleted.
+
+    ``peers_of()`` gives the paired Accipios; ``reach(peer_id)`` (blocking, "" = answered, else the reason) is
+    run in a thread when a place of the second kind is shown, and its answer comes back through ``reached``;
+    ``link_problem`` (not empty) is why the link cannot work, so no new place can be another Accipio."""
+    kind = "folder"
+    noun = "place"
+    reached = pyqtSignal(int, str, str)          # check number, peer id, reason ("" = connected)
+    hint = ("Where downloads go: a folder on this PC, or another Accipio. Everything goes to Default unless a rule "
+            "picks another place. Rules pick places by name, so moving one here moves every rule that uses it. Write "
+            "new folders as %default%\\Comics (under Default) or as a full path; tokens such as {yyyy} {MM} {domain} "
+            "{uploader} are allowed.")
+
+    def __init__(self, items, rules_of, base_folder: str, parent=None,
+                 peers_of: Callable[[], List[link.Peer]] = lambda: [],
+                 reach: Optional[Callable[[str], str]] = None, link_problem: str = ""):
         self.base_folder = base_folder
+        self.peers_of = peers_of
+        self.reach = reach
+        self.link_problem = link_problem
+        self._check_number = 0
+        self._paired = set()
         super().__init__([Folder(rules.DEFAULT_FOLDER, base_folder)] + list(items), rules_of, parent)
+        self.reached.connect(self._reached)
 
     def is_default_item(self, item) -> bool:
         return item is not None and self.list.row(item) == 0
@@ -282,6 +304,20 @@ class FoldersTab(NamedListTab):
                                  + (f", and rule {', '.join(map(str, using))} sends downloads here too." if using else "."))
 
     def build_form(self):
+        kind_row = QHBoxLayout()
+        self.kind_combo = QComboBox()
+        for key, label in KIND_CHOICES:
+            self.kind_combo.addItem(label, key)
+        self.kind_combo.currentIndexChanged.connect(self._kind_changed)
+        self.link_note = QLabel(self.link_problem)
+        self.link_note.setWordWrap(True)
+        self.link_note.setStyleSheet(f"color: {style.WARNING_COLOR}")
+        self.link_note.setVisible(bool(self.link_problem))
+        kind_row.addWidget(self.kind_combo)
+        kind_row.addWidget(self.link_note, 1)
+        self.kind_row = kind_row
+        self.form.addRow("Kind", kind_row)
+
         row = QHBoxLayout()
         self.path = QLineEdit()
         self.path.setToolTip(rules.FILTER_HELP)
@@ -290,10 +326,122 @@ class FoldersTab(NamedListTab):
         browse.clicked.connect(self._browse)
         row.addWidget(with_example(self.path, FOLDER_EXAMPLE), 1)
         row.addWidget(browse, 0, Qt.AlignmentFlag.AlignTop)
+        self.where_row = row
         self.form.addRow("Where", row)
         self.today = QLabel()
         self.today.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.form.addRow("Today this is", self.today)
+
+        machine_row = QHBoxLayout()
+        self.machine = QComboBox()
+        self.machine.setToolTip("A paired Accipio that listens for downloads. Pair one in Settings > Other Accipios.")
+        self.machine.currentIndexChanged.connect(self._machine_changed)
+        self.state = QLabel()
+        machine_row.addWidget(self.machine)
+        machine_row.addWidget(self.state, 1)
+        self.machine_row = machine_row
+        self.form.addRow("Machine", machine_row)
+        self.away = QComboBox()
+        for key, label in AWAY_CHOICES:
+            self.away.addItem(label, key)
+        self.away.setToolTip("Magnet links and .torrent files always wait: the other Accipio cannot be asked to "
+                             "start them elsewhere.")
+        self.away.currentIndexChanged.connect(self.field_changed)
+        self.form.addRow("If it cannot be reached", self.away)
+        self.cookies = QCheckBox("Send the site's cookies along")
+        self.cookies.setToolTip("Off means links behind a login fail on that Accipio.")
+        self.cookies.toggled.connect(self.field_changed)
+        self.form.addRow("Login cookies", self.cookies)
+
+    def _apply_kind(self, kind: str, default: bool) -> None:
+        """Show the rows that belong to the kind; Default has no Kind row (it is always a folder)."""
+        remote = kind == rules.PLACE_ACCIPIO
+        self.form.setRowVisible(self.kind_row, not default)
+        self.form.setRowVisible(self.where_row, not remote)
+        self.form.setRowVisible(self.today, not remote)
+        self.form.setRowVisible(self.machine_row, remote)
+        self.form.setRowVisible(self.away, remote)
+        self.form.setRowVisible(self.cookies, remote)
+
+    def _kind_changed(self, *_):
+        kind = self.kind_combo.currentData()
+        self._apply_kind(kind, self.is_default_item(self.current))
+        if self._loading or self.current is None:
+            return
+        if kind == rules.PLACE_ACCIPIO:
+            self.fill_machines(self.machine.currentData() or "")
+        self._start_check()
+        self.field_changed()
+
+    def _machine_changed(self, *_):
+        if self._loading or self.current is None:
+            return
+        self._start_check()
+        self.field_changed()
+
+    def available_peers(self) -> List[link.Peer]:
+        """The paired Accipios a place can send to: those with an address."""
+        try:
+            return [p for p in self.peers_of() if p.host]
+        except Exception:
+            return []
+
+    def fill_machines(self, chosen: str) -> None:
+        """The Machine combo: "name · host" per paired Accipio, data = its id. A peer id that is chosen but not
+        paired any more stays as "(not paired any more)", so the place keeps it when the window is saved."""
+        busy, self._loading = self._loading, True
+        self.machine.clear()
+        peers = self.available_peers()
+        self._paired = {p.id for p in peers}
+        if not peers:
+            self.machine.addItem("(none paired yet)", "")
+        else:
+            self.machine.addItem("(pick one)", "")
+            for p in peers:
+                self.machine.addItem(f"{p.name} · {p.host}", p.id)
+        if chosen and chosen not in self._paired:
+            self.machine.addItem("(not paired any more)", chosen)
+        self.machine.setCurrentIndex(max(self.machine.findData(chosen), 0))
+        self._loading = busy
+
+    # ---- is the other Accipio there? ---------------------------------------------------------------------------
+
+    def _start_check(self) -> None:
+        """Ask ``reach`` about the machine shown, in a thread. Every call (also a switch to another place) makes
+        the answers of the earlier ones obsolete, so a late answer changes nothing."""
+        self._check_number += 1
+        self.state.setText("")
+        self.state.setToolTip("")
+        self.state.setStyleSheet("")
+        peer = self.machine.currentData() or ""
+        if (self.reach is None or self.kind_combo.currentData() != rules.PLACE_ACCIPIO or not peer
+                or peer not in self._paired or self.current is None or self.is_default_item(self.current)):
+            return
+        self.state.setText("checking…")
+        number, reach = self._check_number, self.reach
+
+        def work():
+            try:
+                reason = reach(peer)
+            except Exception as error:            # a check that fails is an answer too
+                reason = str(error) or "The check failed."
+            try:
+                self.reached.emit(number, peer, reason or "")
+            except RuntimeError:                  # the window is gone
+                pass
+        threading.Thread(target=work, daemon=True, name="places-reach").start()
+
+    def _reached(self, number: int, peer: str, reason: str) -> None:
+        if number != self._check_number or peer != (self.machine.currentData() or ""):
+            return
+        if reason:
+            self.state.setText("not reachable right now")
+            self.state.setToolTip(reason)
+            self.state.setStyleSheet(f"color: {style.WARNING_COLOR}")
+        else:
+            self.state.setText("connected")
+            self.state.setToolTip("")
+            self.state.setStyleSheet("")
 
     def _browse(self):
         start = self.path.text()
@@ -318,15 +466,36 @@ class FoldersTab(NamedListTab):
         return rules.DEFAULT_TOKEN if rest == "." else f"{rules.DEFAULT_TOKEN}\\{rest}"
 
     def show_item(self, item: Folder):
+        default = self.is_default_item(self.current)
+        kind = rules.PLACE_ACCIPIO if item.remote and not default else rules.PLACE_FOLDER
         self.path.setText(item.path)
+        self.kind_combo.setCurrentIndex(self.kind_combo.findData(kind))
+        # a new place cannot be another Accipio while the link cannot work; one that already is, still shows
+        self.kind_combo.model().item(1).setEnabled(not self.link_problem or kind == rules.PLACE_ACCIPIO)
+        self.link_note.setVisible(bool(self.link_problem) and not default)
+        self.fill_machines(item.peer if kind == rules.PLACE_ACCIPIO else "")
+        self.away.setCurrentIndex(max(self.away.findData(item.away), 0))
+        self.cookies.setChecked(bool(item.cookies))
+        self._apply_kind(kind, default)
+        self._start_check()
 
     def read_item(self, name: str) -> Folder:
-        return Folder(name, self.path.text().strip())
+        if self.is_default_item(self.current) or self.kind_combo.currentData() != rules.PLACE_ACCIPIO:
+            return Folder(name, self.path.text().strip())
+        return Folder(name, "", rules.PLACE_ACCIPIO, self.machine.currentData() or "", self.cookies.isChecked(),
+                      self.away.currentData() or rules.AWAY_WAIT)
 
     def blank(self, name: str) -> Folder:
         return Folder(name, f"{rules.DEFAULT_TOKEN}\\{name}")
 
     def item_problems(self, item: Folder) -> List[str]:
+        if item.remote and not rules.is_default(item.name):
+            if not item.peer.strip():
+                return ["Choose the Accipio this place sends to."] if self.available_peers() else [NO_PEERS]
+            if item.peer not in {p.id for p in self.available_peers()}:
+                return ["The Accipio chosen for this place is not paired with this PC any more. Pair it again "
+                        "(Settings > Other Accipios), or choose another."]
+            return []
         if rules.is_default(item.name) and self.list.count() and self.current is self.list.item(0):
             self.today.setText(item.path)
             if not item.path.strip():

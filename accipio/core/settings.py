@@ -10,7 +10,7 @@ import dataclasses
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Dict, List, Optional, Tuple
 
 from redactor_common.core import app_paths
@@ -63,6 +63,9 @@ class Settings:
     file_browser_saves: bool = True       # a file the browser had to download itself is moved by the rules (2026-11-17)
     torrents: str = "off"                 # magnet links and .torrent files: torrents.MODES (off / system / qbittorrent)
     qbittorrent_path: str = ""            # picked with Browse… under Settings; empty = find it (torrents.find_qbittorrent)
+    link_accept: bool = False             # this PC collects downloads from the Accipios paired with it (link.py)
+    link_addresses: List[str] = field(default_factory=list)      # the addresses it listens on; none = nothing listens
+    link_port: int = 0                    # the listening port; 0 or anything invalid = link.DEFAULT_PORT
 
     def notice_kinds(self) -> List[str]:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),
@@ -84,6 +87,15 @@ class Settings:
         if not isinstance(self.clear_after_minutes, int) or isinstance(self.clear_after_minutes, bool) \
                 or not 1 <= self.clear_after_minutes <= 24 * 60:
             self.clear_after_minutes = 15
+        if not isinstance(self.link_accept, bool):
+            self.link_accept = False
+        if not isinstance(self.link_addresses, list) \
+                or any(not isinstance(a, str) or not a.strip() for a in self.link_addresses) \
+                or len(set(self.link_addresses)) != len(self.link_addresses):
+            self.link_addresses = []
+        if not isinstance(self.link_port, int) or isinstance(self.link_port, bool) or not 1 <= self.link_port <= 65535:
+            from accipio.core import link             # here, not at the top: link.py imports this module
+            self.link_port = link.DEFAULT_PORT
 
 
 def write_atomically(path: str, text: str) -> None:
