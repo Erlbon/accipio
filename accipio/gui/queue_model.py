@@ -5,11 +5,12 @@ import os
 from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QRectF, QSortFilterProxyModel, Qt
-from PyQt6.QtGui import QColor, QPainter, QPalette
-from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen
+from PyQt6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
 
 from accipio.core import handover
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, SENT, WAITING, Row
+from accipio.gui import style
 
 COLUMNS = ["Name", "Size", "Progress", "Speed", "Time left", "Folder", "Rule", "Status"]
 NAME, SIZE, PROGRESS, SPEED, ETA, FOLDER, RULE, STATUS = range(len(COLUMNS))
@@ -124,6 +125,17 @@ class QueueModel(QAbstractTableModel):
             return row.folder
         return row.folder if relative.startswith("..") else ("" if relative == "." else relative)
 
+    def _folder_shown(self, row: Row) -> str:
+        """The Folder cell: the folder, and after it the Accipio the download came from ("Comics ← Laptop", 107A)."""
+        folder, sender = self._folder(row), handover.came_from(row)
+        return f"{folder} ← {sender}".strip() if sender else folder
+
+    @staticmethod
+    def elsewhere(row: Row) -> bool:
+        """Whether another Accipio is involved: the row was sent away, or it came in from one. Such rows are
+        tinted (105B, 107A); the words in Folder and Status stay, so the colour is never the only sign."""
+        return bool(handover.sent_to(row) or handover.came_from(row))
+
     def fraction(self, row: Row) -> float:
         if row.state == COMPLETE:
             return 1.0
@@ -147,7 +159,7 @@ class QueueModel(QAbstractTableModel):
             if column == ETA:
                 return human_time(self._eta(row))
             if column == FOLDER:
-                return self._folder(row)
+                return self._folder_shown(row)
             if column == RULE:
                 return row.rules
             if column == STATUS:
@@ -161,6 +173,8 @@ class QueueModel(QAbstractTableModel):
             return {NAME: (row.filename or row.url).lower(), SIZE: row.total or row.size or 0,
                     PROGRESS: self.fraction(row), SPEED: self._speed(row), ETA: self._eta(row) or 0,
                     FOLDER: self._folder(row).lower(), RULE: row.rules, STATUS: row.state}[column]
+        if role == Qt.ItemDataRole.BackgroundRole and self.elsewhere(row):
+            return QBrush(style.link_tint(QApplication.palette()))
         if role == Qt.ItemDataRole.ToolTipRole:
             lines = [row.url, f"Why here: {row.why}" if row.why else ""]
             if row.state == ERROR and row.error:
@@ -196,9 +210,27 @@ BAR_HEIGHT = 12.0
 LABEL_WIDTH = 46
 
 
-class ProgressDelegate(QStyledItemDelegate):
+class ProgressDelegate(style.TintDelegate):
     """The Progress column as a rounded bar with the percentage beside it: the accent colour while running,
-    green when done, red when failed."""
+    green when done, red when failed. A download for another Accipio (106B): filled in the link colour when it
+    finished there (green always means "the file is on this PC"), a hollow bar outlined in the link colour while
+    it is sent and not finished, and a hollow bar outlined in red when it failed there (nothing was downloaded
+    here, so there is no part to fill); empty while it waits."""
+
+    @staticmethod
+    def outline(row: Row, palette: QPalette):
+        """The colour of a hollow bar's outline, or None for an ordinary bar."""
+        if not handover.sent_to(row):
+            return None
+        if row.state == SENT:
+            return style.link_bar(palette)
+        return FAILED_RED if row.state == ERROR and not row.done else None
+
+    @staticmethod
+    def fill(row: Row, palette: QPalette) -> QColor:
+        if row.state == COMPLETE:
+            return style.link_bar(palette) if handover.sent_to(row) else DONE_GREEN
+        return FAILED_RED if row.state == ERROR else palette.color(QPalette.ColorRole.Highlight)
 
     def paint(self, painter, option, index):
         source = index.model().mapToSource(index) if isinstance(index.model(), QSortFilterProxyModel) else index
@@ -209,8 +241,9 @@ class ProgressDelegate(QStyledItemDelegate):
         cell_option = QStyleOptionViewItem(option)          # the row's background and selection, without text
         self.initStyleOption(cell_option, index)
         cell_option.text = ""
-        style = option.widget.style() if option.widget else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, cell_option, painter, option.widget)
+        self.paint_tint(painter, option, index)             # the wash of a row that belongs to another Accipio
+        widget_style = option.widget.style() if option.widget else QApplication.style()
+        widget_style.drawControl(QStyle.ControlElement.CE_ItemViewItem, cell_option, painter, option.widget)
         pal = option.palette
         cell = QRectF(option.rect.adjusted(6, 0, -6, 0))
         width = max(cell.width() - LABEL_WIDTH, BAR_HEIGHT)
@@ -218,15 +251,21 @@ class ProgressDelegate(QStyledItemDelegate):
         radius = BAR_HEIGHT / 2
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        outline = self.outline(row, pal)
+        if outline is not None:
+            painter.setPen(QPen(outline, 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(track.adjusted(0.75, 0.75, -0.75, -0.75), radius, radius)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            empty = QColor(pal.color(QPalette.ColorRole.Mid))
+            empty.setAlpha(80)
+            painter.setBrush(empty)
+            painter.drawRoundedRect(track, radius, radius)
         painter.setPen(Qt.PenStyle.NoPen)
-        empty = QColor(pal.color(QPalette.ColorRole.Mid))
-        empty.setAlpha(80)
-        painter.setBrush(empty)
-        painter.drawRoundedRect(track, radius, radius)
         fraction = model.fraction(row)
-        if fraction > 0:
-            painter.setBrush(DONE_GREEN if row.state == COMPLETE else FAILED_RED if row.state == ERROR
-                             else pal.color(QPalette.ColorRole.Highlight))
+        if fraction > 0 and outline is None:
+            painter.setBrush(self.fill(row, pal))
             painter.drawRoundedRect(QRectF(track.x(), track.y(), max(BAR_HEIGHT, width * fraction), BAR_HEIGHT),
                                     radius, radius)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)

@@ -60,6 +60,19 @@ def status_text(row: Row) -> str:
     return ""
 
 
+def sent_to(row: Row) -> str:
+    """On the sender: the place (another Accipio) this row waits for, was sent to, finished on or failed on;
+    empty for every other row. A row that was downloaded here instead has no ``remote`` any more."""
+    return str(row.remote.get("place") or "")
+
+
+def came_from(row: Row) -> str:
+    """On the collector: the name of the Accipio that sent this row; empty for every other row."""
+    if not row.remote.get("from"):
+        return ""
+    return str(row.remote.get("from_name") or "another Accipio")
+
+
 def takeable(url: str) -> bool:
     """What a collector accepts: one http(s) or ftp link, or one magnet link (never a file path or a script)."""
     return bool(_LINK.fullmatch(url)) or torrents.is_magnet(url)

@@ -2,6 +2,14 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#11 -- Downloads that belong to another Accipio have their own colour
+
+- **A violet tint marks every download another Accipio is involved in** (your answers 105B, 107A, 108A, 109A). On the sending PC: the rows that are waiting for, sent to, finished on or failed on another Accipio. On the collecting PC: the rows that came from another Accipio. One colour for both directions. A selected row shows the normal blue selection instead. The tint is mixed from the palette in use, so it reads in dark and in light.
+- **The words stay,** so the colour is never the only sign: the Status texts and the place's name in the Folder column are as before. On the collecting PC the Folder column now also names the sender after the folder: "Comics ← Laptop".
+- **The progress bar of a download sent to another Accipio** (answer 106B): empty while it waits, a hollow bar with a violet outline once it is sent, filled violet when it finished there. Green now always means "the file is on this PC". A download that failed there has a hollow bar with a red outline: nothing was downloaded on this PC, so there is no part of the bar to fill.
+- **The same mark in the Add box and in the Places list** (answer 110A): a link that will go to another Accipio has a tinted row in the Add box (a series row too, when all its links go there), and a place that is another Accipio is tinted in the Places list, with the tooltip "Another Accipio".
+- Sorting by Folder on the collecting PC goes by the folder, not by who sent the file. Every header still resizes and sorts.
+
 ## 2026-11-17#10 -- The windows for sending downloads to another Accipio: Places, and Settings > Other Accipios
 
 - **Third part of "send my downloads to the Accipio on another PC": the windows.** Everything is off until you switch it on. What is still to come is the real test between two PCs.

@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette
+from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QWidget
 
 from accipio.gui import appicon
 
 WARNING_COLOR = "#BA7517"           # amber, readable on light and dark backgrounds
+LINK_COLOR = "#8E5BD9"              # violet: "another Accipio is involved" (answers 108A, 109A); see link_tint
 ROW_HEIGHT = 26                # table rows, a little taller than Fusion's default
 CHEVRON = os.path.join(appicon.HERE, "chevron-down.png")    # made by tools/make_icons.py, as the icons are
 
@@ -75,6 +77,47 @@ def mix(under: QColor, over: QColor, amount: float) -> str:
         return round(a + (b - a) * amount)
     return QColor(channel(under.red(), over.red()), channel(under.green(), over.green()),
                   channel(under.blue(), over.blue())).name()
+
+
+def link_tint(palette: QPalette) -> QColor:
+    """The faint wash behind a row or a list item that belongs to another Accipio (answer 105B): a little of the
+    link colour mixed into the palette's own background, so it reads in dark and in light."""
+    return QColor(mix(palette.color(QPalette.ColorRole.Base), QColor(LINK_COLOR), 0.16))
+
+
+def link_bar(palette: QPalette) -> QColor:
+    """The link colour for a progress bar (answer 106B): a little of the text colour mixed in, which lifts it
+    on the dark palette and deepens it on the light one."""
+    return QColor(mix(QColor(LINK_COLOR), palette.color(QPalette.ColorRole.Text), 0.12))
+
+
+class TintDelegate(QStyledItemDelegate):
+    """Paints an item's own background (its BackgroundRole brush) before the item itself. The stylesheet below
+    styles ``::item``, and Qt then no longer paints that brush, so a tinted row would stay plain without this.
+    A selected item keeps the normal selection colour. ``radius`` rounds the wash, for the lists' rounded items."""
+
+    def __init__(self, parent=None, radius: float = 0.0):
+        super().__init__(parent)
+        self.radius = radius
+
+    def paint_tint(self, painter, option, index) -> None:
+        brush = index.data(Qt.ItemDataRole.BackgroundRole)
+        if not isinstance(brush, QBrush) or brush.style() == Qt.BrushStyle.NoBrush \
+                or option.state & QStyle.StateFlag.State_Selected:
+            return
+        painter.save()
+        if self.radius:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(brush)
+            painter.drawRoundedRect(QRectF(option.rect), self.radius, self.radius)
+        else:
+            painter.fillRect(option.rect, brush)
+        painter.restore()
+
+    def paint(self, painter, option, index):
+        self.paint_tint(painter, option, index)
+        super().paint(painter, option, index)
 
 
 def stylesheet(palette: QPalette) -> str:

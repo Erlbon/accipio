@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(style.ROW_HEIGHT)
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
+        self.table.setItemDelegate(style.TintDelegate(self.table))      # the wash of a row for another Accipio
         self.table.setItemDelegateForColumn(PROGRESS, ProgressDelegate(self.table))
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)   # every column can be resized...

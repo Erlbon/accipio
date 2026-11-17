@@ -13,6 +13,7 @@ import threading
 from typing import Callable, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
                              QListWidget, QListWidgetItem, QMessageBox, QPushButton, QSplitter, QVBoxLayout, QWidget)
 
@@ -21,7 +22,8 @@ from accipio.core.rules import Folder, Group, SiteGroup
 from accipio.gui import style
 from accipio.gui.example_hint import with_example
 
-FOLDER_EXAMPLE = "%default%\\Comics   or   D:\\Comics\\_Inbox\\{yyyy}-{MM}"
+REMOTE_PLACE_TIP = "Another Accipio"
+FOLDER_EXAMPLE ="%default%\\Comics   or   D:\\Comics\\_Inbox\\{yyyy}-{MM}"
 
 
 def split_values(text: str) -> List[str]:
@@ -113,12 +115,20 @@ class NamedListTab(QWidget):
 
     def _append(self, data, at: Optional[int] = None) -> QListWidgetItem:
         item = QListWidgetItem(data.name)
-        item.setData(Qt.ItemDataRole.UserRole, data)
+        self._put(item, data)
         if at is None:
             self.list.addItem(item)
         else:
             self.list.insertItem(at, item)
         return item
+
+    def _put(self, list_item: QListWidgetItem, data) -> None:
+        """Every change of what a list item holds goes through here, so its look follows what it holds."""
+        list_item.setData(Qt.ItemDataRole.UserRole, data)
+        self.mark(list_item, data)
+
+    def mark(self, list_item: QListWidgetItem, data) -> None:
+        """How the list shows this item, beyond its name (the Places tab tints another Accipio)."""
 
     def names(self, skip: Optional[QListWidgetItem] = None) -> List[str]:
         return [self.list.item(i).data(Qt.ItemDataRole.UserRole).name for i in range(self.list.count())
@@ -155,7 +165,7 @@ class NamedListTab(QWidget):
 
     def _select(self, item, previous):
         if previous is not None and self.list.row(previous) >= 0:
-            previous.setData(Qt.ItemDataRole.UserRole, self.read_item(previous.data(Qt.ItemDataRole.UserRole).name))
+            self._put(previous, self.read_item(previous.data(Qt.ItemDataRole.UserRole).name))
         self.current = item
         self._enable_form(item is not None)
         if item is None:
@@ -169,7 +179,7 @@ class NamedListTab(QWidget):
 
     def _store(self) -> None:
         if self.current is not None and self.list.row(self.current) >= 0:
-            self.current.setData(Qt.ItemDataRole.UserRole, self.read_item(self.current.data(Qt.ItemDataRole.UserRole).name))
+            self._put(self.current, self.read_item(self.current.data(Qt.ItemDataRole.UserRole).name))
 
     def field_changed(self, *_):
         if self._loading or self.current is None:
@@ -188,7 +198,7 @@ class NamedListTab(QWidget):
                                   f"Give the {self.noun} a name.")
             return
         data = self.read_item(new)
-        self.current.setData(Qt.ItemDataRole.UserRole, data)
+        self._put(self.current, data)
         self.current.setText(new)
         if new != old:
             self.renamed.emit(self.kind, old, new)
@@ -262,10 +272,18 @@ class PlacesTab(NamedListTab):
         self._check_number = 0
         self._paired = set()
         super().__init__([Folder(rules.DEFAULT_FOLDER, base_folder)] + list(items), rules_of, parent)
+        self.list.setItemDelegate(style.TintDelegate(self.list, radius=5))   # see mark()
         self.reached.connect(self._reached)
 
     def is_default_item(self, item) -> bool:
         return item is not None and self.list.row(item) == 0
+
+    def mark(self, list_item: QListWidgetItem, data) -> None:
+        """A place that is another Accipio is tinted as its downloads are in the main list (answer 110A); the
+        tooltip says it in words, so the colour is not the only sign."""
+        remote = bool(getattr(data, "remote", False))
+        list_item.setBackground(QBrush(style.link_tint(self.palette())) if remote else QBrush())
+        list_item.setToolTip(REMOTE_PLACE_TIP if remote else "")
 
     def items(self):
         return super().items()[1:]

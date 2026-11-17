@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                              QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
@@ -84,6 +84,7 @@ class AddDialog(QDialog):
 
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
+        self.table.setItemDelegate(style.TintDelegate(self.table))      # the wash of a link for another Accipio
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setDefaultSectionSize(style.ROW_HEIGHT)
         self.table.setShowGrid(False)
@@ -226,6 +227,12 @@ class AddDialog(QDialog):
             return "Ready" + "".join(f" · {b}" for b in (human_size(entry.preview.size), bits) if b)
         return entry.error if entry.state == "error" else "Checking…"
 
+    def _tint(self, cells: List[QTableWidgetItem]) -> None:
+        """Mark a row that goes to another Accipio as the main list marks it (answer 110A)."""
+        wash = QBrush(style.link_tint(self.palette()))
+        for cell in cells:
+            cell.setBackground(wash)
+
     def _url_cells(self, url: str, child: bool) -> List[QTableWidgetItem]:
         entry = self.entries[url]
         folder, by_hand = self._folder_of(entry)
@@ -244,6 +251,8 @@ class AddDialog(QDialog):
                                  folder + ("  (chosen by hand)" if by_hand else ""))
         cells[STATUS].setToolTip(status)
         cells[NAME].setToolTip(url + (f"\n{entry.preview.placement.why()}" if entry.preview else ""))
+        if self._place_of(entry, by_hand):
+            self._tint(cells)
         if entry.state == "error":
             cells[STATUS].setForeground(ERROR_COLOUR)
             cells[NAME].setForeground(QColor("gray"))
@@ -277,6 +286,8 @@ class AddDialog(QDialog):
         cells[NAME].setToolTip(group.text + "\nClick to show or hide its links")
         if any(self._place_of(e, self._folder_of(e)[1]) for e in entries):
             cells[FOLDER].setToolTip(REMOTE_TIP)
+            if len(folders) == 1:                           # all of them go there: the row is marked as its links are
+                self._tint(cells)
         bold = cells[NAME].font()
         bold.setBold(True)
         cells[NAME].setFont(bold)

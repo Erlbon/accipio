@@ -205,6 +205,23 @@ session does not reopen what is settled. Keep it current when a decision changes
   47558-47623 as unassigned); it is only what the port box starts at. Next: stage 4, two scratch copies on one PC, then two machines
   (first use of the real credential store, Windows Firewall's question, an installer build). Design:
   `C:\Temp\_AI Coding\_Claude\accipio-handover-2026-11-17d.md`.
+- Link colours (2026-11-17#11; answers 105B, 106B, 107A, 108A, 109A, 110A; decision page
+  `C:\Temp\Claude\accipio-link-colours\index.html`). ONE colour, violet `style.LINK_COLOR`, means "another Accipio is
+  involved", in both directions. `style.link_tint(palette)` (16 % of it mixed into Base) is the wash of a row;
+  `style.link_bar(palette)` (12 % Text mixed in) is the bar colour. `handover.sent_to(row)` (the place's name on the
+  sender) and `handover.came_from(row)` (the sender's name on the collector) say which rows; `QueueModel.elsewhere`
+  gives them a `BackgroundRole` brush. **The stylesheet styles `::item`, and Qt then no longer paints an item's
+  BackgroundRole**, so `style.TintDelegate` paints it (not on a selected item; `radius=` for lists); it is the item
+  delegate of the main table, the Add box's table and the Places list, and `ProgressDelegate` subclasses it. A new
+  tinted list needs that delegate too (a test grabs the pixels under the real stylesheet). Bars
+  (`ProgressDelegate.outline`/`fill`): waiting = empty, SENT = hollow with a link-colour outline, finished there =
+  filled link colour (green always means "the file is on this PC"), failed there with nothing downloaded here = hollow
+  with a red outline (my decision: such a row has done 0, so a red fill cannot show). Collector: the Folder cell is
+  "Comics ← Laptop" (`_folder_shown`; the sort key stays the folder). Add box: `_tint` on a row whose link goes to
+  another Accipio (a series row when all its links do; a folder by hand removes it). Places list:
+  `NamedListTab._put` is the one place an item's data is set and calls `mark`; `PlacesTab.mark` tints a remote place
+  and sets the tooltip "Another Accipio". The words (Status, place name) stay: colour is never the only sign.
+  Tests: `tests/test_link_colours.py`. Renders: `C:\Temp\Claude\accipio-link-colours\render.py dark|light`.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how
