@@ -106,9 +106,17 @@ session does not reopen what is settled. Keep it current when a decision changes
   (`REDACTOR_CONFIG_DIR`, offscreen) + local web server + headless Firefox driven over WebDriver BiDi
   (`webExtension.install` of the folder as a temporary add-on; BiDi refuses to open moz-extension:// pages, so the
   proof is Accipio's debug log). The scratch Accipio segfaulted at `--quit` under the offscreen platform: not looked
-  into. TO DO: the user's Mozilla account -> `web-ext sign --channel unlisted` -> ship the .xpi (release asset and/or
-  in the install folder), then help page/installer/README text for Firefox. Firefox forks (LibreWolf, Zen, Waterfox)
-  untested; LibreWolf has its own native-messaging registry key.
+  into. Firefox forks (LibreWolf, Zen, Waterfox) untested; LibreWolf has its own native-messaging registry key.
+- The signed Firefox file (2026-11-17#06, the user's pick A): `extension-firefox/accipio-firefox.xpi` is COMMITTED
+  (`*.xpi binary` in .gitattributes) and bundled by accipio.spec; `browser_help.firefox_extension_file()`. The user
+  signs it himself in Mozilla's Developer Hub (add-on "Accipio", unlisted, Upload New Version > On your own) from
+  `dist\accipio-firefox-<version>.zip`; never ask for his API secret in chat. A version number can be signed only
+  once. `test_the_signed_firefox_file_matches_the_extension` fails while the committed file differs from `extension/`
+  (version, description, permissions, every .js/.html), so ANY change under `extension/` needs: bump the manifest
+  version, build the zip, he signs, the new .xpi replaces the old one, all before the tests pass again (and so before
+  a push: the pre-push hook runs them). Plan extension changes with that in mind and batch them.
+  Not done: Firefox does not update the installed copy by itself (no `update_url` in the manifest; the help text
+  tells the user to install the file again after an Accipio update).
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

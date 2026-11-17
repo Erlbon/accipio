@@ -30,6 +30,12 @@ def extension_folder() -> str:
     return os.path.join(resource_dir(), "extension")
 
 
+def firefox_extension_file() -> str:
+    """The extension as Mozilla signed it (extension-firefox/, committed and bundled: the user's pick A, 2026-11-17).
+    Firefox installs it from this file and keeps its own copy."""
+    return os.path.join(resource_dir(), "extension-firefox", "accipio-firefox.xpi")
+
+
 def help_page() -> str:
     return os.path.join(resource_dir(), "accipio", "gui", "help", HELP_PAGE)
 
@@ -37,14 +43,14 @@ def help_page() -> str:
 class ConnectDialog(QDialog):
     """The three steps, each with what to copy."""
 
-    def __init__(self, parent=None, folder: str = ""):
+    def __init__(self, parent=None, folder: str = "", firefox_file: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Connect your browser")
         self.folder = folder or extension_folder()
         layout = QVBoxLayout(self)
-        intro = QLabel("One step is left, once: add Accipio's extension to your browser: Chrome, Edge, Opera, "
-                       "Opera GX, Brave or Vivaldi (each one you download with). Then the downloads you click there "
-                       "come to Accipio.")
+        intro = QLabel("One step is left, once: add Accipio's extension to your browser (each one you download "
+                       "with). Then the downloads you click there come to Accipio. The three steps are for Chrome, "
+                       "Edge, Opera, Opera GX, Brave and Vivaldi.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         grid = QGridLayout()
@@ -72,6 +78,22 @@ class ConnectDialog(QDialog):
                 grid.addWidget(button, row, 2, Qt.AlignmentFlag.AlignTop)
         grid.setColumnStretch(1, 1)
         layout.addLayout(grid)
+        # Firefox: one signed file instead of the three steps
+        self.firefox_file = firefox_file or firefox_extension_file()
+        self.copy_firefox = QPushButton("Copy file")
+        self.copy_firefox.clicked.connect(lambda: self._copy(self.firefox_file, self.copy_firefox))
+        firefox = QLabel("<b>Firefox</b> takes one file instead: open the Add-ons page (Ctrl+Shift+A), click the "
+                         "cogwheel, choose <b>Install Add-on From File</b> and pick this file:<br>"
+                         f"<code>{self.firefox_file}</code><br>After an Accipio update, do this again: Firefox keeps "
+                         "its own copy of the file.")
+        firefox.setWordWrap(True)
+        firefox.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        firefox_row = QHBoxLayout()
+        firefox_row.addWidget(firefox, 1)
+        firefox_row.addWidget(self.copy_firefox, 0, Qt.AlignmentFlag.AlignTop)
+        self.firefox_row_shown = os.path.isfile(self.firefox_file)
+        if self.firefox_row_shown:                        # a copy without the signed file says nothing about Firefox
+            layout.addLayout(firefox_row)
         after = QLabel("Accipio then appears in the list of extensions. Its toolbar button switches the hand-over "
                        "off and on. If Free Download Manager or another download manager has an extension, switch "
                        "that one off: both would try to take the same downloads.")

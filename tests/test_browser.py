@@ -223,6 +223,32 @@ def test_the_firefox_build_of_the_extension(tmp_path):
             assert ours.read() == theirs.read()
 
 
+def test_the_signed_firefox_file_matches_the_extension():
+    """extension-firefox/accipio-firefox.xpi is what Firefox users install (the user's pick A, 2026-11-17). It must
+    be Mozilla-signed and be exactly this extension: same version, same scripts. If this fails, the extension was
+    changed after the last signing: build the zip (python tools/make_firefox_extension.py), have Mozilla sign it
+    (the Developer Hub's Upload New Version, "On your own"), and put the signed file in extension-firefox/."""
+    import zipfile
+    from accipio.gui.browser_help import firefox_extension_file
+    signed = firefox_extension_file()
+    assert os.path.isfile(signed), "the signed Firefox extension is missing"
+    with open(os.path.join(EXTENSION, "manifest.json"), encoding="utf-8") as f:
+        chrome = json.load(f)
+    with zipfile.ZipFile(signed) as archive:
+        names = set(archive.namelist())
+        assert "META-INF/mozilla.rsa" in names, "this file is not signed by Mozilla"
+        theirs = json.loads(archive.read("manifest.json"))
+        assert theirs["version"] == chrome["version"], \
+            f"the signed file is {theirs['version']}, the extension is {chrome['version']}: sign the new version"
+        assert theirs["description"] == chrome["description"] and theirs["permissions"] == chrome["permissions"]
+        assert theirs["browser_specific_settings"]["gecko"]["id"] == browser.FIREFOX_ID
+        for name in sorted(os.listdir(EXTENSION)):
+            if name.endswith((".js", ".html")):
+                with open(os.path.join(EXTENSION, name), "rb") as f:
+                    ours = f.read().replace(b"\r\n", b"\n")
+                assert archive.read(name).replace(b"\r\n", b"\n") == ours, f"{name} was changed after the signing"
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="no node")
 def test_the_extension_hands_downloads_over_in_firefox():
     """Run the real background.js against a stand-in Firefox (tests/js/firefox.mjs): no onDeterminingFilename there,

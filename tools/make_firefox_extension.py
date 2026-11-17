@@ -12,9 +12,12 @@ Usage::
 
     python tools/make_firefox_extension.py            # writes dist/firefox/ and dist/accipio-firefox-<version>.zip
 
-The zip is what Mozilla signs (``web-ext sign --channel unlisted``, or the Developer Hub's "On your own"); the
-signed ``.xpi`` it gives back is what users install. Unsigned, the folder loads only as a temporary add-on
-(about:debugging), gone at the next start of Firefox.
+The zip is what Mozilla signs (the Developer Hub's "Upload New Version", distribution "On your own"; or ``web-ext
+sign --channel unlisted``). The signed ``.xpi`` it gives back is what users install: it is committed as
+``extension-firefox/accipio-firefox.xpi`` and bundled with the app, and a test fails while it does not match
+``extension/`` (same version, same scripts), so every change to the extension needs a new version number and a new
+signing before a release. Unsigned, the folder loads only as a temporary add-on (about:debugging), gone at the next
+start of Firefox.
 """
 from __future__ import annotations
 

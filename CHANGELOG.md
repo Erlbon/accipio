@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#06 -- Firefox, for everyone
+
+- **Firefox users can now add Accipio's extension.** It comes with Accipio as one file, signed by Mozilla: `extension-firefox\accipio-firefox.xpi` in Accipio's folder. On Firefox's Add-ons page (Ctrl+Shift+A), click the cogwheel, choose **Install Add-on From File** and pick it. The help page has the steps and, when it is open in Firefox, a link that installs it directly; Tools > Connect Browser shows the file and copies its path.
+- Tried on 2026-11-17 in a real Firefox 160 with the signed file, installed for good as a user would: a clicked download was handed to Accipio, and a file a page built itself was saved by Firefox and then moved by Accipio. The link on the help page and installing by hand in a visible Firefox have not been tried.
+- **Firefox keeps its own copy of the file.** After an update of Accipio, install the file again to get the extension that came with it. (The other browsers load the extension from Accipio's folder and only need their card reloaded.)
+- The installer's last page and the README name Firefox too.
+
 ## 2026-11-17#05 -- The extension says what it needs
 
 - The browser extension's own description, the line each browser shows in its list of extensions, now reads: "Hands the downloads you click to the Accipio download manager on this computer, which saves each file where your rules say. Needs the free Accipio app. Nothing is sent to any server." The old line did not say that the extension does nothing without the Accipio app. Extension 0.1.6; nothing else in it changed.

@@ -12,6 +12,8 @@
   body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", system-ui, sans-serif; }
   main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
   h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 8px; }
+  h2 { font-size: 1.1rem; font-weight: 600; margin: 24px 0 10px; }
+  a { color: var(--accent); }
   p.lead { color: var(--dim); margin: 0 0 28px; }
   ol { list-style: none; padding: 0; margin: 0; counter-reset: step; }
   li { counter-increment: step; background: var(--box); border: 1px solid var(--line); border-radius: 10px;
@@ -32,8 +34,8 @@
 <main>
   <h1>Connect your browser to Accipio</h1>
   <p class="lead">One step is left, once: add Accipio's extension to your browser. Then the downloads you click
-    there come to Accipio. It takes about a minute. It works in Chrome, Edge, Opera, Opera GX, Brave and Vivaldi; do
-    it in each browser you download with.</p>
+    there come to Accipio. It takes about a minute. Do it in each browser you download with.</p>
+  <h2>Chrome, Edge, Opera, Opera GX, Brave, Vivaldi</h2>
   <ol>
     <li>Open the extensions page: copy this address and paste it into the address bar of a new tab.
       (<b>chrome://extensions</b> works in all of these browsers. Edge and Opera also call it
@@ -46,6 +48,17 @@
       <div class="copy"><code id="folder">(the extension folder)</code><button data-copy="folder">Copy</button></div></li>
     <li>Accipio now appears in the list of extensions. Its button in the toolbar (pin it from the puzzle-piece
       menu) switches the hand-over to Accipio off and on.</li>
+  </ol>
+  <h2>Firefox</h2>
+  <ol>
+    <li>Firefox takes one file, signed by Mozilla. If this page is open in Firefox, click
+      <a id="xpi-link" href="../../../extension-firefox/accipio-firefox.xpi">Install Accipio's extension</a> and
+      answer <b>Add</b> when Firefox asks.</li>
+    <li>If the link does nothing, or this page is open in another browser: in Firefox, open the Add-ons page
+      (Ctrl+Shift+A), click the cogwheel, choose <b>Install Add-on From File</b> and pick this file:
+      <div class="copy"><code id="xpi">(the extension file)</code><button data-copy="xpi">Copy</button></div></li>
+    <li>After an update of Accipio, do this once more: Firefox keeps its own copy of the file, and the new one may
+      be newer.</li>
   </ol>
   <p class="note">If Free Download Manager, Internet Download Manager or another download manager has a browser
     extension, switch that one off in the same page: both would try to take the same downloads.</p>
@@ -60,6 +73,10 @@
     parts.splice(parts.length - 4, 4, "extension");
     var folder = parts.join(navigator.platform.indexOf("Win") === 0 ? "\\" : "/");
     document.getElementById("folder").textContent = folder;
+    // the Firefox file is in "extension-firefox" beside "extension"; the character before "extension" is the
+    // folder separator this system uses
+    var separator = folder.charAt(folder.length - "extension".length - 1);
+    document.getElementById("xpi").textContent = folder + "-firefox" + separator + "accipio-firefox.xpi";
     // the extensions page of the browser this page is open in (Edge says "Edg/", Opera "OPR/")
     var agent = navigator.userAgent;
     var page = agent.indexOf("Edg/") >= 0 ? "edge://extensions" : agent.indexOf("OPR/") >= 0 ? "opera://extensions"

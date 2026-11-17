@@ -3,3 +3,5 @@
 *.sh text eol=lf
 # cmd reads .bat files reliably only with CRLF line endings
 *.bat text eol=crlf
+# the Firefox extension as Mozilla signed it: one changed byte breaks the signature
+*.xpi binary

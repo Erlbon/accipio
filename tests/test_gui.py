@@ -1160,6 +1160,17 @@ def test_the_connect_box_copies_the_address_and_the_folder(app, tmp_path):
     dialog.copy_folder.click()
     assert QApplication.clipboard().text() == str(tmp_path / "extension")
     assert os.path.isfile(os.path.join(extension_folder(), "manifest.json")) and os.path.isfile(help_page())
+    # Firefox: one signed file (2026-11-17#06); a copy of Accipio without it says nothing about Firefox
+    from accipio.gui.browser_help import firefox_extension_file
+    assert dialog.firefox_row_shown and dialog.firefox_file == firefox_extension_file()
+    dialog.copy_firefox.click()
+    assert QApplication.clipboard().text() == firefox_extension_file() and dialog.copy_firefox.text() == "Copied"
+    assert not ConnectDialog(firefox_file=str(tmp_path / "gone.xpi")).firefox_row_shown
+    with open(help_page(), encoding="utf-8") as f:
+        page = f.read()
+    assert "../../../extension-firefox/accipio-firefox.xpi" in page      # the page's link reaches the same file
+    assert os.path.isfile(os.path.normpath(os.path.join(os.path.dirname(help_page()), "..", "..", "..",
+                                                        "extension-firefox", "accipio-firefox.xpi")))
 
 
 # ---- Help: updates and credits (2026-11-04#03) ----------------------------------------------------------

@@ -96,7 +96,7 @@ Type: files; Name: "{userappdata}\Accipio\native-host.cmd"
 Type: files; Name: "{userappdata}\Accipio\{#HostKey}.json"
 
 [Messages]
-FinishedLabel=Accipio is installed.%n%nOne step is left, once: adding the browser extension, so the downloads you click in your browser (Chrome, Edge, Opera, Opera GX, Brave or Vivaldi) come to Accipio. The help page below shows how; Accipio shows the same steps until it is done.
+FinishedLabel=Accipio is installed.%n%nOne step is left, once: adding the browser extension, so the downloads you click in your browser (Chrome, Edge, Firefox, Opera, Opera GX, Brave or Vivaldi) come to Accipio. The help page below shows how; Accipio shows the same steps until it is done.
 
 [Code]
 var
