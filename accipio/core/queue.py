@@ -126,9 +126,9 @@ class Queue:
         self.unpack_on = False                           # the archive trial (Preferences); off: archives are files
         self.after_unpack = "keep"                       # or "delete": the archive goes to the Recycle Bin
         self.ask_playlists = True                        # offer the rest of a list a video link carries (Settings)
-        # Whether the browser with this user agent asks where to save each file (browser_settings.asks); None = not
-        # known, which is all the queue knows by itself. The window puts the real reader here.
-        self.browser_asks: Callable[[str], Optional[bool]] = lambda user_agent: None
+        # Whether this browser ("Chrome", "Vivaldi"...) asks where to save each file (browser_settings.asks); None =
+        # not known, which is all the queue knows by itself. The window puts the real reader here.
+        self.browser_asks: Callable[[str], Optional[bool]] = lambda browser: None
         # Looking a list up can take many seconds (a YouTube Mix: 16 s for 371 videos), so it runs beside the
         # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
         self.in_background: Callable[..., None] = \
@@ -428,7 +428,7 @@ class Queue:
     # ---- files the browser saved itself (2026-11-17) ---------------------------------------------------------
 
     def file_saved(self, path: str, *, url: str = "", page_url: str = "", mime: str = "",
-                   suggested: str = "", user_agent: str = "") -> Optional[int]:
+                   suggested: str = "", browser: str = "") -> Optional[int]:
         """A file the browser had to download itself (one a page built: a blob: or data: link; or one Accipio's own
         request failed for) is on disk now: move it to where the rules say and list it as finished. Returns its row.
 
@@ -447,7 +447,7 @@ class Queue:
         why = "The browser downloaded this file itself (a page built it, or the site refused Accipio)."
         numbers = ""
         try:
-            asks = self.browser_asks(user_agent)
+            asks = self.browser_asks(browser)
         except Exception as error:                        # the browser's settings are not ours: never fatal
             debug_log.note("browser settings unreadable", error=str(error))
             asks = None
@@ -476,6 +476,7 @@ class Queue:
                                 mime=mime, size=size, total=size, done=size, rules=numbers, why=why,
                                 added=now.isoformat(timespec="seconds"), finished=now.isoformat(timespec="seconds"))
         debug_log.note("filed the browser's file", row=row_id, saved_as=path,
+                       browser=browser or "not known",
                        browser_asks_where={True: "yes", False: "no", None: "not known"}[asks], folder=folder, filename=name, size=size,
                        rules=numbers or "none", why=why)
         if self.unpack_on and unpack.is_archive(name):

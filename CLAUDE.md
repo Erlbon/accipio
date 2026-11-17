@@ -85,7 +85,14 @@ session does not reopen what is settled. Keep it current when a decision changes
   DisableLoadExtensionCommandLineSwitch`, then a ping to the native host from the extension's service worker over the
   DevTools port): same extension ID, host found (Opera has no registry key of its own and still finds it),
   onDeterminingFilename and storage.session present. Opera says "OPR/" in its user agent; its profile is
-  `%APPDATA%\Opera Software\Opera Stable` in Chrome's layout. Brave/Vivaldi say plain Chrome and are untested.
+  `%APPDATA%\Opera Software\Opera Stable` in Chrome's layout.
+- Brave, Vivaldi, Opera GX (2026-11-17#03): same extension, same hidden check passed in real ones (the user had them
+  installed for it). An extension cannot tell them apart (Vivaldi: UA and `userAgentData.brands` say Google Chrome;
+  Opera GX says OPR/ like Opera), so `native_host.browser_from(ancestor_programs())` names the browser from the
+  program that started the host (ctypes Toolhelp walk on Windows, /proc on Linux; "" when unknown, never an error)
+  and puts `browser` in the relayed message and in the reply. `browser_settings.asks(profiles, browser)` takes that
+  name; `browser_of(user_agent)` is only the fallback for a message without it. The scratch check script used for all
+  of this: `C:\Temp\Claude\accipio-browsers\cdp_check.mjs` (not in the repo).
   Firefox is a real port (no onDeterminingFilename, own manifest and registry key, needs Mozilla's unlisted signing).
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.

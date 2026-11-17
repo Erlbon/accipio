@@ -635,9 +635,18 @@ def test_a_file_the_browser_saved_itself_is_filed_by_the_rules_unless_switched_o
     ipc.send(win.services.folder, {**message, "path": str(third), "suggested": "placed.txt", "user_agent": "Chrome/157"})
     win.flush()
     assert third.exists() and win.model.rows[1].folder == str(chrome)
+    # the native host's own answer about the browser beats the user agent (Vivaldi calls itself Chrome)
+    fourth = chrome / "vivaldi.txt"
+    fourth.write_bytes(b"text")
+    ipc.send(win.services.folder, {**message, "path": str(fourth), "suggested": "vivaldi.txt", "user_agent": "Chrome/157",
+                                   "browser": "Vivaldi"})
+    win.flush()
+    assert not fourth.exists() and win.model.rows[2].folder == os.path.join(base, "Documents")
+    win.queue.remove(win.model.rows[2].id)
+    win.flush()
     told = SettingsDialog(win.services.settings, win, browsers=asking).browser_note.text()
     assert "Chrome (Me)" in told and "asks where to save each file" in told and "leaves the file there" in told
-    assert "No Chrome, Edge or Opera settings" in SettingsDialog(win.services.settings, win).browser_note.text()
+    assert "No browser settings were found" in SettingsDialog(win.services.settings, win).browser_note.text()
     win.read_browsers = lambda: []
 
     dialog = SettingsDialog(win.services.settings, win)

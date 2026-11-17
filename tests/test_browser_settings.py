@@ -78,21 +78,25 @@ def test_asks_is_known_only_when_every_profile_of_that_browser_agrees():
     edge_ua = chrome_ua + " Edg/157.0.0.0"
     assert bs.browser_of(chrome_ua) == CHROME and bs.browser_of(edge_ua) == EDGE and bs.browser_of("") == ""
     assert bs.browser_of(chrome_ua + " OPR/140.0.0.0") == bs.OPERA      # as a real Opera 140 says it
-    opera = [BrowserProfile(CHROME, "a", asks=False), BrowserProfile(bs.OPERA, "o", asks=True)]
-    assert bs.asks(opera, chrome_ua + " OPR/140.0.0.0") is True and bs.asks(opera, chrome_ua) is False
+    opera = [BrowserProfile(CHROME, "a", asks=False), BrowserProfile(bs.OPERA, "o", asks=True),
+             BrowserProfile(bs.VIVALDI, "v", asks=True), BrowserProfile(bs.OPERA_GX, "g", asks=False)]
+    assert bs.asks(opera, bs.OPERA) is True and bs.asks(opera, CHROME) is False
+    assert bs.asks(opera, bs.VIVALDI) is True and bs.asks(opera, bs.OPERA_GX) is False     # named by the native host
+    assert bs.asks(opera, bs.BRAVE) is None                               # no such profile here: not known
     profiles = [BrowserProfile(CHROME, "a", asks=True), BrowserProfile(CHROME, "b", asks=True),
                 BrowserProfile(EDGE, "c", asks=False)]
-    assert bs.asks(profiles, chrome_ua) is True and bs.asks(profiles, edge_ua) is False
-    assert bs.asks(profiles, "") is None                                   # an older extension: which browser?
+    assert bs.asks(profiles, CHROME) is True and bs.asks(profiles, EDGE) is False
+    assert bs.asks(profiles, "") is None                                   # which browser is not known
     profiles[1].asks = False
-    assert bs.asks(profiles, chrome_ua) is None                            # the profiles differ: not known
-    assert bs.asks([], chrome_ua) is None
+    assert bs.asks(profiles, CHROME) is None                               # the profiles differ: not known
+    assert bs.asks([], CHROME) is None
 
 
 def test_the_real_reader_never_fails_on_this_machine():
     """Whatever is installed here: a list comes back, and the policy reader gives a dict."""
     assert isinstance(bs.windows_policies(CHROME), dict) and bs.windows_policies(bs.OPERA) == {}
-    assert [browser for browser, _ in bs.user_data_folders()] == [CHROME, EDGE, bs.OPERA]
+    assert {browser for browser, _ in bs.user_data_folders()} >= {CHROME, EDGE, bs.OPERA, bs.BRAVE, bs.VIVALDI}
+    assert isinstance(bs.windows_policies(bs.BRAVE), dict) and bs.windows_policies(bs.VIVALDI) == {}
 
 
 def test_opera_keeps_the_same_files_and_is_read_the_same_way(tmp_path):

@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#03 -- Brave, Vivaldi and Opera GX
+
+- **Accipio's extension also works in Brave, Vivaldi and Opera GX**, loaded by hand the same way, with no change to the extension. Tried on 2026-11-17 in real ones (Brave 1.99, Vivaldi 8.3, Opera GX 139), each with a fresh profile: the extension loads under the same ID and reaches Accipio. A full download by a click in those browsers has not been tried yet.
+- **Accipio now knows which browser a download came from.** Vivaldi looks exactly like Google Chrome to an extension, and Opera GX like Opera, so Accipio's own helper program, which the browser starts, looks at which program started it. With that, a file one of these browsers saved itself is judged by that browser's own "ask where to save" setting, and the debug log names the browser.
+- **Settings > Browser's own files** lists the profiles of all six browsers, and reads Brave's company policies as it does Chrome's and Edge's.
+- The help page, the Connect your browser box, the installer and the README name all six.
+
 ## 2026-11-17#02 -- Edge and Opera
 
 - **Accipio's extension works in Edge and Opera as it does in Chrome**, loaded by hand the same way (Developer mode, Load unpacked, the same folder). No change to the extension was needed. Tried on 2026-11-17 in a real Edge 157 and a real Opera 140, each with a fresh profile: the extension loads under the same ID, reaches Accipio, and has everything it uses for the hand-over. A full download by a click in those browsers has not been tried yet.

@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         self.services = services
         self.queue = services.queue
         self.read_browsers = browser_settings.read                 # the browsers' own settings; tests put a fake here
-        self.queue.browser_asks = lambda user_agent: browser_settings.asks(self.read_browsers(), user_agent)
+        self.queue.browser_asks = lambda browser: browser_settings.asks(self.read_browsers(), browser)
         self.worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="accipio-queue")
         self.failures: List[str] = []
         self.ytdlp_updater = ytdlp_update.update                   # tests put a fake here
@@ -285,7 +285,9 @@ class MainWindow(QMainWindow):
                 self.run(self.queue.file_saved, str(message.get("path") or ""), url=str(message.get("url") or ""),
                          page_url=str(message.get("page_url") or ""), mime=str(message.get("mime") or ""),
                          suggested=str(message.get("suggested") or ""),
-                         user_agent=str(message.get("user_agent") or ""))
+                         # the native host saw which browser started it; an older host: guess from the user agent
+                         browser=str(message.get("browser") or "")
+                         or browser_settings.browser_of(str(message.get("user_agent") or "")))
             return {"ok": True, "filed": on}
         if kind == "ping":
             return {"ok": True, "version": APP_VERSION}

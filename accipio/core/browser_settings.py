@@ -25,9 +25,11 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-CHROME, EDGE, OPERA = "Chrome", "Edge", "Opera"
-# Opera keeps the same files in the same layout (seen in Opera 140, 2026-11-17); no policy key of its own is read
-POLICY_KEYS = {CHROME: "Software\\Policies\\Google\\Chrome", EDGE: "Software\\Policies\\Microsoft\\Edge"}
+CHROME, EDGE, OPERA, OPERA_GX, BRAVE, VIVALDI = "Chrome", "Edge", "Opera", "Opera GX", "Brave", "Vivaldi"
+# The names are the ones native_host.browser_from gives. All six keep the same files in the same layout (Opera 140,
+# Opera GX 139, Brave 1.99 and Vivaldi 8.3 seen 2026-11-17). Policies: only where the vendor documents the key.
+POLICY_KEYS = {CHROME: "Software\\Policies\\Google\\Chrome", EDGE: "Software\\Policies\\Microsoft\\Edge",
+               BRAVE: "Software\\Policies\\BraveSoftware\\Brave"}
 POLICY_VALUES = ("DownloadDirectory", "PromptForDownloadLocation", "DownloadRestrictions")
 BLOCKS_ALL = 3                         # DownloadRestrictions: 1, 2 and 4 block only what the browser judges dangerous
 
@@ -49,14 +51,21 @@ def user_data_folders() -> List[Tuple[str, str]]:
         roaming = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
         return [(CHROME, os.path.join(local, "Google", "Chrome", "User Data")),
                 (EDGE, os.path.join(local, "Microsoft", "Edge", "User Data")),
-                (OPERA, os.path.join(roaming, "Opera Software", "Opera Stable"))]
+                (OPERA, os.path.join(roaming, "Opera Software", "Opera Stable")),
+                (OPERA_GX, os.path.join(roaming, "Opera Software", "Opera GX Stable")),
+                (BRAVE, os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data")),
+                (VIVALDI, os.path.join(local, "Vivaldi", "User Data"))]
     if sys.platform == "darwin":
         support = os.path.join(home, "Library", "Application Support")
         return [(CHROME, os.path.join(support, "Google", "Chrome")), (EDGE, os.path.join(support, "Microsoft Edge")),
-                (OPERA, os.path.join(support, "com.operasoftware.Opera"))]
+                (OPERA, os.path.join(support, "com.operasoftware.Opera")),
+                (OPERA_GX, os.path.join(support, "com.operasoftware.OperaGX")),
+                (BRAVE, os.path.join(support, "BraveSoftware", "Brave-Browser")),
+                (VIVALDI, os.path.join(support, "Vivaldi"))]
     config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
     return [(CHROME, os.path.join(config, "google-chrome")), (EDGE, os.path.join(config, "microsoft-edge")),
-            (OPERA, os.path.join(config, "opera"))]
+            (OPERA, os.path.join(config, "opera")), (BRAVE, os.path.join(config, "BraveSoftware", "Brave-Browser")),
+            (VIVALDI, os.path.join(config, "vivaldi"))]
 
 
 def windows_policies(browser: str) -> Dict[str, Any]:
@@ -138,17 +147,18 @@ def read(folders: Optional[List[Tuple[str, str]]] = None,
 
 
 def browser_of(user_agent: str) -> str:
-    """Which browser sent a message, from its user agent (Edge says "Edg/", Opera "OPR/"; "" = not known). Brave
-    and Vivaldi call themselves Chrome and are taken for it."""
+    """Which browser sent a message, guessed from its user agent (Edge says "Edg/", Opera "OPR/"; "" = not known).
+    Only the fallback for a message without the native host's own answer (``browser``, from the program that started
+    it): Brave and Vivaldi call themselves Chrome here, and Opera GX says the same as Opera."""
     if not user_agent:
         return ""
     return EDGE if "Edg/" in user_agent else OPERA if "OPR/" in user_agent else CHROME
 
 
-def asks(profiles: List[BrowserProfile], user_agent: str = "") -> Optional[bool]:
-    """Whether the browser that saved a file asks where to save each one. The extension cannot say which profile it
-    runs in, so this is only known when every profile of that browser agrees; None = not known."""
-    browser = browser_of(user_agent)
+def asks(profiles: List[BrowserProfile], browser: str = "") -> Optional[bool]:
+    """Whether the browser that saved a file (its name as in this module; "" = not known which) asks where to save
+    each one. The extension cannot say which profile it runs in, so this is only known when every profile of that
+    browser agrees; None = not known."""
     answers = {p.asks for p in profiles if not browser or p.browser == browser}
     return answers.pop() if len(answers) == 1 else None
 

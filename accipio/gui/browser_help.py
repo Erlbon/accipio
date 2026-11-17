@@ -42,8 +42,9 @@ class ConnectDialog(QDialog):
         self.setWindowTitle("Connect your browser")
         self.folder = folder or extension_folder()
         layout = QVBoxLayout(self)
-        intro = QLabel("One step is left, once: add Accipio's extension to Chrome, Edge or Opera (each one you "
-                       "download with). Then the downloads you click there come to Accipio.")
+        intro = QLabel("One step is left, once: add Accipio's extension to your browser: Chrome, Edge, Opera, "
+                       "Opera GX, Brave or Vivaldi (each one you download with). Then the downloads you click there "
+                       "come to Accipio.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
         grid = QGridLayout()
@@ -53,8 +54,8 @@ class ConnectDialog(QDialog):
         self.copy_folder = QPushButton("Copy folder")
         self.copy_folder.clicked.connect(lambda: self._copy(self.folder, self.copy_folder))
         steps = [
-            (f"Paste <b>{EXTENSIONS_PAGE}</b> into the browser's address bar (it works in Edge and Opera "
-             "too; their own names for it are edge://extensions and opera://extensions).", self.copy_page),
+            (f"Paste <b>{EXTENSIONS_PAGE}</b> into the browser's address bar (it works in all of "
+             "these browsers).", self.copy_page),
             ("Switch on <b>Developer mode</b> (top right of that page).", None),
             ("Click <b>Load unpacked</b> and paste this folder into the box that opens:<br>"
              f"<code>{self.folder}</code>", self.copy_folder),

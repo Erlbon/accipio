@@ -77,16 +77,16 @@ def test_a_browser_that_asks_where_to_save_means_the_user_chose_the_place(world)
     q, base, chrome, _ = world
     asked_about = []
 
-    def asks(user_agent):
-        asked_about.append(user_agent)
+    def asks(browser):
+        asked_about.append(browser)
         return True
     q.browser_asks = asks
     path = save(chrome, "notes.txt")
-    row = q.store.get(q.file_saved(path, url="blob:https://a.org/1", suggested="notes.txt", user_agent="Chrome/157"))
+    row = q.store.get(q.file_saved(path, url="blob:https://a.org/1", suggested="notes.txt", browser="Vivaldi"))
     assert row.path == os.path.normpath(path) and os.path.isfile(path) and row.rules == ""
-    assert "set to ask where to save" in row.why and asked_about == ["Chrome/157"]
+    assert "set to ask where to save" in row.why and asked_about == ["Vivaldi"]
 
-    q.browser_asks = lambda user_agent: False                           # it does not ask: the rules file it
+    q.browser_asks = lambda browser: False                              # it does not ask: the rules file it
     row = q.store.get(q.file_saved(save(chrome, "more.txt"), url="blob:https://a.org/2", suggested="more.txt"))
     assert row.folder == under(base, "Documents")
 
@@ -94,7 +94,7 @@ def test_a_browser_that_asks_where_to_save_means_the_user_chose_the_place(world)
 def test_browser_settings_that_cannot_be_read_never_stop_the_filing(world):
     q, base, chrome, _ = world
 
-    def broken(user_agent):
+    def broken(browser):
         raise ValueError("odd file")
     q.browser_asks = broken
     row = q.store.get(q.file_saved(save(chrome, "notes.txt"), url="blob:https://a.org/1", suggested="notes.txt"))

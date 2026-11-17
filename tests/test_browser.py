@@ -91,6 +91,30 @@ def test_the_host_relays_to_the_running_app(server):
     assert seen[-1]["via"] == "browser"                  # how Accipio tells the extension from a second start
 
 
+def test_the_host_tells_which_browser_started_it(server):
+    """2026-11-17#03: Vivaldi looks like Chrome to an extension, so the host looks at the program that started it."""
+    win = "C:/Program Files/"
+    assert native_host.browser_from([win + "cmd.exe", win + "Vivaldi/Application/vivaldi.exe"]) == "Vivaldi"
+    assert native_host.browser_from(["C:\\Windows\\System32\\cmd.exe",
+                                     "C:\\Users\\me\\AppData\\Local\\Programs\\Opera GX\\opera.exe"]) == "Opera GX"
+    assert native_host.browser_from([win + "Opera/opera.exe"]) == "Opera"
+    assert native_host.browser_from([win + "BraveSoftware/Brave-Browser/Application/brave.exe"]) == "Brave"
+    assert native_host.browser_from([win + "Microsoft/Edge/Application/msedge.exe", win + "chrome.exe"]) == "Edge"
+    assert native_host.browser_from(["/opt/vivaldi/vivaldi-bin"]) == "Vivaldi"
+    assert native_host.browser_from(["/opt/google/chrome/chrome"]) == "Chrome"
+    assert native_host.browser_from([win + "python.exe", win + "bash.exe"]) == "" and native_host.browser_from([]) == ""
+    assert isinstance(native_host.ancestor_programs(), list)            # the real walk: never an error
+
+    folder, seen = server
+    out = io.BytesIO()
+    native_host.main(io.BytesIO(frame({"type": "add", "url": "https://a.org/f.zip"})), out, folder, browser="Vivaldi")
+    assert seen[-1]["browser"] == "Vivaldi"                             # Accipio hears it
+    assert native_host.read_message(io.BytesIO(out.getvalue()))["browser"] == "Vivaldi"     # and so does the extension
+    out = io.BytesIO()
+    native_host.main(io.BytesIO(frame({"type": "add", "url": "https://a.org/f.zip"})), out, folder, browser="")
+    assert "browser" not in seen[-1] and "browser" not in native_host.read_message(io.BytesIO(out.getvalue()))
+
+
 def test_a_ping_does_not_start_the_app(tmp_path):
     launched = []
     reply = native_host.relay({"type": "ping"}, str(tmp_path), launch=lambda: launched.append(1))
