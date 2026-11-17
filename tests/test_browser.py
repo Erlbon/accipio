@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from accipio import native_host
-from accipio.core import browser, ipc
+from accipio.core import browser, ipc, settings
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXTENSION = os.path.join(ROOT, "extension")
@@ -95,6 +95,18 @@ def test_a_ping_does_not_start_the_app(tmp_path):
     launched = []
     reply = native_host.relay({"type": "ping"}, str(tmp_path), launch=lambda: launched.append(1))
     assert reply == {"ok": False, "error": "Accipio is not running"} and launched == []
+
+
+def test_a_file_the_browser_saved_starts_the_app_only_when_settings_want_it_filed(tmp_path):
+    """2026-11-17: with the switch off there is nothing for a closed Accipio to do, so it is not started."""
+    folder, launched = str(tmp_path), []
+    settings.save_settings(folder, settings.Settings(file_browser_saves=False))
+    message = {"type": "file", "path": str(tmp_path / "a.txt")}
+    assert native_host.relay(message, folder, launch=lambda: launched.append(1)) == {"ok": True, "filed": False}
+    assert launched == []
+    settings.save_settings(folder, settings.Settings())                # on by default
+    reply = native_host.relay(message, folder, launch=lambda: launched.append(1), wait=0.6)
+    assert launched == [1] and "did not start" in reply["error"]
 
 
 def test_a_download_starts_the_app_and_waits_for_it(tmp_path):

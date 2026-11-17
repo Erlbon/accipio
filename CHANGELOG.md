@@ -2,6 +2,16 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#01 -- Files the browser has to download itself are filed by the rules
+
+- **Some files only the browser can fetch, and they used to stay in its own download folder, untouched by your rules.** The first kind is a file a page builds itself (an export button, a "blob:" link): it exists only inside that tab, so Accipio cannot download it. The second is a download the site refuses Accipio, which Chrome then finishes. Now the extension tells Accipio when Chrome has saved such a file, and Accipio moves it to where the rules say and lists it as finished. "Why here?" says where it came from. Seen with OCR text files built inside a Library of Congress tab.
+- **Settings > Browser's own files** switches this off; it is on by default. Off: such files stay where the browser saved them.
+- **A file you placed yourself stays where you put it.** Accipio now reads Chrome's and Edge's own settings (only reads, never changes): when the browser is set to "Ask where to save each file", you chose the place, and the file is listed but not moved. Where that cannot be known (the browser's profiles differ, or its settings cannot be read), a file whose name differs from the one the browser proposed counts as placed by you.
+- **Settings shows what each browser is set to do**, one line per profile: where it saves, whether it asks where to save, and anything your organisation has fixed by policy (the download folder, the Save As question, blocked downloads).
+- Nothing is overwritten (a taken name gets " (1)"), a file that cannot be moved stays where it is and its row says why, and an archive goes through the archive trial like any other. Incognito downloads, "Download with Chrome instead" and downloads made while the takeover is switched off are left alone, as before.
+- A "data:" link's content is no longer sent to Accipio for the debug log, only its first few characters (such a link holds the whole file).
+- **The browser extension is now 0.1.4: reload its card on chrome://extensions after updating**, or none of this happens.
+
 ## 2026-11-08#03 -- Run a downloaded program from the list
 
 - **Right-click a finished program and pick "Run setup.exe"** (the name of the file you downloaded). The same line says "Open" for any other finished file, and it is also under Downloads > Open. It does what a double-click on the row already did, which is to start the file the way Windows would, with Windows' own warning for a file from the internet. "Programs" means the file types the Programs rule uses (exe, msi, msix, bat, ps1 and so on).

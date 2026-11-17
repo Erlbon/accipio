@@ -68,6 +68,18 @@ session does not reopen what is settled. Keep it current when a decision changes
   `MainWindow._taken_over` answers only after `Queue.add` has probed and started the download (at most
   `TAKEOVER_WAIT` = 8 s, under ipc's 10 s). A failed check removes the row and says no, so Chrome keeps its copy; a
   timed-out one is removed when it finishes. Context-menu adds (no Chrome copy exists) still answer at once.
+- Files the browser downloads itself (2026-11-17#01, the user's pick A; extension 0.1.4): a blob:/data: download, and
+  one Accipio said no to, is remembered in `chrome.storage.session` (`fileLater`) and reported with a `file` message
+  when `downloads.onChanged` says complete. `Queue.file_saved` moves it by the rules and adds a COMPLETE row (no
+  engine, no gid); `named_by_hand` keeps a file whose name differs from the one Chrome proposed (typed in Save As).
+  Chrome does not tell extensions whether Save As was used or which folder is its default, so the APP reads the
+  browser's own settings (pick B, same build): `core/browser_settings.py` reads each profile's `Preferences`
+  (`download.prompt_for_download`, `download.default_directory`; names from `Local State`) and the policy registry keys,
+  read-only, anything odd = "not known". `Queue.browser_asks(user_agent)` (set by the window; tests set
+  `win.read_browsers`) True = the user chose the place, the file stays; known only when all profiles of that browser
+  agree, else the name check decides. The Settings window lists the profiles (`browsers=` argument, empty in tests).
+  `Settings.file_browser_saves` (default on); with it off the native host does not start a closed Accipio for a `file`
+  message. Never incognito, "Download with Chrome instead" or takeover off. Opera's profile is not read yet.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

@@ -6,7 +6,7 @@ import dataclasses
 import os
 import sys
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialo
                              QSpinBox, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
-from accipio.core import debug_log, toasts, video
+from accipio.core import browser_settings, debug_log, toasts, video
 from accipio.core.notices import ADDED, FAILED, FINISHED, KINDS
 from accipio.core.settings import CLEAR_AFTER, CLEAR_AT_ONCE, CLEAR_AT_START, CLEAR_CHOICES, CLEAR_NEVER, Settings
 from accipio.core.video import QUALITIES
@@ -107,7 +107,8 @@ class SoundLine(QHBoxLayout):
 class SettingsDialog(QDialog):
     def __init__(self, current: Settings, parent=None, check_updates: bool = False,
                  find_ffmpeg: Callable[[str], Optional[str]] = video.find_ffmpeg,
-                 install_ffmpeg: Callable[..., Optional[str]] = install_ffmpeg_with_progress):
+                 install_ffmpeg: Callable[..., Optional[str]] = install_ffmpeg_with_progress,
+                 browsers: Sequence[browser_settings.BrowserProfile] = ()):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.current = current
@@ -160,6 +161,28 @@ class SettingsDialog(QDialog):
                                       "before anything downloads.")
         self.ask_playlists.setChecked(current.ask_playlists)
         form.addRow("Playlists", self.ask_playlists)
+        self.file_browser_saves = QCheckBox("Move files the browser had to download itself to where the rules say")
+        self.file_browser_saves.setToolTip(
+            "Some files only the browser can fetch: one a page builds itself (an export, a \"blob:\" link), and one "
+            "the site refuses Accipio. The browser saves those in its own download folder. With this on, Accipio then "
+            "moves each one by your rules and lists it as finished. A file you gave a name of your own in the "
+            "browser's Save As box stays where you put it. Off: such files stay where the browser saved them. "
+            "Needs version 0.1.4 or newer of the browser extension.")
+        self.file_browser_saves.setChecked(current.file_browser_saves)
+        browser_column = QVBoxLayout()
+        browser_column.addWidget(self.file_browser_saves)
+        # what Chrome and Edge are set to do themselves, read from their own settings (never changed by Accipio)
+        told = [browser_settings.describe(profile) for profile in browsers] or \
+            ["No Chrome or Edge settings were found on this PC."]
+        if any(profile.asks for profile in browsers):
+            told.append("Where the browser asks where to save, you chose the place, so Accipio leaves the file there.")
+        self.browser_note = QLabel("\n".join(told))
+        self.browser_note.setWordWrap(True)
+        self.browser_note.setEnabled(False)
+        self.browser_note.setToolTip("Read from the browser's own settings and your organisation's policies each time "
+                                     "this window opens. Accipio only reads them.")
+        browser_column.addWidget(self.browser_note)
+        form.addRow("Browser's own files", browser_column)
         form.addRow("Finished", self._build_clear_finished(current))
         self.play_sound: Callable[[str], None] = toasts.play         # tests put a fake here
         notify_column = QVBoxLayout()
@@ -297,4 +320,5 @@ class SettingsDialog(QDialog):
                                    sound_finished=self.sound_lines[FINISHED].sound(),
                                    sound_failed=self.sound_lines[FAILED].sound(), ffmpeg_path=self.ffmpeg_path,
                                    ask_playlists=self.ask_playlists.isChecked(),
+                                   file_browser_saves=self.file_browser_saves.isChecked(),
                                    debug_log=self.debug_log.isChecked())

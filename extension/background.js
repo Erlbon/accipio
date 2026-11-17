@@ -9,6 +9,9 @@
 //
 // Cookies for the link's site go along, so downloads behind a login work in Accipio too. They are sent
 // only to the local Accipio app, never anywhere else. Incognito downloads are left alone.
+//
+// A file Chrome has to download itself (one a page builds: blob:, data:; or one Accipio's own request failed for) is
+// reported to Accipio when Chrome has saved it, so the rules can still file it (fileLater, chromeSavedIt).
 
 import { HOST, cookieHeader, isTakeable, send } from "./common.js";
 
@@ -34,12 +37,52 @@ export async function offer(url, pageUrl, referrer = "", takeover = false) {
   });
 }
 
+// A data: link holds the whole file; only its head ("data:text/plain;base64") is ever sent on.
+function shortUrl(url) {
+  return /^data:/i.test(url || "") ? url.split(",", 1)[0] : url || "";
+}
+
 // For Accipio's debug log (off unless switched on there): a download left to Chrome before Accipio was asked, and
 // why. Never for incognito. A closed Accipio is not started for it (native_host.relay).
 function leftToChrome(item, reason) {
-  send({ type: "seen", reason, url: item.finalUrl || item.url, original_url: item.url, page_url: item.referrer || "",
-         mime: item.mime || "", filename: item.filename || "" });
+  send({ type: "seen", reason, url: shortUrl(item.finalUrl || item.url), original_url: shortUrl(item.url),
+         page_url: item.referrer || "", mime: item.mime || "", filename: item.filename || "" });
 }
+
+// Files Chrome has to download itself, which Accipio then files by the rules once Chrome has saved them (2026-11-17):
+// a file a page builds itself (blob:, data:), which nothing outside the tab can fetch, and a download Accipio's own
+// request failed for. Never incognito, "Download with Chrome instead" or the takeover switched off: there the user
+// chose Chrome. Kept in session storage, because the service worker may be stopped before the download is done.
+const LATER = "file-later-";
+
+function builtInPage(url) {
+  return /^(blob|data):/i.test(url || "");
+}
+
+async function fileLater(item) {
+  try {
+    // the name Chrome proposes: a different name in the end means the user typed one in Save As
+    await chrome.storage.session.set({ [LATER + item.id]: { suggested: item.filename || "", page_url: item.referrer || "" } });
+  } catch (e) {
+    console.warn("Accipio cannot remember this download to file it later:", e);
+  }
+}
+
+async function chromeSavedIt(id) {
+  const key = LATER + id;
+  const { [key]: waiting } = await chrome.storage.session.get(key);
+  if (!waiting) return;
+  await chrome.storage.session.remove(key);
+  const [item] = await chrome.downloads.search({ id });
+  if (!item || !item.filename) return;
+  send({ type: "file", path: item.filename, suggested: waiting.suggested, url: shortUrl(item.finalUrl || item.url),
+         page_url: item.referrer || waiting.page_url, mime: item.mime || "",
+         user_agent: navigator.userAgent });       // Chrome or Edge: Accipio reads that browser's own settings
+}
+
+chrome.downloads.onChanged.addListener((delta) => {
+  if (delta.state && delta.state.current === "complete") chromeSavedIt(delta.id).catch((e) => console.warn(e));
+});
 
 // Whether Accipio takes this download (false: leave it to Chrome).
 async function decide(item) {
@@ -47,6 +90,7 @@ async function decide(item) {
   if (item.incognito) return false;
   if (!isTakeable(url)) {
     leftToChrome(item, "not an http, https or ftp link (blob:, data: and file: stay in the browser)");
+    if (builtInPage(url) && (await takeoverOn())) await fileLater(item);
     return false;
   }
   if (passThrough.delete(url) || passThrough.delete(item.url)) {
@@ -60,6 +104,7 @@ async function decide(item) {
   const reply = await offer(url, item.referrer, item.referrer, true);
   if (!reply || !reply.ok) {
     console.warn("Accipio did not take the download:", reply && reply.error);
+    await fileLater(item);
     return false;
   }
   return true;

@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import os
+import re
 import shutil
 import threading
 import time
@@ -70,6 +71,27 @@ def _video_id(url: str) -> str:
     return (urllib.parse.parse_qs(parts.query).get("v") or [url])[0]
 
 
+def browser_site(url: str) -> str:
+    """The address the rules see for a file the browser saved itself: a blob: link names the page's site
+    (``blob:https://example.org/<id>`` -> ``https://example.org/<id>``); a data: link has none."""
+    if url.lower().startswith("blob:"):
+        return url[5:]
+    return "" if url.lower().startswith("data:") else url
+
+
+_NUMBERED = re.compile(r"(.*) \(\d+\)((?:\.[^.\s]+)*)")
+
+
+def named_by_hand(suggested: str, saved: str) -> bool:
+    """Whether the browser saved a file under another name than it proposed, which only happens when the user typed
+    one in Save As. The browser's own "name (1).txt" for a name already taken does not count. Unknown = no."""
+    suggested = os.path.basename(suggested.replace("\\", "/"))
+    if not suggested or os.path.normcase(suggested) == os.path.normcase(saved):
+        return False
+    numbered = _NUMBERED.fullmatch(saved)
+    return not (numbered and os.path.normcase(numbered.group(1) + numbered.group(2)) == os.path.normcase(suggested))
+
+
 @dataclass
 class Preview:
     """What the Add box shows for one link before it is added."""
@@ -104,6 +126,9 @@ class Queue:
         self.unpack_on = False                           # the archive trial (Preferences); off: archives are files
         self.after_unpack = "keep"                       # or "delete": the archive goes to the Recycle Bin
         self.ask_playlists = True                        # offer the rest of a list a video link carries (Settings)
+        # Whether the browser with this user agent asks where to save each file (browser_settings.asks); None = not
+        # known, which is all the queue knows by itself. The window puts the real reader here.
+        self.browser_asks: Callable[[str], Optional[bool]] = lambda user_agent: None
         # Looking a list up can take many seconds (a YouTube Mix: 16 s for 371 videos), so it runs beside the
         # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
         self.in_background: Callable[..., None] = \
@@ -399,6 +424,63 @@ class Queue:
                        archive=unpack.is_archive(name), archive_trial_on=self.unpack_on)
         if self.unpack_on and unpack.is_archive(name):
             self._archive_arrived(row.id)
+
+    # ---- files the browser saved itself (2026-11-17) ---------------------------------------------------------
+
+    def file_saved(self, path: str, *, url: str = "", page_url: str = "", mime: str = "",
+                   suggested: str = "", user_agent: str = "") -> Optional[int]:
+        """A file the browser had to download itself (one a page built: a blob: or data: link; or one Accipio's own
+        request failed for) is on disk now: move it to where the rules say and list it as finished. Returns its row.
+
+        A file the user placed stays where they put it: when the browser is set to ask where to save each file
+        (``browser_asks``, from the browser's own settings), or, where that is not known, when the name differs from
+        ``suggested``, the one the browser proposed (so the user typed one in Save As). A file that cannot be moved
+        stays too; the row says why. None when the file is not there."""
+        path = os.path.normpath(path)
+        if not os.path.isabs(path) or not os.path.isfile(path):
+            debug_log.note("browser's file not found", path=path)
+            return None
+        folder, name = os.path.split(path)
+        site = browser_site(url)
+        now = self.clock()
+        size = os.path.getsize(path)
+        why = "The browser downloaded this file itself (a page built it, or the site refused Accipio)."
+        numbers = ""
+        try:
+            asks = self.browser_asks(user_agent)
+        except Exception as error:                        # the browser's settings are not ours: never fatal
+            debug_log.note("browser settings unreadable", error=str(error))
+            asks = None
+        if asks:
+            why += " The browser is set to ask where to save each file, so you chose this place and it stays there."
+        elif named_by_hand(suggested, name):
+            why += " You gave it a name of your own in the browser's Save As box, so it stays where you put it."
+        else:
+            placement = self._place(Download(url=site, filename=name, page_url=page_url, mime=mime, size=size, when=now))
+            target, final = placement.folder, placement.filename
+            if os.path.normcase(os.path.join(target, final)) == os.path.normcase(path):
+                why += f" It was already in place: {placement.why()}"
+                numbers = placement.rule_numbers
+            else:
+                final = self._free(target, final, 0)
+                try:
+                    os.makedirs(target, exist_ok=True)
+                    shutil.move(path, os.path.join(target, final))
+                except OSError as error:
+                    why += f" It could not be moved to {target} ({error}), so it stays in {folder}."
+                else:
+                    why += f" Then it was moved from {folder}: {placement.why()}"
+                    folder, name, numbers = target, final, placement.rule_numbers
+        zone.mark(os.path.join(folder, name), site, page_url)       # a move to another drive loses the browser's mark
+        row_id = self.store.add(page_url or site, page_url=page_url, state=COMPLETE, folder=folder, filename=name,
+                                mime=mime, size=size, total=size, done=size, rules=numbers, why=why,
+                                added=now.isoformat(timespec="seconds"), finished=now.isoformat(timespec="seconds"))
+        debug_log.note("filed the browser's file", row=row_id, saved_as=path,
+                       browser_asks_where={True: "yes", False: "no", None: "not known"}[asks], folder=folder, filename=name, size=size,
+                       rules=numbers or "none", why=why)
+        if self.unpack_on and unpack.is_archive(name):
+            self._archive_arrived(row_id)
+        return row_id
 
     # ---- archives (a trial since 2026-11-05, decision 43E; see unpack.py) ---------------------------------------
 

@@ -58,12 +58,15 @@ def launch_app() -> None:
 def relay(message: Dict, folder: str, launch: Callable[[], None] = launch_app, wait: float = START_WAIT,
           sleep: Callable[[float], None] = time.sleep) -> Dict:
     """Pass one message to Accipio, starting it first when needed (not for a mere ping, or the extension's note
-    about a download it left to Chrome: that only matters to a running Accipio's debug log)."""
+    about a download it left to Chrome: that only matters to a running Accipio's debug log; and not for a file the
+    browser saved itself when Settings say to leave those alone)."""
     try:
         return ipc.send(folder, message)
     except OSError:
         if message.get("type") in ("ping", "seen"):
             return {"ok": False, "error": "Accipio is not running"}
+        if message.get("type") == "file" and not settings.load_settings(folder).file_browser_saves:
+            return {"ok": True, "filed": False}       # switched off in Settings: nothing to start Accipio for
     launch()
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:

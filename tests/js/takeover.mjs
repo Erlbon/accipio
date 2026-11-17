@@ -4,11 +4,19 @@
 // The point (2026-11-05): the takeover happens in onDeterminingFilename, before Chrome's own "Save As" box, and
 // a download Accipio did not take is handed back with suggest() so Chrome carries on as usual.
 
-const state = { reply: { ok: true }, takeover: true, sent: [], cancelled: [], erased: [], listener: null };
+const state = { reply: { ok: true }, takeover: true, sent: [], cancelled: [], erased: [], listener: null,
+                session: {}, changed: null, saved: {} };
 const noop = { addListener() {} };
 
 globalThis.chrome = {
-  storage: { local: { get: async () => ({ takeover: state.takeover }) } },
+  storage: {
+    local: { get: async () => ({ takeover: state.takeover }) },
+    session: {
+      get: async (key) => (key in state.session ? { [key]: state.session[key] } : {}),
+      set: async (values) => { Object.assign(state.session, values); },
+      remove: async (key) => { delete state.session[key]; },
+    },
+  },
   cookies: { getAll: async () => [{ name: "session", value: "abc" }] },
   runtime: {
     lastError: null,
@@ -19,6 +27,8 @@ globalThis.chrome = {
   downloads: {
     onDeterminingFilename: { addListener: (f) => { state.listener = f; } },
     onCreated: noop,
+    onChanged: { addListener: (f) => { state.changed = f; } },
+    search: async (query) => (state.saved[query.id] ? [state.saved[query.id]] : []),
     cancel: async (id) => { state.cancelled.push(id); },
     erase: async (query) => { state.erased.push(query.id); },
     download() {},
@@ -74,5 +84,48 @@ for (const [what, item, takeover, noted] of [["incognito", { ...link, id: 3, inc
   if (noted && (after[0].url !== item.url || !after[0].reason || "cookies" in after[0]))
     fail("the note is wrong: " + JSON.stringify(after[0]));
 }
+
+// Files Chrome downloads itself are reported once Chrome has saved them, so Accipio can file them by the rules
+// (2026-11-17): a blob: or data: file, and one Accipio said no to. Never incognito, takeover off, or one Accipio took.
+async function saved(id, item) {
+  state.saved[id] = { id, ...item };
+  const before = state.sent.length;
+  state.changed({ id, state: { current: "complete" } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  return state.sent.slice(before);
+}
+
+state.takeover = true;
+state.reply = { ok: true };
+const blob = { id: 10, url: "blob:https://a.org/1234", referrer: "https://a.org/page", filename: "notes.txt", incognito: false };
+await determine(blob);
+let told = await saved(10, { url: blob.url, referrer: blob.referrer, filename: "C:\\Users\\me\\Downloads\\notes.txt", mime: "text/plain" });
+if (told.length !== 1 || told[0].type !== "file" || told[0].path !== "C:\\Users\\me\\Downloads\\notes.txt"
+    || told[0].suggested !== "notes.txt" || told[0].url !== blob.url || told[0].page_url !== blob.referrer
+    || told[0].user_agent !== navigator.userAgent)
+  fail("a finished blob: file must be reported with its path and the name Chrome proposed: " + JSON.stringify(told));
+if ((await saved(10, { url: blob.url, filename: "C:\\x\\notes.txt" })).length) fail("a file is reported once only");
+
+const data = { id: 11, url: "data:text/plain;base64," + "QUJD".repeat(5000), referrer: "", filename: "big.txt", incognito: false };
+const noted = state.sent.length;
+await determine(data);
+told = await saved(11, { url: data.url, filename: "C:\\x\\big.txt" });
+if (told.length !== 1 || told[0].url !== "data:text/plain;base64") fail("a data: link's content must never be sent on");
+if (state.sent[noted].url !== "data:text/plain;base64") fail("the debug note must not carry a data: link's content either");
+
+state.reply = { ok: false, error: "the server answered 403" };
+await determine({ ...link, id: 12, filename: "book.epub" });
+state.reply = { ok: true };
+told = await saved(12, { url: link.url, referrer: link.referrer, filename: "C:\\x\\book.epub" });
+if (told.length !== 1 || told[0].type !== "file") fail("a download Accipio said no to must be reported when Chrome has saved it");
+
+await determine({ ...link, id: 13 });                                  // Accipio took it
+if ((await saved(13, { url: link.url, filename: "C:\\x\\book.epub" })).length) fail("a download Accipio took is not Chrome's to report");
+await determine({ ...blob, id: 14, incognito: true });
+if ((await saved(14, { url: blob.url, filename: "C:\\x\\notes.txt" })).length) fail("incognito must never be reported");
+state.takeover = false;
+await determine({ ...blob, id: 15 });
+if ((await saved(15, { url: blob.url, filename: "C:\\x\\notes.txt" })).length) fail("with the takeover off Chrome's files are left alone");
+if ((await saved(99, { url: link.url, filename: "C:\\x\\other.bin" })).length) fail("a download nobody asked about is not reported");
 
 console.log("ok");

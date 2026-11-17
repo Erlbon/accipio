@@ -32,7 +32,7 @@ from redactor_common.gui.menu_builder import MenuAction, Separator
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 from redactor_common.gui.update_controller import UpdateController
 
-from accipio.core import (aria2, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar, toasts,
+from accipio.core import (aria2, browser_settings, debug_log, ipc, notices, ranges, rules, settings as settings_mod, taskbar, toasts,
                           ytdlp_update)
 from accipio.core.queue import Queue
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, Row, Store
@@ -131,6 +131,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.services = services
         self.queue = services.queue
+        self.read_browsers = browser_settings.read                 # Chrome's and Edge's own settings; tests put a fake here
+        self.queue.browser_asks = lambda user_agent: browser_settings.asks(self.read_browsers(), user_agent)
         self.worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="accipio-queue")
         self.failures: List[str] = []
         self.ytdlp_updater = ytdlp_update.update                   # tests put a fake here
@@ -275,6 +277,16 @@ class MainWindow(QMainWindow):
                            **{k: v for k, v in message.items() if k not in ("type", "user_agent")})
         if kind == "seen":
             return {"ok": True}
+        if kind == "file":                          # the browser downloaded it itself and has saved it now
+            on = self.services.settings.file_browser_saves
+            debug_log.note("saved by the browser itself", filing="on" if on else "switched off in Settings",
+                           **{k: v for k, v in message.items() if k not in ("type", "via", "user_agent")})
+            if on:                                  # the move may take a while (another drive): no waiting for it
+                self.run(self.queue.file_saved, str(message.get("path") or ""), url=str(message.get("url") or ""),
+                         page_url=str(message.get("page_url") or ""), mime=str(message.get("mime") or ""),
+                         suggested=str(message.get("suggested") or ""),
+                         user_agent=str(message.get("user_agent") or ""))
+            return {"ok": True, "filed": on}
         if kind == "ping":
             return {"ok": True, "version": APP_VERSION}
         if kind == "show":
@@ -839,7 +851,8 @@ class MainWindow(QMainWindow):
 
     def open_settings(self) -> None:
         from accipio.gui.settings_dialog import SettingsDialog
-        dialog = SettingsDialog(self.services.settings, self, check_updates=self.updates.settings.enabled)
+        dialog = SettingsDialog(self.services.settings, self, check_updates=self.updates.settings.enabled,
+                                browsers=self.read_browsers())
         if dialog.exec():
             self.updates.settings.update(**{KEY_CHECK_FOR_UPDATES: dialog.check_updates.isChecked()})
             self.apply_settings(dialog.result_settings())

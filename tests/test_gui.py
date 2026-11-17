@@ -59,6 +59,7 @@ def world(app, tmp_path):
     engine, prober = Engine(), FakeProber()
     win = mw.MainWindow(mw.open_services(folder, engine=engine, prober=prober, video_engine=False), tick_ms=60_000)
     win.toaster = RefusingToaster()        # never a real Windows notice from a test; the tray (a FakeTray) tells it
+    win.read_browsers = lambda: []         # never this PC's real Chrome or Edge profile
     win.play_sound = lambda sound: None
     yield win, engine, prober, str(tmp_path / "Downloads")
     try:
@@ -604,6 +605,50 @@ def test_a_download_from_the_browser_arrives_with_its_cookies(world):
     row = win.model.rows[0]
     assert row.filename == "f.zip" and row.page_url == "https://a.org/"
     assert prober.seen_headers[-1] == {"Cookie": "s=1", "Referer": "https://a.org/", "User-Agent": "Chrome"}
+
+
+def test_a_file_the_browser_saved_itself_is_filed_by_the_rules_unless_switched_off(world, tmp_path):
+    """2026-11-17: a blob: file (text a page built) lands in Chrome's folder; the extension reports it and the rules
+    move it. Settings > "Browser's own files" switches that off."""
+    from accipio.core import ipc
+    win, engine, prober, base = world
+    chrome = tmp_path / "ChromeDownloads"
+    chrome.mkdir()
+    first, second = chrome / "ocr.txt", chrome / "more.txt"
+    first.write_bytes(b"text")
+    second.write_bytes(b"text")
+    message = {"type": "file", "via": "browser", "url": "blob:https://www.loc.gov/1", "page_url": "https://www.loc.gov/",
+               "mime": "text/plain"}
+    reply = ipc.send(win.services.folder, {**message, "path": str(first), "suggested": "ocr.txt"})
+    assert reply == {"ok": True, "filed": True}
+    win.flush()
+    row = win.model.rows[0]
+    assert (row.state, row.filename, row.folder) == ("complete", "ocr.txt", os.path.join(base, "Documents"))
+    assert os.path.isfile(row.path) and not first.exists()
+
+    # a browser set to ask where to save: the user chose the place, so the file stays (pick B)
+    from accipio.core.browser_settings import BrowserProfile
+    asking = [BrowserProfile("Chrome", "Me", "", True)]
+    win.read_browsers = lambda: asking
+    third = chrome / "placed.txt"
+    third.write_bytes(b"text")
+    ipc.send(win.services.folder, {**message, "path": str(third), "suggested": "placed.txt", "user_agent": "Chrome/157"})
+    win.flush()
+    assert third.exists() and win.model.rows[1].folder == str(chrome)
+    told = SettingsDialog(win.services.settings, win, browsers=asking).browser_note.text()
+    assert "Chrome (Me)" in told and "asks where to save each file" in told and "leaves the file there" in told
+    assert "No Chrome or Edge settings" in SettingsDialog(win.services.settings, win).browser_note.text()
+    win.read_browsers = lambda: []
+
+    dialog = SettingsDialog(win.services.settings, win)
+    assert dialog.file_browser_saves.isChecked()                       # on unless switched off
+    dialog.file_browser_saves.setChecked(False)
+    win.apply_settings(dialog.result_settings())
+    assert settings.load_settings(win.services.folder).file_browser_saves is False
+    reply = ipc.send(win.services.folder, {**message, "path": str(second), "suggested": "more.txt"})
+    assert reply == {"ok": True, "filed": False}
+    win.flush()
+    assert second.exists() and len(win.model.rows) == 2
 
 
 def test_ping_show_and_nonsense(world):
