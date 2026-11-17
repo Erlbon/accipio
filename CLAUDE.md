@@ -93,7 +93,22 @@ session does not reopen what is settled. Keep it current when a decision changes
   and puts `browser` in the relayed message and in the reply. `browser_settings.asks(profiles, browser)` takes that
   name; `browser_of(user_agent)` is only the fallback for a message without it. The scratch check script used for all
   of this: `C:\Temp\Claude\accipio-browsers\cdp_check.mjs` (not in the repo).
-  Firefox is a real port (no onDeterminingFilename, own manifest and registry key, needs Mozilla's unlisted signing).
+- Firefox (2026-11-17#04; NOT user-facing until signed): one code base, two manifests. `tools/make_firefox_extension.py`
+  builds `dist/firefox` + zip from `extension/` (drops `key`, event page instead of service worker, gecko id
+  `accipio@erlbon.github.io` = `browser.FIREFOX_ID`, `data_collection_permissions` required browsingActivity +
+  websiteContent, min Firefox 140). `common.js` `FIREFOX`/`BROWSER`/`userAgent()` (no user agent from Firefox: it would
+  be technicalAndInteraction, which Mozilla only allows as optional). No onDeterminingFilename there: `background.js`
+  falls back to `downloads.onCreated` (cancel, or `removeFile` when already complete; a not-taken download that is
+  already complete is reported at once). Host: `<config>\no.erlbon.accipio.firefox.json` (`allowed_extensions`) +
+  `HKCU\Software\Mozilla\NativeMessagingHosts`. Settings reader: `profiles.ini` + `prefs.js`
+  (`browser.download.useDownloadDir` false = asks). Tests: `tests/js/firefox.mjs` (stand-in Firefox).
+  Real check used (scratch, not in the repo): `C:\Temp\Claude\accipio-browsers\run_firefox_e2e.sh` = scratch Accipio
+  (`REDACTOR_CONFIG_DIR`, offscreen) + local web server + headless Firefox driven over WebDriver BiDi
+  (`webExtension.install` of the folder as a temporary add-on; BiDi refuses to open moz-extension:// pages, so the
+  proof is Accipio's debug log). The scratch Accipio segfaulted at `--quit` under the offscreen platform: not looked
+  into. TO DO: the user's Mozilla account -> `web-ext sign --channel unlisted` -> ship the .xpi (release asset and/or
+  in the install folder), then help page/installer/README text for Firefox. Firefox forks (LibreWolf, Zen, Waterfox)
+  untested; LibreWolf has its own native-messaging registry key.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

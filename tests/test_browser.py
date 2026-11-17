@@ -184,10 +184,52 @@ def test_registration_writes_launcher_manifest_and_registry(tmp_path):
     assert manifest["allowed_origins"] == [f"chrome-extension://{browser.EXTENSION_ID}/"] and manifest["type"] == "stdio"
     launcher = open(manifest["path"], encoding="utf-8").read()
     assert "accipio.native_host" in launcher and sys.executable in launcher
+    # Firefox has a manifest of its own kind: the extension by its ID, the same launcher (2026-11-17#04)
+    firefox_path = os.path.join(folder, f"{browser.HOST}.firefox.json")
+    firefox = json.load(open(firefox_path, encoding="utf-8"))
+    assert firefox["allowed_extensions"] == [browser.FIREFOX_ID] and "allowed_origins" not in firefox
+    assert (firefox["name"], firefox["path"], firefox["type"]) == (browser.HOST, manifest["path"], "stdio")
     if sys.platform == "win32":
-        assert set(writes) == set(browser.REGISTRY_KEYS) and set(writes.values()) == {manifest_path}
+        assert set(writes) == set(browser.REGISTRY_KEYS) | {browser.FIREFOX_REGISTRY_KEY}
+        assert writes.pop(browser.FIREFOX_REGISTRY_KEY) == firefox_path and set(writes.values()) == {manifest_path}
         assert any("Google" in c for c in changed) and any("Edge" in c for c in changed)
+        assert any("Mozilla" in c for c in changed)
+    writes[browser.FIREFOX_REGISTRY_KEY] = firefox_path
     assert browser.register(folder, frozen=False, executable=sys.executable, registry=registry) == []   # nothing changed
+
+
+def test_the_firefox_build_of_the_extension(tmp_path):
+    """tools/make_firefox_extension.py: the same scripts, Firefox's manifest, and the ID the host allows."""
+    sys.path.insert(0, os.path.join(os.path.dirname(EXTENSION), "tools"))
+    try:
+        import make_firefox_extension as make
+    finally:
+        sys.path.pop(0)
+    packed = make.build(str(tmp_path / "out" / "firefox"))
+    built = json.load(open(str(tmp_path / "out" / "firefox" / "manifest.json"), encoding="utf-8"))
+    chrome = json.load(open(os.path.join(EXTENSION, "manifest.json"), encoding="utf-8"))
+    gecko = built["browser_specific_settings"]["gecko"]
+    assert gecko["id"] == browser.FIREFOX_ID == make.FIREFOX_ID
+    assert gecko["data_collection_permissions"] == {"required": ["browsingActivity", "websiteContent"]}
+    assert "key" not in built and built["background"] == {"scripts": ["background.js"], "type": "module"}
+    assert (built["version"], built["permissions"]) == (chrome["version"], chrome["permissions"])
+    import zipfile
+    with zipfile.ZipFile(packed) as archive:
+        names = set(archive.namelist())
+    assert {"manifest.json", "background.js", "common.js", "popup.html", "popup.js"} <= names
+    assert "package.json" not in names and os.path.basename(packed) == f"accipio-firefox-{chrome['version']}.zip"
+    for name in ("background.js", "common.js", "popup.js"):          # the very same scripts
+        with open(os.path.join(EXTENSION, name), "rb") as ours, open(str(tmp_path / "out" / "firefox" / name), "rb") as theirs:
+            assert ours.read() == theirs.read()
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="no node")
+def test_the_extension_hands_downloads_over_in_firefox():
+    """Run the real background.js against a stand-in Firefox (tests/js/firefox.mjs): no onDeterminingFilename there,
+    so the hand-over happens in onCreated; nothing about the browser itself is passed on."""
+    script = os.path.join(os.path.dirname(__file__), "js", "firefox.mjs")
+    done = subprocess.run(["node", script], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr + done.stdout
 
 
 def test_a_frozen_build_points_at_the_exe(tmp_path):

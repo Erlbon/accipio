@@ -20,6 +20,7 @@ globalThis.chrome = {
   cookies: { getAll: async () => [{ name: "session", value: "abc" }] },
   runtime: {
     lastError: null,
+    getURL: (path) => "chrome-extension://ongnefecmhlaofpaaoehcdmdinnlgble/" + path,
     sendNativeMessage: (host, message, callback) => { state.sent.push(message); callback(state.reply); },
     onInstalled: noop, onStartup: noop, onMessage: noop,
   },

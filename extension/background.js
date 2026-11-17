@@ -13,7 +13,7 @@
 // A file Chrome has to download itself (one a page builds: blob:, data:; or one Accipio's own request failed for) is
 // reported to Accipio when Chrome has saved it, so the rules can still file it (fileLater, chromeSavedIt).
 
-import { HOST, cookieHeader, isTakeable, send } from "./common.js";
+import { BROWSER, HOST, cookieHeader, isTakeable, send, userAgent } from "./common.js";
 
 // links Chrome should download itself: "Download with Chrome instead", or a fallback
 const passThrough = new Set();
@@ -33,7 +33,7 @@ export async function offer(url, pageUrl, referrer = "", takeover = false) {
     page_url: pageUrl || "",
     referrer: referrer || pageUrl || "",
     cookies: await cookieHeader(url),
-    user_agent: navigator.userAgent,
+    user_agent: userAgent(),
   });
 }
 
@@ -77,7 +77,7 @@ async function chromeSavedIt(id) {
   if (!item || !item.filename) return;
   send({ type: "file", path: item.filename, suggested: waiting.suggested, url: shortUrl(item.finalUrl || item.url),
          page_url: item.referrer || waiting.page_url, mime: item.mime || "",
-         user_agent: navigator.userAgent });       // which browser: Accipio reads its own settings
+         user_agent: userAgent() });   // helps Accipio tell which browser, where its own helper cannot
 }
 
 chrome.downloads.onChanged.addListener((delta) => {
@@ -94,7 +94,7 @@ async function decide(item) {
     return false;
   }
   if (passThrough.delete(url) || passThrough.delete(item.url)) {
-    leftToChrome(item, "Download with Chrome instead");
+    leftToChrome(item, `Download with ${BROWSER} instead`);
     return false;
   }
   if (!(await takeoverOn())) {
@@ -110,23 +110,42 @@ async function decide(item) {
   return true;
 }
 
-chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  decide(item).then(async (taken) => {
-    if (taken) {
-      await chrome.downloads.cancel(item.id).catch(() => {});
-      await chrome.downloads.erase({ id: item.id }).catch(() => {});
-    } else {
-      suggest();                     // Chrome carries on with its own name (and Save As, if the user wants it)
-    }
-  }, () => suggest());
-  return true;                       // the answer comes later: Chrome waits for it
-});
+if (chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    decide(item).then(async (taken) => {
+      if (taken) {
+        await chrome.downloads.cancel(item.id).catch(() => {});
+        await chrome.downloads.erase({ id: item.id }).catch(() => {});
+      } else {
+        suggest();                   // Chrome carries on with its own name (and Save As, if the user wants it)
+      }
+    }, () => suggest());
+    return true;                     // the answer comes later: Chrome waits for it
+  });
+} else {
+  // Firefox has no event before a download starts: it is already running (and Firefox has asked where to save, if
+  // it is set to ask) when onCreated comes. The browser's copy goes on while Accipio checks the link. A yes stops
+  // it, or deletes it if a small file was already done, so the file never ends up twice. A no leaves it alone.
+  chrome.downloads.onCreated.addListener((item) => {
+    decide(item).then(async (taken) => {
+      const [now] = await chrome.downloads.search({ id: item.id });
+      const done = now && now.state === "complete";
+      if (taken) {
+        if (done) await chrome.downloads.removeFile(item.id).catch(() => {});
+        else await chrome.downloads.cancel(item.id).catch(() => {});
+        await chrome.downloads.erase({ id: item.id }).catch(() => {});
+      } else if (done) {
+        await chromeSavedIt(item.id);    // it finished before it was remembered: report it now
+      }
+    }).catch((e) => console.warn(e));
+  });
+}
 
 const MENUS = [
   { id: "accipio-link", title: "Download with Accipio", contexts: ["link"] },
   { id: "accipio-media", title: "Download with Accipio", contexts: ["image", "video", "audio"] },
   { id: "accipio-page", title: "Download this page's video with Accipio", contexts: ["page"] },
-  { id: "accipio-chrome", title: "Download with Chrome instead", contexts: ["link"] },
+  { id: "accipio-chrome", title: `Download with ${BROWSER} instead`, contexts: ["link"] },
 ];
 
 chrome.runtime.onInstalled.addListener(() => {

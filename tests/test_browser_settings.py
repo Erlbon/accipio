@@ -99,6 +99,42 @@ def test_the_real_reader_never_fails_on_this_machine():
     assert isinstance(bs.windows_policies(bs.BRAVE), dict) and bs.windows_policies(bs.VIVALDI) == {}
 
 
+def test_firefox_is_read_from_its_own_files(tmp_path):
+    """profiles.ini names the profiles; each one's prefs.js holds only what differs from Firefox's defaults."""
+    root = tmp_path / "Firefox"
+    for folder in ("Profiles/aaaa.default-release", "Profiles/bbbb.work", "Profiles/cccc.never-used"):
+        (root / folder).mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    saves_to = str(tmp_path / "Download")
+    (root / "profiles.ini").write_text(
+        "[Install308046B0AF4A39CB]\nDefault=Profiles/aaaa.default-release\n\n"
+        "[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/aaaa.default-release\n\n"
+        "[Profile1]\nName=Work\nIsRelative=1\nPath=Profiles/bbbb.work\n\n"
+        "[Profile2]\nName=Never used\nIsRelative=1\nPath=Profiles/cccc.never-used\n\n"
+        f"[Profile3]\nName=Elsewhere\nIsRelative=0\nPath={elsewhere}\n\n"
+        "[General]\nStartWithLastProfile=1\n", encoding="utf-8")
+    (root / "Profiles/aaaa.default-release/prefs.js").write_text(
+        '// Mozilla User Preferences\n'
+        'user_pref("browser.download.folderList", 2);\n'
+        f'user_pref("browser.download.dir", {json.dumps(saves_to)});\n'
+        'user_pref("browser.download.lastDir", "C:\\\\somewhere");\n'
+        'user_pref("app.update.lastUpdateTime.x", 1794300000);\n', encoding="utf-8")
+    (root / "Profiles/bbbb.work/prefs.js").write_text(
+        'user_pref("browser.download.useDownloadDir", false);\n'
+        'user_pref("browser.download.dir", "C:\\\\ignored: folderList is not 2");\n', encoding="utf-8")
+    (elsewhere / "prefs.js").write_text("not a prefs file at all\n", encoding="utf-8")
+    found = bs.read([(bs.FIREFOX, str(root))], no_policies)
+    assert found == [BrowserProfile(bs.FIREFOX, "default-release", saves_to, False),
+                     BrowserProfile(bs.FIREFOX, "Work", "", True), BrowserProfile(bs.FIREFOX, "Elsewhere")]
+    assert bs.asks(found, bs.FIREFOX) is None and bs.asks(found[1:2], bs.FIREFOX) is True
+    forced = bs.read([(bs.FIREFOX, str(root))], lambda browser: {"PromptForDownloadLocation": 1})
+    assert all(p.asks for p in forced) and "asks where to save" in bs.describe(forced[0])
+    assert bs.read([(bs.FIREFOX, str(tmp_path / "no-firefox"))], no_policies) == []
+    (root / "profiles.ini").write_text("this is [not an ini\n", encoding="utf-8")
+    assert bs.read([(bs.FIREFOX, str(root))], no_policies) == []
+
+
 def test_opera_keeps_the_same_files_and_is_read_the_same_way(tmp_path):
     opera = make_browser(str(tmp_path / "Opera Stable"), {"Default": ("Me", {"prompt_for_download": True})})
     found = bs.read([(bs.OPERA, opera)], no_policies)

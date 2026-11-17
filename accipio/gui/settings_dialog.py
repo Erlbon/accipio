@@ -173,7 +173,7 @@ class SettingsDialog(QDialog):
         browser_column.addWidget(self.file_browser_saves)
         # what the browsers are set to do themselves, read from their own settings (never changed by Accipio)
         told = [browser_settings.describe(profile) for profile in browsers] or \
-            ["No browser settings were found on this PC (Chrome, Edge, Opera, Opera GX, Brave, Vivaldi)."]
+            ["No browser settings were found on this PC (Chrome, Edge, Firefox, Opera, Opera GX, Brave, Vivaldi)."]
         if any(profile.asks for profile in browsers):
             told.append("Where the browser asks where to save, you chose the place, so Accipio leaves the file there.")
         self.browser_note = QLabel("\n".join(told))

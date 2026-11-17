@@ -2,6 +2,16 @@
 
 export const HOST = "no.erlbon.accipio";
 
+// The same scripts run in Firefox (its own manifest, built by tools/make_firefox_extension.py).
+export const FIREFOX = chrome.runtime.getURL("").startsWith("moz-extension:");
+export const BROWSER = FIREFOX ? "Firefox" : "Chrome";
+
+// What a download made by Accipio should call itself to the site. Not from Firefox: Mozilla counts the browser's
+// details as data an extension may pass on only with a separate consent, and Accipio works without them.
+export function userAgent() {
+  return FIREFOX ? "" : navigator.userAgent;
+}
+
 // Only these go to Accipio; blob:, data: and file: links exist only inside the browser, so Chrome keeps them.
 export function isTakeable(url) {
   return typeof url === "string" && /^(https?|ftp):\/\//i.test(url);

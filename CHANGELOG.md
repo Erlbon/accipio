@@ -2,6 +2,16 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#04 -- Firefox: built and tried, waiting for Mozilla's signature
+
+- **Accipio's extension now runs in Firefox**, from the same scripts as the Chrome one (`python tools/make_firefox_extension.py` writes Firefox's version to `dist\firefox` and a zip beside it). **It is not available to users yet:** Firefox only keeps an extension that Mozilla has signed, and that step is still to be done. Until then it loads only as a temporary add-on, which is gone when Firefox closes. Nothing in the help page or the installer mentions Firefox yet for that reason.
+- Tried on 2026-11-17 in a real Firefox 160, hidden, with a fresh profile and a scratch copy of Accipio: a clicked download was handed to Accipio, which downloaded it while Firefox's own copy was stopped; and a file a page built itself (a "blob:" link) was saved by Firefox and then moved by Accipio. Mozilla's validator finds no errors.
+- **How Firefox differs:** it has nothing like Chrome's moment before a download starts, so the hand-over happens just after. If Firefox is set to ask where to save, it has already asked. The browser's copy is stopped when Accipio takes the file, or deleted if a small file had already finished, so nothing ends up twice.
+- Accipio registers its helper program for Firefox as it does for the others (a manifest of Firefox's own kind and a registry entry, both for this user only; the uninstaller removes the entry).
+- **Settings > Browser's own files** reads Firefox's own settings too (each profile's folder and whether it asks where to save), and Firefox's company policies.
+- What the Firefox extension passes on is declared to Mozilla, as it demands since November 2025: the addresses of a download and its page, and that site's cookies. They go to the Accipio app on the same PC and nowhere else. The browser's own details (its user agent) are not passed on from Firefox.
+- The browser extension is now 0.1.5 (reload its card after updating). In Chrome and the others nothing changes for the user.
+
 ## 2026-11-17#03 -- Brave, Vivaldi and Opera GX
 
 - **Accipio's extension also works in Brave, Vivaldi and Opera GX**, loaded by hand the same way, with no change to the extension. Tried on 2026-11-17 in real ones (Brave 1.99, Vivaldi 8.3, Opera GX 139), each with a fresh profile: the extension loads under the same ID and reaches Accipio. A full download by a click in those browsers has not been tried yet.

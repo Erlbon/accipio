@@ -82,7 +82,8 @@ def relay(message: Dict, folder: str, launch: Callable[[], None] = launch_app, w
 # The extension cannot always say: Vivaldi calls itself Google Chrome in every way an extension can see. But the
 # browser starts this host (through the launcher script), so the program a few steps up from this process is it.
 
-BROWSER_PROGRAMS = {"chrome": "Chrome", "msedge": "Edge", "brave": "Brave", "vivaldi": "Vivaldi", "opera": "Opera"}
+BROWSER_PROGRAMS = {"chrome": "Chrome", "msedge": "Edge", "brave": "Brave", "vivaldi": "Vivaldi", "opera": "Opera",
+                    "firefox": "Firefox"}
 
 
 def browser_from(programs: List[str]) -> str:

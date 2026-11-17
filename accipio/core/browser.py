@@ -21,6 +21,11 @@ EXTENSION_ID = "ongnefecmhlaofpaaoehcdmdinnlgble"
 # 2026-11-17: Opera 140, Opera GX 139, Brave 1.99, Vivaldi 8.3)
 REGISTRY_KEYS = [rf"Software\Google\Chrome\NativeMessagingHosts\{HOST}",
                  rf"Software\Microsoft\Edge\NativeMessagingHosts\{HOST}"]
+# Firefox (2026-11-17#04) keeps its own list and its own kind of manifest: the extension is named by its ID
+# (tools/make_firefox_extension.py FIREFOX_ID), not by an origin.
+FIREFOX_ID = "accipio@erlbon.github.io"
+FIREFOX_REGISTRY_KEY = rf"Software\Mozilla\NativeMessagingHosts\{HOST}"
+FIREFOX_LINUX_FOLDER = "~/.mozilla"
 LINUX_FOLDERS = ["~/.config/google-chrome", "~/.config/chromium", "~/.config/microsoft-edge", "~/.config/BraveSoftware/Brave-Browser"]
 
 
@@ -38,6 +43,11 @@ def launcher_text(frozen: bool, executable: str, package_root: str) -> str:
 def host_manifest(launcher: str) -> dict:
     return {"name": HOST, "description": "Accipio download manager", "path": launcher, "type": "stdio",
             "allowed_origins": [f"chrome-extension://{EXTENSION_ID}/"]}
+
+
+def firefox_host_manifest(launcher: str) -> dict:
+    return {"name": HOST, "description": "Accipio download manager", "path": launcher, "type": "stdio",
+            "allowed_extensions": [FIREFOX_ID]}
 
 
 def _write_if_changed(path: str, text: str) -> bool:
@@ -85,10 +95,22 @@ def register(folder: str, *, frozen: Optional[bool] = None, executable: Optional
     manifest = os.path.join(folder, f"{HOST}.json")
     if _write_if_changed(manifest, manifest_text):
         changed.append(manifest)
+    firefox_text = json.dumps(firefox_host_manifest(launcher), indent=2)
+    firefox_manifest = os.path.join(folder, f"{HOST}.firefox.json")
+    if _write_if_changed(firefox_manifest, firefox_text):
+        changed.append(firefox_manifest)
     if sys.platform == "win32":
         write = registry or _windows_registry
         changed += [f"HKCU\\{k}" for k in REGISTRY_KEYS if write(k, manifest)]
+        if write(FIREFOX_REGISTRY_KEY, firefox_manifest):
+            changed.append(f"HKCU\\{FIREFOX_REGISTRY_KEY}")
     else:
+        mozilla = os.path.expanduser(FIREFOX_LINUX_FOLDER) if home is None \
+            else os.path.join(home, FIREFOX_LINUX_FOLDER.replace("~/", ""))
+        if os.path.isdir(mozilla):
+            target = os.path.join(mozilla, "native-messaging-hosts", f"{HOST}.json")
+            if _write_if_changed(target, firefox_text):
+                changed.append(target)
         for browser in LINUX_FOLDERS:
             base = os.path.expanduser(browser) if home is None else os.path.join(home, browser.replace("~/", ""))
             if os.path.isdir(base):

@@ -19,17 +19,20 @@ passed in by the tests, which never touch a real profile or the real registry.
 """
 from __future__ import annotations
 
+import configparser
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 CHROME, EDGE, OPERA, OPERA_GX, BRAVE, VIVALDI = "Chrome", "Edge", "Opera", "Opera GX", "Brave", "Vivaldi"
+FIREFOX = "Firefox"                    # its own files: profiles.ini and each profile's prefs.js (see _firefox_profiles)
 # The names are the ones native_host.browser_from gives. All six keep the same files in the same layout (Opera 140,
 # Opera GX 139, Brave 1.99 and Vivaldi 8.3 seen 2026-11-17). Policies: only where the vendor documents the key.
 POLICY_KEYS = {CHROME: "Software\\Policies\\Google\\Chrome", EDGE: "Software\\Policies\\Microsoft\\Edge",
-               BRAVE: "Software\\Policies\\BraveSoftware\\Brave"}
+               BRAVE: "Software\\Policies\\BraveSoftware\\Brave", FIREFOX: "Software\\Policies\\Mozilla\\Firefox"}
 POLICY_VALUES = ("DownloadDirectory", "PromptForDownloadLocation", "DownloadRestrictions")
 BLOCKS_ALL = 3                         # DownloadRestrictions: 1, 2 and 4 block only what the browser judges dangerous
 
@@ -54,18 +57,19 @@ def user_data_folders() -> List[Tuple[str, str]]:
                 (OPERA, os.path.join(roaming, "Opera Software", "Opera Stable")),
                 (OPERA_GX, os.path.join(roaming, "Opera Software", "Opera GX Stable")),
                 (BRAVE, os.path.join(local, "BraveSoftware", "Brave-Browser", "User Data")),
-                (VIVALDI, os.path.join(local, "Vivaldi", "User Data"))]
+                (VIVALDI, os.path.join(local, "Vivaldi", "User Data")),
+                (FIREFOX, os.path.join(roaming, "Mozilla", "Firefox"))]
     if sys.platform == "darwin":
         support = os.path.join(home, "Library", "Application Support")
         return [(CHROME, os.path.join(support, "Google", "Chrome")), (EDGE, os.path.join(support, "Microsoft Edge")),
                 (OPERA, os.path.join(support, "com.operasoftware.Opera")),
                 (OPERA_GX, os.path.join(support, "com.operasoftware.OperaGX")),
                 (BRAVE, os.path.join(support, "BraveSoftware", "Brave-Browser")),
-                (VIVALDI, os.path.join(support, "Vivaldi"))]
+                (VIVALDI, os.path.join(support, "Vivaldi")), (FIREFOX, os.path.join(support, "Firefox"))]
     config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
     return [(CHROME, os.path.join(config, "google-chrome")), (EDGE, os.path.join(config, "microsoft-edge")),
             (OPERA, os.path.join(config, "opera")), (BRAVE, os.path.join(config, "BraveSoftware", "Brave-Browser")),
-            (VIVALDI, os.path.join(config, "vivaldi"))]
+            (VIVALDI, os.path.join(config, "vivaldi")), (FIREFOX, os.path.join(home, ".mozilla", "firefox"))]
 
 
 def windows_policies(browser: str) -> Dict[str, Any]:
@@ -120,11 +124,70 @@ def _with_policies(profile: BrowserProfile, policies: Dict[str, Any]) -> Browser
     return profile
 
 
+_FIREFOX_PREF = re.compile(r'^user_pref\("(browser\.download\.[A-Za-z_.]+)",\s*(.+)\);\s*$')
+
+
+def _firefox_prefs(path: str) -> Optional[Dict[str, Any]]:
+    """The download settings in a Firefox profile's prefs.js (lines of ``user_pref("name", value);``, written only
+    for what differs from the default). None when the profile has no such file: it was never used."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    found: Dict[str, Any] = {}
+    for line in lines:
+        match = _FIREFOX_PREF.match(line.strip())
+        if match:
+            try:
+                found[match.group(1)] = json.loads(match.group(2))
+            except ValueError:
+                pass
+    return found
+
+
+def _firefox_profiles(root: str) -> List[BrowserProfile]:
+    """Firefox's profiles (``profiles.ini``) with what each one's prefs.js says: it asks where to save when
+    ``browser.download.useDownloadDir`` is false, and saves to ``browser.download.dir`` when ``folderList`` is 2 (a
+    folder of the user's own; otherwise the system's Downloads folder, or the desktop). Seen in Firefox 160."""
+    parser = configparser.RawConfigParser()
+    parser.optionxform = str
+    try:
+        parser.read(os.path.join(root, "profiles.ini"), encoding="utf-8")
+    except (configparser.Error, OSError, UnicodeDecodeError):
+        return []
+    found = []
+    for section in parser.sections():
+        if not section.startswith("Profile"):
+            continue
+        path = parser.get(section, "Path", fallback="")
+        if not path:
+            continue
+        folder = os.path.join(root, path) if parser.get(section, "IsRelative", fallback="1") == "1" else path
+        prefs = _firefox_prefs(os.path.join(folder, "prefs.js"))
+        if prefs is None:
+            continue
+        saves_to = prefs.get("browser.download.dir") if prefs.get("browser.download.folderList") == 2 else ""
+        found.append(BrowserProfile(FIREFOX, parser.get(section, "Name", fallback=section),
+                                    saves_to if isinstance(saves_to, str) else "",
+                                    prefs.get("browser.download.useDownloadDir") is False))
+    return found
+
+
 def read(folders: Optional[List[Tuple[str, str]]] = None,
          policies: Callable[[str], Dict[str, Any]] = windows_policies) -> List[BrowserProfile]:
     """Every profile of every browser found, with its download settings. [] when no browser is installed."""
     found = []
     for browser, root in user_data_folders() if folders is None else folders:
+        if browser == FIREFOX:
+            profiles = _firefox_profiles(root)
+            if profiles:
+                try:
+                    fixed = policies(browser)
+                except OSError:
+                    fixed = {}
+                found += [_with_policies(profile, fixed) for profile in profiles]
+            continue
         listed = _section(_json(os.path.join(root, "Local State")), "profile", "info_cache")
         fixed = None
         for folder_name in sorted(listed):
