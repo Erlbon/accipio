@@ -2,6 +2,10 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#05 -- The extension says what it needs
+
+- The browser extension's own description, the line each browser shows in its list of extensions, now reads: "Hands the downloads you click to the Accipio download manager on this computer, which saves each file where your rules say. Needs the free Accipio app. Nothing is sent to any server." The old line did not say that the extension does nothing without the Accipio app. Extension 0.1.6; nothing else in it changed.
+
 ## 2026-11-17#04 -- Firefox: built and tried, waiting for Mozilla's signature
 
 - **Accipio's extension now runs in Firefox**, from the same scripts as the Chrome one (`python tools/make_firefox_extension.py` writes Firefox's version to `dist\firefox` and a zip beside it). **It is not available to users yet:** Firefox only keeps an extension that Mozilla has signed, and that step is still to be done. Until then it loads only as a temporary add-on, which is gone when Firefox closes. Nothing in the help page or the installer mentions Firefox yet for that reason.
