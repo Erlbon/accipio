@@ -209,7 +209,8 @@ class AddDialog(QDialog):
 
     def _status(self, entry: Entry) -> str:
         if entry.state == "ready":
-            bits = {"video": "video", "playlist": f"{entry.preview.count} videos"}.get(entry.preview.kind, "")
+            bits = {"video": "video", "playlist": f"{entry.preview.count} videos",
+                    "torrent": "torrent, passed on to a torrent program"}.get(entry.preview.kind, "")
             return "Ready" + "".join(f" · {b}" for b in (human_size(entry.preview.size), bits) if b)
         return entry.error if entry.state == "error" else "Checking…"
 

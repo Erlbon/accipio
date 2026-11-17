@@ -36,7 +36,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from accipio.core import aria2, debug_log, probe, rules, sniff, unpack, video, zone
+from accipio.core import aria2, debug_log, probe, rules, sniff, torrents, unpack, video, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
 from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
@@ -129,6 +129,10 @@ class Queue:
         # Whether this browser ("Chrome", "Vivaldi"...) asks where to save each file (browser_settings.asks); None =
         # not known, which is all the queue knows by itself. The window puts the real reader here.
         self.browser_asks: Callable[[str], Optional[bool]] = lambda browser: None
+        # Torrents are passed on to a torrent program, never downloaded here (torrents.py; Settings, off by default)
+        self.torrents = torrents.OFF
+        self.qbittorrent_path = ""
+        self.pass_torrent: Callable[..., str] = torrents.hand_over       # tests put a stand-in here
         # Looking a list up can take many seconds (a YouTube Mix: 16 s for 371 videos), so it runs beside the
         # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
         self.in_background: Callable[..., None] = \
@@ -200,9 +204,49 @@ class Queue:
             d = Download(url=found_video.url, filename=found_video.filename, page_url=page_url, size=found_video.size,
                          source="video", video=found_video.fields, when=when)
             return Preview(url, found_video.filename, found_video.size, "video", self._place(d))
+        if torrents.is_magnet(url):
+            return Preview(url, torrents.magnet_name(url), None, "torrent", self._place_magnet(url, page_url, when))
         found = self.prober(url, headers=headers)
         placement = self._place(self._download(found, page_url, when))
         return Preview(url, placement.filename, found.size, "file", placement)
+
+    # ---- torrents: passed on, not downloaded (2026-11-17#07, torrents.py) ----------------------------------------
+
+    def _place_magnet(self, url: str, page_url: str, when: datetime.datetime) -> Placement:
+        """Where the rules put a magnet link's torrent: it counts as a file "<its name>.torrent" from that page."""
+        name = rules.safe_part(torrents.magnet_name(url), "torrent") + "." + torrents.TORRENT_EXTENSION
+        return self._place(Download(url="", filename=name, page_url=page_url, when=when))
+
+    def _pass_magnet(self, row_id: int, folder: str = "") -> None:
+        """A magnet link never reaches an engine (aria2 would download the torrent itself): the torrent program gets
+        it, with the folder the rules chose. The row is done as soon as it is passed on; no file of its own."""
+        row = self.store.get(row_id)
+        name = torrents.magnet_name(row.url)
+        placement = self._place_magnet(row.url, row.page_url, row.added_at)
+        target = os.path.normpath(folder) if folder else placement.folder
+        try:
+            told = self.pass_torrent(row.url, self.torrents, folder=target, qbittorrent=self.qbittorrent_path)
+        except torrents.TorrentError as error:
+            debug_log.note("magnet not passed on", row=row_id, way=self.torrents, error=str(error))
+            self.store.update(row_id, state=ERROR, error=f"A magnet link: {error}")
+            return
+        knows_folder = self.torrents == torrents.QBITTORRENT
+        why = f"A magnet link. {told}" + (f" {placement.why()}" if knows_folder and not folder else "")
+        debug_log.note("magnet passed on", row=row_id, way=self.torrents, name=name,
+                       folder=target if knows_folder else "the torrent program's own", rules=placement.rule_numbers or "none")
+        self.store.update(row_id, state=COMPLETE, folder=target if knows_folder else "", filename=name, error="",
+                          rules=placement.rule_numbers if knows_folder and not folder else "", why=why, headers={},
+                          finished=self.clock().isoformat(timespec="seconds"))
+
+    def _pass_torrent_file(self, row_id: int) -> None:
+        """A finished .torrent file goes to the torrent program, which saves the torrent's files beside it."""
+        row = self.store.get(row_id)
+        try:
+            told = self.pass_torrent(row.path, self.torrents, folder=row.folder, qbittorrent=self.qbittorrent_path)
+        except torrents.TorrentError as error:
+            told = f"It could not be passed on to a torrent program: {error}"
+        debug_log.note("torrent file", row=row_id, way=self.torrents, filename=row.filename, result=told)
+        self.store.update(row_id, why=f"{row.why} {told}")
 
     def add(self, url: str, *, page_url: str = "", headers: Optional[Dict[str, str]] = None,
             folder: str = "", filename: str = "", whole_list: bool = False) -> int:
@@ -217,6 +261,9 @@ class Queue:
     def _start(self, row_id: int, folder: str = "", filename: str = "") -> None:
         row = self.store.get(row_id)
         self.store.update(row_id, state=PROBING, error="")
+        if torrents.is_magnet(row.url):
+            self._pass_magnet(row_id, folder)
+            return
         debug_log.note("check", row=row_id, url=row.url, page=row.page_url, headers=row.headers)
         started = time.monotonic()
         try:
@@ -424,6 +471,8 @@ class Queue:
                        archive=unpack.is_archive(name), archive_trial_on=self.unpack_on)
         if self.unpack_on and unpack.is_archive(name):
             self._archive_arrived(row.id)
+        if self.torrents != torrents.OFF and torrents.is_torrent_file(name):
+            self._pass_torrent_file(row.id)
 
     # ---- files the browser saved itself (2026-11-17) ---------------------------------------------------------
 
@@ -677,7 +726,7 @@ class Queue:
         row = self.store.get(row_id)
         if not row or row.state != ERROR:
             return
-        if not row.filename:
+        if not row.filename or torrents.is_magnet(row.url):       # a magnet link is passed on again, never downloaded
             self._start(row_id)
             return
         self._drop_partial(row)

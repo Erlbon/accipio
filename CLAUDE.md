@@ -117,6 +117,16 @@ session does not reopen what is settled. Keep it current when a decision changes
   a push: the pre-push hook runs them). Plan extension changes with that in mind and batch them.
   Not done: Firefox does not update the installed copy by itself (no `update_url` in the manifest; the help text
   tells the user to install the file again after an Accipio update).
+- Torrents (2026-11-17#07, the user's "entry step"): passed on, never downloaded. `core/torrents.py` (Qt-free):
+  `Settings.torrents` off (default) / system (`os.startfile`, any client) / qbittorrent (`qbittorrent.exe
+  --save-path=<rules' folder> <magnet or .torrent path>`, argv list, no shell; only `--save-path` because
+  `--add-paused` became `--add-stopped` in v5). `Queue._start` sends a magnet to `_pass_magnet` BEFORE any engine:
+  **a magnet must never reach aria2, which would download the torrent itself** (retry is guarded too; a test pins
+  it). A magnet row is COMPLETE at once with no file (filename = the torrent's name; folder only in the qbittorrent
+  way). A finished `.torrent` goes through `_pass_torrent_file` from `_finish`. `links_in` accepts `magnet:?`.
+  Tests replace `queue.pass_torrent`; no real torrent program was ever started (work PC: no torrent traffic here).
+  Not done: the extension's right-click on a magnet link (`isTakeable` refuses magnet:; needs a new signed version),
+  registering Accipio as the magnet: handler, qBittorrent's Web API (the fit for the Accipio-to-Accipio collector).
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

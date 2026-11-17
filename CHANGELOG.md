@@ -2,6 +2,18 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#07 -- Magnet links and .torrent files are passed on to your torrent program
+
+- **Accipio can now pass torrents on.** It does not download them itself. **Settings > Torrents** has three choices:
+  - **Leave them alone** (as before, and the default): a magnet link is refused, a .torrent file is kept as a file.
+  - **Open them with the torrent program Windows uses**: works with any torrent program. That program decides where its files go.
+  - **Send them to qBittorrent, saving where my rules say**: qBittorrent is started with the link or the file and told to save in the folder your rules choose. Accipio finds qBittorrent itself; Browse… picks another one.
+- **A magnet link** can be pasted into the paste bar or the Add box. Its row is finished as soon as it is passed on, and "why here?" says where it went. For the rules it counts as a file named after the torrent with the ending `.torrent`, so a file group with the extension `torrent` and a rule for it choose the folder.
+- **A .torrent file** that Accipio has downloaded is passed on when it finishes. The .torrent file stays where the rules put it, and with qBittorrent the torrent's own files are saved in that same folder.
+- If there is nothing to pass a torrent to (no torrent program, qBittorrent not found), the row says so; a magnet link's row fails with the reason and Retry passes it on once that is fixed.
+- Not tried with a real torrent program: no torrent was started on the PC this was built on. The qBittorrent option uses only `--save-path`, which has the same name in qBittorrent 4.6 and 5.
+- Not yet: right-clicking a magnet link in the browser and choosing "Download with Accipio". That needs a new version of the browser extension, which comes with the next batch of extension changes. A magnet link you simply click still goes straight to your torrent program, as always.
+
 ## 2026-11-17#06 -- Firefox, for everyone
 
 - **Firefox users can now add Accipio's extension.** It comes with Accipio as one file, signed by Mozilla: `extension-firefox\accipio-firefox.xpi` in Accipio's folder. On Firefox's Add-ons page (Ctrl+Shift+A), click the cogwheel, choose **Install Add-on From File** and pick it. The help page has the steps and, when it is open in Firefox, a link that installs it directly; Tools > Connect Browser shows the file and copies its path.

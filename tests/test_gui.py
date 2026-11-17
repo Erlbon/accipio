@@ -83,6 +83,50 @@ def select(win, position):
     win.table.selectRow(position)
 
 
+# ---- torrents are passed on (2026-11-17#07) -----------------------------------------------------------------
+
+def test_a_pasted_magnet_link_is_passed_on_once_settings_say_how(world, tmp_path):
+    from accipio.core import torrents
+    win, engine, prober, base = world
+    magnet = "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=Ubuntu+26.10"
+    passed = []
+
+    def stand_in(source, mode, *, folder="", qbittorrent=""):
+        if mode == torrents.OFF:
+            raise torrents.TorrentError("passing torrents on is switched off (Settings > Torrents)")
+        passed.append((source, mode, folder, qbittorrent))
+        return "Passed on."
+    win.queue.pass_torrent = stand_in
+    assert mw.links_in(f"see {magnet} and https://a.org/x.zip.") == [magnet, "https://a.org/x.zip"]
+
+    win.paste.setText(magnet)                                          # off by default: refused, with the way out
+    win.add_from_bar()
+    win.flush()
+    assert win.model.rows[0].state == "error" and "Settings > Torrents" in win.model.rows[0].error and not passed
+
+    program = tmp_path / "qbittorrent.exe"
+    program.write_bytes(b"")
+    dialog = SettingsDialog(win.services.settings, win, find_qbittorrent=lambda chosen: chosen)
+    assert dialog.torrents.currentData() == torrents.OFF and dialog.qbittorrent_label.isHidden()
+    dialog.torrents.setCurrentIndex(dialog.torrents.findData(torrents.QBITTORRENT))
+    assert not dialog.qbittorrent_label.isHidden() and "not found" in dialog.qbittorrent_label.text()
+    dialog._ask_for_qbittorrent = lambda: str(program)
+    dialog.qbittorrent_browse.click()
+    assert dialog.qbittorrent_label.text() == os.path.normpath(str(program))
+    win.apply_settings(dialog.result_settings())
+    saved = settings.load_settings(win.services.folder)
+    assert (saved.torrents, saved.qbittorrent_path) == (torrents.QBITTORRENT, os.path.normpath(str(program)))
+
+    win.queue.retry(win.model.rows[0].id)
+    win.flush()
+    row = win.model.rows[0]
+    assert row.state == "complete" and row.filename == "Ubuntu 26.10"
+    # the sample rules' last rule ("Other") takes whatever no other rule wants
+    assert passed == [(magnet, torrents.QBITTORRENT, os.path.join(base, "Other"), os.path.normpath(str(program)))]
+    # a choice an older or damaged settings file cannot make
+    assert settings.Settings(torrents="everything").torrents == torrents.OFF
+
+
 # ---- the debug log (2026-11-07, 72B) ---------------------------------------------------------------------
 
 def test_the_debug_log_is_off_until_switched_on_and_then_tells_what_the_browser_did(world):

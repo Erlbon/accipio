@@ -44,11 +44,12 @@ from accipio.gui.playlist_question import PlaylistQuestion
 from accipio.gui.taskbar_button import TaskbarButton
 from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
 
-LINK = re.compile(r"(?:https?|ftp)://\S+", re.IGNORECASE)
+LINK = re.compile(r"(?:https?|ftp)://\S+|magnet:\?\S+", re.IGNORECASE)
 
 
 def links_in(text: str) -> List[str]:
-    """Every http(s)/ftp link in pasted or dropped text, in order, without repeats."""
+    """Every http(s)/ftp link, and every magnet link, in pasted or dropped text, in order, without repeats. (What
+    happens to a magnet link is the queue's business: passed on to a torrent program, or refused when that is off.)"""
     found = [m.group(0).rstrip(".,;)>\"'") for m in LINK.finditer(text or "")]
     return list(dict.fromkeys(found))
 
@@ -120,6 +121,7 @@ def open_services(folder: str, engine=None, prober=None, video_engine=None, vide
                   library_set=lambda: holder["library"], speed_limit=current.speed_limit_kib * 1024, **kwargs)
     queue.unpack_on, queue.after_unpack = current.unpack_archives, current.after_unpack
     queue.ask_playlists = current.ask_playlists
+    queue.torrents, queue.qbittorrent_path = current.torrents, current.qbittorrent_path
     services = Services(folder, current, rule_list, store, engine, queue)
     services.video_engine = video_engine or None
     services._holder = holder
@@ -626,7 +628,8 @@ class MainWindow(QMainWindow):
         if self.add_links(text):
             self.paste.clear()
         else:
-            self.statusBar().showMessage("No link there: paste an address that starts with http://, https:// or ftp://", 6000)
+            self.statusBar().showMessage("No link there: paste an address that starts with http://, https:// or ftp://, "
+                                         "or a magnet link", 6000)
 
     def open_add_dialog(self, text: Optional[str] = None, from_bar: bool = False) -> Optional[object]:
         """The Add box: the given text, else the paste bar's, else links on the clipboard. Returns the dialog
@@ -875,9 +878,10 @@ class MainWindow(QMainWindow):
         self.queue.clear_finished_how, self.queue.clear_after_minutes = new.clear_finished, new.clear_after_minutes
         self.queue.unpack_on, self.queue.after_unpack = new.unpack_archives, new.after_unpack
         self.queue.ask_playlists = new.ask_playlists
+        self.queue.torrents, self.queue.qbittorrent_path = new.torrents, new.qbittorrent_path
         debug_log.LOG.configure(self.services.folder, new.debug_log)
         debug_log.note("settings saved", archives=new.unpack_archives, finished=new.clear_finished,
-                       ask_playlists=new.ask_playlists)
+                       ask_playlists=new.ask_playlists, torrents=new.torrents)
         self.notices.enabled = set(new.notice_kinds())
         self.queue.speed_limit = new.speed_limit_kib * 1024        # a total; refresh() shares it between the engines
         for engine in (self.services.engine, self.services.video_engine):

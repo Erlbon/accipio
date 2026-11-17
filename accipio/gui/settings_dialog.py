@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialo
                              QSpinBox, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
-from accipio.core import browser_settings, debug_log, toasts, video
+from accipio.core import browser_settings, debug_log, toasts, torrents, video
 from accipio.core.notices import ADDED, FAILED, FINISHED, KINDS
 from accipio.core.settings import CLEAR_AFTER, CLEAR_AT_ONCE, CLEAR_AT_START, CLEAR_CHOICES, CLEAR_NEVER, Settings
 from accipio.core.video import QUALITIES
@@ -108,12 +108,14 @@ class SettingsDialog(QDialog):
     def __init__(self, current: Settings, parent=None, check_updates: bool = False,
                  find_ffmpeg: Callable[[str], Optional[str]] = video.find_ffmpeg,
                  install_ffmpeg: Callable[..., Optional[str]] = install_ffmpeg_with_progress,
-                 browsers: Sequence[browser_settings.BrowserProfile] = ()):
+                 browsers: Sequence[browser_settings.BrowserProfile] = (),
+                 find_qbittorrent: Callable[[str], str] = torrents.find_qbittorrent):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.current = current
         self.ffmpeg_path = current.ffmpeg_path               # what Browse… picked; "" = find it
         self._find_ffmpeg, self._install = find_ffmpeg, install_ffmpeg
+        self._find_qbittorrent = find_qbittorrent
         layout = QVBoxLayout(self)
         form = QFormLayout()
         where = QLabel(f"{current.base_folder}   (the Default folder: change it under Rules > Folders)")
@@ -183,6 +185,7 @@ class SettingsDialog(QDialog):
                                      "this window opens. Accipio only reads them.")
         browser_column.addWidget(self.browser_note)
         form.addRow("Browser's own files", browser_column)
+        form.addRow("Torrents", self._build_torrents(current))
         form.addRow("Finished", self._build_clear_finished(current))
         self.play_sound: Callable[[str], None] = toasts.play         # tests put a fake here
         notify_column = QVBoxLayout()
@@ -225,6 +228,60 @@ class SettingsDialog(QDialog):
         box.accepted.connect(self.accept)
         box.rejected.connect(self.reject)
         layout.addWidget(box)
+
+    # ---- torrents are passed on to a torrent program (2026-11-17#07, core/torrents.py) --------------------------
+
+    def _build_torrents(self, current: Settings) -> QVBoxLayout:
+        column = QVBoxLayout()
+        self.qbittorrent_path = current.qbittorrent_path     # what Browse… picked; "" = find it
+        self.torrents = QComboBox()
+        self.torrents.addItem("Leave them alone", torrents.OFF)
+        self.torrents.addItem("Open them with the torrent program Windows uses", torrents.SYSTEM)
+        self.torrents.addItem("Send them to qBittorrent, saving where my rules say", torrents.QBITTORRENT)
+        self.torrents.setCurrentIndex(max(self.torrents.findData(current.torrents), 0))
+        self.torrents.setToolTip(
+            "Magnet links (pasted into Accipio) and .torrent files (once Accipio has downloaded them). Accipio does "
+            "not download torrents itself: it passes them on.\n"
+            "Leave them alone: a magnet link is refused, a .torrent file is kept as a file.\n"
+            "The torrent program Windows uses: works with any torrent program; that program decides where its files go.\n"
+            "qBittorrent: the folder your rules choose is given to qBittorrent as the place to save.")
+        column.addWidget(self.torrents)
+        row = QHBoxLayout()
+        self.qbittorrent_label = QLabel()
+        self.qbittorrent_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.qbittorrent_browse = QPushButton("Browse…")
+        self.qbittorrent_browse.setToolTip("Pick qbittorrent.exe yourself")
+        self.qbittorrent_browse.clicked.connect(self._browse_qbittorrent)
+        row.addWidget(self.qbittorrent_label)
+        row.addWidget(self.qbittorrent_browse)
+        row.addStretch(1)
+        column.addLayout(row)
+        self.torrents.currentIndexChanged.connect(lambda *_: self._show_qbittorrent())
+        self._show_qbittorrent()
+        return column
+
+    def _show_qbittorrent(self) -> None:
+        """The qBittorrent line only when that choice is picked: where it was found, or that it was not."""
+        wanted = self.torrents.currentData() == torrents.QBITTORRENT
+        found = self._find_qbittorrent(self.qbittorrent_path) if wanted else ""
+        self.qbittorrent_label.setVisible(wanted)
+        self.qbittorrent_browse.setVisible(wanted)
+        if wanted:
+            self.qbittorrent_label.setText(found or "qBittorrent was not found: pick qbittorrent.exe, or torrents "
+                                                    "cannot be passed on")
+            self.qbittorrent_label.setStyleSheet("" if found else f"color: {WARNING_COLOR};")
+
+    def _ask_for_qbittorrent(self) -> str:
+        start = os.path.dirname(self.qbittorrent_path or self._find_qbittorrent("") or "")
+        name = "qbittorrent.exe" if sys.platform == "win32" else "qbittorrent"
+        path, _ = QFileDialog.getOpenFileName(self, "Pick qBittorrent", start, f"qBittorrent ({name});;All files (*)")
+        return path
+
+    def _browse_qbittorrent(self) -> None:
+        path = self._ask_for_qbittorrent()
+        if path:
+            self.qbittorrent_path = os.path.normpath(path)
+            self._show_qbittorrent()
 
     # ---- when finished downloads leave the list (2026-11-07, 71A + 75A: radio buttons) ------------------------
 
@@ -321,4 +378,5 @@ class SettingsDialog(QDialog):
                                    sound_failed=self.sound_lines[FAILED].sound(), ffmpeg_path=self.ffmpeg_path,
                                    ask_playlists=self.ask_playlists.isChecked(),
                                    file_browser_saves=self.file_browser_saves.isChecked(),
+                                   torrents=self.torrents.currentData(), qbittorrent_path=self.qbittorrent_path,
                                    debug_log=self.debug_log.isChecked())
