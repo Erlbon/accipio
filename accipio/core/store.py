@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, Iterable, List, Optional
 
-SCHEMA_VERSION = 2          # 2 (2026-11-05): the unpack column
+SCHEMA_VERSION = 3          # 2 (2026-11-05): the unpack column; 3 (2026-11-17): remote, and what is owed to peers
 
 # states a row can be in
 PROBING = "probing"       # asking the server what the link is
@@ -25,7 +25,16 @@ ACTIVE = "active"         # handed to the engine (running or waiting for a slot)
 PAUSED = "paused"
 COMPLETE = "complete"
 ERROR = "error"
+WAITING = "waiting"       # for another Accipio (the collector), which has not been reached yet
+SENT = "sent"             # the collector has it; its outcome is asked for now and then
+# Nothing is downloading HERE for a waiting or sent row (no engine, no gid), so they are not in UNFINISHED: the
+# taskbar shows no progress for them and a restart leaves them as they are.
 UNFINISHED = (PROBING, ACTIVE, PAUSED)
+HANDED_OVER = (WAITING, SENT)
+
+# what this Accipio still has to tell a collector (the ``owed`` table)
+OWE_HEARD = "heard"       # "I have recorded how that one went": the collector may clear its row
+OWE_REMOVE = "remove"     # "stop and remove that one" (Remove on the sender, 103A)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS downloads (
@@ -51,10 +60,26 @@ CREATE TABLE IF NOT EXISTS downloads (
     why       TEXT NOT NULL DEFAULT '',
     added     TEXT NOT NULL,
     finished  TEXT NOT NULL DEFAULT '',
-    unpack    TEXT NOT NULL DEFAULT '{}'
+    unpack    TEXT NOT NULL DEFAULT '{}',
+    remote    TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS downloads_state ON downloads(state);
+CREATE TABLE IF NOT EXISTS owed (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    peer      TEXT NOT NULL,
+    kind      TEXT NOT NULL,
+    remote_id INTEGER NOT NULL
+);
 """
+
+
+@dataclass
+class Owed:
+    """One thing still to tell a collector about a download it holds: ``remote_id`` is ITS row id."""
+    id: int
+    peer: str
+    kind: str
+    remote_id: int
 
 
 @dataclass
@@ -82,10 +107,15 @@ class Row:
     added: str = ""                 # ISO time the download was added; time rules use it
     finished: str = ""
     unpack: Dict[str, Any] = field(default_factory=dict)    # a finished archive: waiting/done/kept/failed (unpack.py)
-
+    # The link to another Accipio (handover.py). On the sender: ``peer`` (the collector's id), ``place`` (the
+    # place's name), ``away``, ``cookies``, ``torrent``, ``ref``, then ``id`` (the collector's row) and ``outcome``.
+    # On the collector: ``from`` (the sender's id), ``from_name``, ``ref``, and ``heard`` once the sender has
+    # recorded the outcome. Empty for an ordinary download.
+    remote: Dict[str, Any] = field(default_factory=dict)
     @property
     def path(self) -> str:
-        return os.path.join(self.folder, self.filename) if self.filename else ""
+        # no folder (handed to another Accipio, or a magnet passed on): no file here, never a bare relative name
+        return os.path.join(self.folder, self.filename) if self.filename and self.folder else ""
 
     @property
     def added_at(self) -> datetime.datetime:
@@ -93,7 +123,7 @@ class Row:
 
 
 _COLUMNS = [f.name for f in fields(Row)]
-_JSON = ("video", "headers", "unpack")
+_JSON = ("video", "headers", "unpack", "remote")
 
 
 class Store:
@@ -113,6 +143,8 @@ class Store:
             have = {r[1] for r in self._db.execute("PRAGMA table_info(downloads)")}
             if "unpack" not in have:                                     # a schema 1 file from before
                 self._db.execute("ALTER TABLE downloads ADD COLUMN unpack TEXT NOT NULL DEFAULT '{}'")
+            if "remote" not in have:                                     # a schema 1 or 2 file
+                self._db.execute("ALTER TABLE downloads ADD COLUMN remote TEXT NOT NULL DEFAULT '{}'")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -186,17 +218,20 @@ class Store:
     def forget_finished(self, before: str = "", keep_waiting: bool = False) -> int:
         """Remove completed rows (Edit > Clear Finished: all of them). `before`: only those that finished before that
         moment (an ISO time, as `finished` holds it). `keep_waiting`: not an archive still waiting for the user's
-        choice (the automatic clearing, Settings). Returns how many went."""
+        choice, and not a download another Accipio sent here that has not yet heard how it went (the automatic
+        clearing, Settings). Returns how many went."""
         with self._lock:
-            found = self._db.execute("SELECT id, finished, unpack FROM downloads WHERE state = ?",
+            found = self._db.execute("SELECT id, finished, unpack, remote FROM downloads WHERE state = ?",
                                      (COMPLETE,)).fetchall()
             gone = []
-            for row_id, finished, unpack in found:
+            for row_id, finished, unpack, remote in found:
                 if before and not (finished and finished < before):
                     continue
                 if keep_waiting:
                     try:
                         waiting = json.loads(unpack or "{}").get("state") == "waiting"
+                        origin = json.loads(remote or "{}")
+                        waiting = waiting or bool(origin.get("from") and not origin.get("heard"))
                     except (ValueError, AttributeError):
                         waiting = False
                     if waiting:
@@ -204,3 +239,18 @@ class Store:
                 gone.append((row_id,))
             self._db.executemany("DELETE FROM downloads WHERE id = ?", gone)
             return len(gone)
+
+    # ---- what is still to be told to a collector (handover.py) ------------------------------------------------
+
+    def owe(self, peer: str, kind: str, remote_id: int) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO owed (peer, kind, remote_id) VALUES (?, ?, ?)", (peer, kind, int(remote_id)))
+
+    def owed(self) -> List[Owed]:
+        with self._lock:
+            return [Owed(*record) for record in
+                    self._db.execute("SELECT id, peer, kind, remote_id FROM owed ORDER BY id").fetchall()]
+
+    def settle(self, owed_ids: Iterable[int]) -> None:
+        with self._lock:
+            self._db.executemany("DELETE FROM owed WHERE id = ?", [(i,) for i in owed_ids])

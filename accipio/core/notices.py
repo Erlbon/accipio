@@ -89,7 +89,9 @@ class Notices:
             if old is None:
                 self._note(ADDED, row.id, now)
             if row.state != old and row.state == COMPLETE:
-                self._note(FINISHED, row.id, now)
+                # one that finished on another Accipio is not announced (98B: a notice only when it fails there)
+                if not row.remote.get("peer"):
+                    self._note(FINISHED, row.id, now)
             elif row.state != old and row.state == ERROR:
                 self._note(FAILED, row.id, now)
 

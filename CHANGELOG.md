@@ -2,6 +2,19 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#09 -- Rules and the queue can send a download to another Accipio (still no window for it)
+
+- **Second part of "send my downloads to the Accipio on another PC".** A place can now be a folder on this PC or another Accipio, and a rule can send downloads there. There is still no window to make such a place or to switch the listening on; that is the next build. Until then nothing changes in daily use.
+- **What the sending PC does:** it checks the link as always (the rules need the real name and type), and when the rule that fits says "another Accipio" it hands the link over instead of downloading it. The other Accipio's own rules choose the folder there.
+- **What the row shows on the sending PC:** "Waiting for Collector" while the other PC cannot be reached, "Sent to Collector" once it has the link, then "Finished on Collector, in Comics" or "Failed on Collector: reason". There is no live percent. A failure there gives the usual notice; a download that finishes there gives none.
+- **Each such place has two choices.** "Send the site's cookies along" (on unless switched off): without it, links behind a login fail on the other PC. And what to do while the other PC is away or cannot fetch the link: wait for it (the default), or download here. "Download here" places the file by this PC's other rules, as if the rules that say "another Accipio" were not there; when no other rule fits, it goes to the Default folder.
+- **Magnet links and .torrent files always wait** for the other PC, whatever the place says. A magnet link is sent over as a link, and the other PC's own Torrents setting decides what happens to it. No torrent is ever downloaded by Accipio itself, on either PC.
+- **Remove on the sending PC** also stops and removes the download on the other PC when it is not finished there: at once, or as soon as the other PC is back. A file the other PC has finished is never touched from here. Retry on a row that failed there sends it again.
+- **On the collecting PC,** a download that came from another Accipio says so in "why here?" ("Sent from Laptop"). Its finished row is kept, even when finished rows are cleared automatically, until the sending PC has heard how it went. An Accipio can ask about and remove only the downloads it sent itself, and a download that came from another Accipio is never sent on to a third.
+- When the sending PC cannot check a link itself (a site blocked there), it goes by the name in the link, and still hands the link over when that name fits a rule for another Accipio.
+- A folder chosen by hand in the Add box keeps the download on this PC. So does a file the browser had to download itself.
+- Tried only by the tests: two stand-in Accipios on this PC talking over 127.0.0.1, with stand-in download engines. Not tried: two real machines, real downloads, a real torrent program, and anything in a window, since no window can make such a place yet.
+
 ## 2026-11-17#08 -- The line between two Accipios (the core only; nothing to see yet)
 
 - **First part of "send my downloads to the Accipio on another PC".** This build holds only the inner workings (`accipio/core/link.py`); there is no window for it yet, and nothing in Accipio uses it. Rules that send downloads to another Accipio, and the windows for it, come in later builds.

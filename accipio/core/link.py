@@ -23,7 +23,8 @@ secret store, never its unencrypted file). ``link.json`` in the config folder ho
 this Accipio's id and name, and the id, name and address of each paired one.
 
 **Messages** are small dicts sent as JSON behind a four-byte length; every message gets one dict back. Each has
-``v`` (``PROTOCOL``) and ``type``; see ``hello``, ``add`` and ``status``.
+``v`` (``PROTOCOL``) and ``type``; see ``hello``, ``add``, ``status`` and ``remove``. What the queue does with
+them, on both sides, is in ``handover.py``.
 """
 from __future__ import annotations
 
@@ -334,20 +335,39 @@ def hello() -> Dict:
     return {"v": PROTOCOL, "type": "hello"}
 
 
-def add(url: str, *, page_url: str = "", referrer: str = "", user_agent: str = "", cookies: str = "") -> Dict:
+TEXT_FIELDS = ("page_url", "referrer", "user_agent", "cookies", "ref")
+
+
+def add(url: str, *, page_url: str = "", referrer: str = "", user_agent: str = "", cookies: str = "",
+        ref: str = "") -> Dict:
     """Download this for me. The fields are the browser extension's ``add`` fields, so the collector can queue
-    it the same way; empty ones are left out. The handler's answer carries the collector's ``id`` for it."""
+    it the same way; empty ones are left out. ``ref`` is the sender's own name for this download: asked twice
+    with the same ``ref`` (the first answer got lost), the collector queues it once. The handler's answer carries
+    the collector's ``id`` for it."""
     message = {"v": PROTOCOL, "type": "add", "url": url}
     for name, value in (("page_url", page_url), ("referrer", referrer), ("user_agent", user_agent),
-                        ("cookies", cookies)):
+                        ("cookies", cookies), ("ref", ref)):
         if value:
             message[name] = value
     return message
 
 
-def status(ids: List[int]) -> Dict:
-    """How did these go? ``ids`` are the ones the collector answered ``add`` with."""
-    return {"v": PROTOCOL, "type": "status", "ids": list(ids)}
+def status(ids: List[int], heard: Optional[List[int]] = None) -> Dict:
+    """How did these go? ``ids`` are the ones the collector answered ``add`` with. ``heard`` are the ones whose
+    outcome the sender has recorded, so the collector need not keep their rows for it any longer."""
+    message = {"v": PROTOCOL, "type": "status", "ids": list(ids)}
+    if heard:
+        message["heard"] = list(heard)
+    return message
+
+
+def remove(ids: List[int]) -> Dict:
+    """Stop and remove these (Remove on the sender). The collector never touches a file it has finished."""
+    return {"v": PROTOCOL, "type": "remove", "ids": list(ids)}
+
+
+def _numbers(value) -> bool:
+    return isinstance(value, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in value)
 
 
 def problem_with(message) -> str:
@@ -363,14 +383,15 @@ def problem_with(message) -> str:
     if kind == "add":
         if not isinstance(message.get("url"), str) or not message["url"].strip():
             return "no link in the message"
-        for name in ("page_url", "referrer", "user_agent", "cookies"):
+        for name in TEXT_FIELDS:
             if not isinstance(message.get(name, ""), str):
                 return f"{name} is not text"
         return ""
-    if kind == "status":
-        ids = message.get("ids")
-        if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+    if kind in ("status", "remove"):
+        if not _numbers(message.get("ids")):
             return "ids is not a list of numbers"
+        if kind == "status" and not _numbers(message.get("heard", [])):
+            return "heard is not a list of numbers"
         return ""
     return f"unknown message {kind!r}"
 

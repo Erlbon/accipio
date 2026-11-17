@@ -144,8 +144,39 @@ session does not reopen what is settled. Keep it current when a decision changes
   port, code)` on the sender; each side gives half of the long key. Tests (`tests/test_link.py`): real connections
   on 127.0.0.1, `tmp_path`, a `MemoryKeys` stand-in; an autouse fixture fails any test that reaches the real keyring.
   Not decided here: where the ticked addresses and the port are saved (stage 3; `DEFAULT_PORT` 47610 is a
-  placeholder nobody chose). Next: stage 2 rules + queue (a place can be another Accipio; cookies per place, 99B),
-  stage 3 the windows, stage 4 two scratch copies. Design and answers: the handover file of 2026-11-17.
+  placeholder nobody chose). Next: stage 3 the windows, stage 4 two scratch copies. Design and answers: the
+  handover files of 2026-11-17 (`C:\Temp\_AI Coding\_Claude\accipio-handover-2026-11-17.md` and `...-17b.md`).
+- Accipio-to-Accipio link, stage 2 of 4: rules and queue (2026-11-17#09; answers 96A, 97C, 98B, 99B, 102A, 103A).
+  Still NO window and nothing starts a `Listener` or a `Sender`; without a `Sender` attached a row for another
+  Accipio just waits. `rules.Folder` has `kind` ("folder"/"accipio"), `peer`, `cookies` (default on), `away`
+  ("wait" default / "here"); older rules.json loads unchanged. `rules.place(..., local_only=)`: a rule whose place is
+  remote ends the walk with `Placement.remote`; `local_only` passes such rules over (102A), numbers unchanged.
+  Store schema 3: states `WAITING`/`SENT` (NOT in `UNFINISHED`: no gid, no taskbar progress, untouched by
+  `_reconcile`/`refresh`), a `remote` JSON column (sender: peer, place, away, cookies, torrent, ref, id, outcome;
+  collector: from, from_name, ref, heard) and an `owed` table (what the sender still has to tell a collector:
+  `OWE_REMOVE`, `OWE_HEARD`; survives a restart and a removed row). `Row.path` is "" without a folder.
+  `Queue._start` probes first, then `_hand_over` when the placement is remote; forced local when the folder was
+  chosen by hand, in `_finish`'s sniff move, `file_saved` (100A), archives, and for a row that CAME from a peer
+  (never sent on to a third: no loops). Sender's own probe fails: placed by the name in the URL and still handed
+  over when that is remote (my decision). Torrents: `away` is forced to "wait" and `_start` asks `is_magnet`
+  before anything else, so **a magnet still never reaches aria2** on either side (pinned by a test).
+  `core/handover.py` (Qt-free) does the talking: `Sender(queue, node, run=)` sets `queue.link_nudge`/`link_tick`
+  (the latter called from `refresh()`); `pump()` never overlaps, runs through `Queue.in_background`, one `Line` per
+  collector: send waiting rows (`link.add` with the ORIGINAL url, cookies only with the tick, a `ref` so a lost
+  answer does not queue it twice) -> ask `link.status` -> settle what is owed (`link.remove`, `status(heard=)`).
+  `POLL` 15 s, `RETRY` 30 s (my numbers). Queue callbacks: `handed`, `not_handed(away=)`, `outcome`. `Away` = wait
+  or download here; reached-but-refused (unpaired, not a link) = the row FAILS with the reason unless "here".
+  98B: finished there = COMPLETE with `remote["outcome"]` ("Finished on Collector, in Comics": the NAME of the
+  collector's place) and no notice (`notices.py` skips COMPLETE rows with `remote["peer"]`); failed = ERROR
+  "Failed on Collector: reason". 103A: `Queue.remove`/`retry` -> `_forget_there` owes a remove.
+  `Collector(queue, run=)` is the `Listener` handler: `Queue.receive` lists the row at once (answer inside the
+  line's 10 s), `run(queue.begin)` probes and starts; `report`/`heard`/`remove_for` only for rows whose
+  `remote["from"]` is the asking peer; `forget_finished(keep_waiting=True)` keeps a finished row from a peer until
+  heard. Row texts: `handover.status_text`, used by `queue_model` (Active chip includes the two states; the Folder
+  column shows the place's name). Tests: `tests/test_handover.py`. Known gaps for stage 3: the Folders tab rebuilds
+  `Folder(name, path)` and would strip a remote place on save; the Add box preview ignores `Placement.remote`; a SENT
+  row whose pairing was forgotten stays "Sent"; a collector's unheard finished rows from a forgotten sender are
+  cleared only by hand; a playlist LINK whose check failed on the sender waits for a yes on the collector.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

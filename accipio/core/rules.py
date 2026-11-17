@@ -79,9 +79,27 @@ class SiteGroup:
 
 @dataclass
 class Folder:
-    """A named place downloads go: an absolute path, or one relative to the base folder; tokens allowed."""
+    """A named place downloads go. ``kind`` "folder": an absolute path, or one relative to the base folder; tokens
+    allowed. ``kind`` "accipio" (2026-11-17): another Accipio, the paired one with the id ``peer`` (link.py); it
+    has no path, because that Accipio's own rules pick the folder there. For such a place ``cookies`` says whether
+    the site's login cookies go along with the link (on by default), and ``away`` what happens while the other
+    Accipio cannot be reached or cannot fetch the link: "wait" (the default) or "here" (download on this PC)."""
     name: str
-    path: str
+    path: str = ""
+    kind: str = "folder"
+    peer: str = ""
+    cookies: bool = True
+    away: str = "wait"
+
+    @property
+    def remote(self) -> bool:
+        return self.kind == PLACE_ACCIPIO
+
+
+PLACE_FOLDER = "folder"
+PLACE_ACCIPIO = "accipio"
+AWAY_WAIT = "wait"
+AWAY_HERE = "here"
 
 
 @dataclass
@@ -329,6 +347,7 @@ class Placement:
     commands: List[str]
     steps: List[Step]
     unpack: str = ""                     # the rule's choice for an archive: "", "folder" or "sort"
+    remote: Optional[Folder] = None      # the rule sends it to another Accipio: that place (``folder`` means nothing)
 
     @property
     def path(self) -> str:
@@ -659,8 +678,13 @@ def rename_by_lines(lines: List[Rename], filename: str, values: Dict[str, str]) 
     return None, 0
 
 
-def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Library] = None) -> Placement:
-    """Walk the rules for one download: the folder, the file name, the commands, and which rules did it."""
+def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Library] = None,
+          local_only: bool = False) -> Placement:
+    """Walk the rules for one download: the folder, the file name, the commands, and which rules did it.
+
+    A rule whose place is another Accipio ends the walk with ``Placement.remote`` set. With ``local_only`` such
+    rules are passed over as if they were not there (the user's 102A: "download here" goes by the other rules,
+    else the Default folder); the rule numbers stay those of the whole list."""
     when = d.when or datetime.datetime.now()
     library = default_library() if library is None else library
     values = token_values(d, when)
@@ -669,6 +693,7 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
     commands: List[str] = []
     steps: List[Step] = []
     unpack = ""
+    remote: Optional[Folder] = None
     for number, rule in enumerate(rules, 1):
         if not rule.enabled or not all(condition_matches(c, d, when, library) for c in rule.conditions):
             continue
@@ -677,6 +702,13 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
         named = find_named(library.folders, rule.target) if rule.target.strip() else None
         if is_default(rule.target):
             named = Folder(DEFAULT_FOLDER, DEFAULT_TOKEN)
+        if named is not None and named.remote:
+            if local_only:
+                continue
+            # the other Accipio's own rules choose folder and name there (96A): nothing else of this rule applies
+            remote = named
+            steps.append(Step(number, rule.name, [f"sent to {named.name} (another Accipio)"], True))
+            break
         template = named.path if named else rule.folder
         if template.strip():
             folder = folder_path(template, here, base_folder)
@@ -702,7 +734,7 @@ def place(rules: List[Rule], d: Download, base_folder: str, library: Optional[Li
             effects.append(UNPACK_CHOICES[unpack])
         steps.append(Step(number, rule.name, effects, True))
         break                                    # the first rule that fits wins (decided 2026-11-04)
-    return Placement(os.path.normpath(folder), safe_part(filename, "download"), commands, steps, unpack)
+    return Placement(os.path.normpath(folder), safe_part(filename, "download"), commands, steps, unpack, remote)
 
 
 # what a rule does with an archive (trial, decision 43E); the words are the editor's and "why here?"'s
@@ -744,6 +776,12 @@ def validate(rule: Rule, library: Optional[Library] = None) -> List[str]:
         named = find_named(library.folders, rule.target)
         if named is None:
             found.append(f"folder: there is no folder called {rule.target!r} (see Folders)")
+        elif named.remote:
+            folder_template = ""
+            if not named.peer.strip():
+                found.append(f"folder: {named.name!r} is another Accipio, but none is chosen for it (see Folders)")
+            if named.away not in (AWAY_WAIT, AWAY_HERE):
+                found.append(f"folder: {named.name!r} must either wait for the other Accipio or download here")
         else:
             folder_template = named.path
     if library is not None:
@@ -866,7 +904,7 @@ def unique_name(wanted: str, taken) -> str:
 
 def _folder_for(path: str, wanted_name: str, library: Library) -> Folder:
     """The Folder with this path, or a new one named after ``wanted_name`` (made unique)."""
-    same = next((f for f in library.folders if f.path == path), None)
+    same = next((f for f in library.folders if f.path == path and not f.remote), None)
     if same is None:
         same = Folder(unique_name(wanted_name or "Folder", [DEFAULT_FOLDER] + [f.name for f in library.folders]), path)
         library.folders.append(same)

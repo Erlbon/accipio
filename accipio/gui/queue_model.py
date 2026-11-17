@@ -8,7 +8,8 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QRectF, QSortFilterPr
 from PyQt6.QtGui import QColor, QPainter, QPalette
 from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
-from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, Row
+from accipio.core import handover
+from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, SENT, WAITING, Row
 
 COLUMNS = ["Name", "Size", "Progress", "Speed", "Time left", "Folder", "Rule", "Status"]
 NAME, SIZE, PROGRESS, SPEED, ETA, FOLDER, RULE, STATUS = range(len(COLUMNS))
@@ -17,11 +18,13 @@ SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 # the filter chips: name -> the states it shows
 FILTERS = {
     "All": None,
-    "Active": (PROBING, ACTIVE, PAUSED),
+    "Active": (PROBING, ACTIVE, PAUSED, WAITING, SENT),
     "Done": (COMPLETE,),
     "Failed": (ERROR,),
 }
-STATE_TEXT = {PROBING: "Checking link", ACTIVE: "Downloading", PAUSED: "Paused", COMPLETE: "Done", ERROR: "Failed"}
+# WAITING and SENT name their place when the row knows it ("Waiting for Collector": handover.status_text)
+STATE_TEXT = {PROBING: "Checking link", ACTIVE: "Downloading", PAUSED: "Paused", COMPLETE: "Done", ERROR: "Failed",
+              WAITING: "Waiting for the other Accipio", SENT: "Sent to the other Accipio"}
 
 
 def human_size(n: Optional[int]) -> str:
@@ -114,7 +117,7 @@ class QueueModel(QAbstractTableModel):
     def _folder(self, row: Row) -> str:
         """The folder, shown under the base folder when it is inside it (Archives\\2026-10)."""
         if not row.folder:
-            return ""
+            return str(row.remote.get("place") or "")       # the other Accipio it went to, by its place's name
         try:
             relative = os.path.relpath(row.folder, self.base_folder) if self.base_folder else row.folder
         except ValueError:                                  # another drive
@@ -150,6 +153,9 @@ class QueueModel(QAbstractTableModel):
             if column == STATUS:
                 if row.state == COMPLETE and row.unpack:
                     return archive_status(row.unpack)
+                elsewhere = handover.status_text(row)      # waiting for, sent to or finished on another Accipio
+                if elsewhere:
+                    return elsewhere
                 return row.error if row.state == ERROR and row.error else STATE_TEXT.get(row.state, row.state)
         if role == SORT_ROLE:
             return {NAME: (row.filename or row.url).lower(), SIZE: row.total or row.size or 0,

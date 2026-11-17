@@ -22,6 +22,13 @@ and offered the same way (``ask_playlists`` off: never offered). A YouTube Mix (
 YouTube keeps making) is never offered: such a link is just its video (59B). The window shows the question. Adding with
 ``whole_list`` (the Add box, where the user ticked the playlist row) is the yes in advance.
 
+A rule may send a download to another Accipio (a place of the kind "accipio", 2026-11-17). The link is still
+checked here first, because the rules need its real name and type; then the row waits for that Accipio
+(``WAITING``), is handed over (``SENT``) and ends as finished or failed there. Nothing in this file talks to the
+network for that: ``handover.Sender`` carries the messages and calls ``handed``, ``not_handed`` and ``outcome``;
+``handover.Collector`` is the other side and calls ``receive``, ``begin``, ``report``, ``heard`` and
+``remove_for``. A download that came from another Accipio is never sent on to a third.
+
 The probe makes a network request, so ``add`` and ``preview`` belong on a worker thread, not the window's.
 """
 from __future__ import annotations
@@ -30,6 +37,7 @@ import dataclasses
 import datetime
 import os
 import re
+import secrets
 import shutil
 import threading
 import time
@@ -39,7 +47,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 from accipio.core import aria2, debug_log, probe, rules, sniff, torrents, unpack, video, zone
 from accipio.core.video import VideoProbe
 from accipio.core.rules import Download, Placement, Rule
-from accipio.core.store import ACTIVE, COMPLETE, ERROR, PAUSED, PROBING, UNFINISHED, Row, Store
+from accipio.core.store import (ACTIVE, COMPLETE, ERROR, OWE_HEARD, OWE_REMOVE, PAUSED, PROBING, SENT, UNFINISHED,
+                                WAITING, Row, Store)
 
 MAX_RESTARTS = 3
 INSIDE_OTHERS = 0.10        # share of an archive (by size) that may land under other rules before Accipio asks (78A)
@@ -137,6 +146,10 @@ class Queue:
         # queue's worker, never on it; the store is safe from any thread. Tests run it in place.
         self.in_background: Callable[..., None] = \
             lambda fn, *args: threading.Thread(target=fn, args=args, daemon=True, name="accipio-list").start()
+        # Called when there is something new to tell another Accipio (a row to hand over, a removal). Nothing
+        # listens until a handover.Sender is attached; rows for another Accipio then simply wait.
+        self.link_nudge: Callable[[], None] = lambda: None
+        self.link_tick: Callable[[], None] = lambda: None     # from refresh(): time to ask the other Accipios again?
         self.clear_finished_how = clear_finished          # settings.CLEAR_*: when finished rows leave the list
         self.clear_after_minutes = clear_after_minutes
         if clear_finished != "never":                     # at the start every automatic choice clears what is due
@@ -183,8 +196,9 @@ class Queue:
 
     # ---- adding ----------------------------------------------------------------------------------------------
 
-    def _place(self, d: Download) -> Placement:
-        return rules.place(self.rule_set(), d, self.base_folder, self.library_set())
+    def _place(self, d: Download, local_only: bool = False) -> Placement:
+        """``local_only``: rules that send to another Accipio are passed over (the file is, or must be, on this PC)."""
+        return rules.place(self.rule_set(), d, self.base_folder, self.library_set(), local_only)
 
     def _download(self, found: probe.Probe, page_url: str, when: datetime.datetime, filename: str = "") -> Download:
         return Download(url=found.url, filename=filename or found.filename, page_url=page_url, mime=found.mime,
@@ -212,17 +226,17 @@ class Queue:
 
     # ---- torrents: passed on, not downloaded (2026-11-17#07, torrents.py) ----------------------------------------
 
-    def _place_magnet(self, url: str, page_url: str, when: datetime.datetime) -> Placement:
+    def _place_magnet(self, url: str, page_url: str, when: datetime.datetime, local_only: bool = False) -> Placement:
         """Where the rules put a magnet link's torrent: it counts as a file "<its name>.torrent" from that page."""
         name = rules.safe_part(torrents.magnet_name(url), "torrent") + "." + torrents.TORRENT_EXTENSION
-        return self._place(Download(url="", filename=name, page_url=page_url, when=when))
+        return self._place(Download(url="", filename=name, page_url=page_url, when=when), local_only)
 
     def _pass_magnet(self, row_id: int, folder: str = "") -> None:
         """A magnet link never reaches an engine (aria2 would download the torrent itself): the torrent program gets
         it, with the folder the rules chose. The row is done as soon as it is passed on; no file of its own."""
         row = self.store.get(row_id)
         name = torrents.magnet_name(row.url)
-        placement = self._place_magnet(row.url, row.page_url, row.added_at)
+        placement = self._place_magnet(row.url, row.page_url, row.added_at, local_only=True)
         target = os.path.normpath(folder) if folder else placement.folder
         try:
             told = self.pass_torrent(row.url, self.torrents, folder=target, qbittorrent=self.qbittorrent_path)
@@ -231,7 +245,8 @@ class Queue:
             self.store.update(row_id, state=ERROR, error=f"A magnet link: {error}")
             return
         knows_folder = self.torrents == torrents.QBITTORRENT
-        why = f"A magnet link. {told}" + (f" {placement.why()}" if knows_folder and not folder else "")
+        why = f"A magnet link. {told}" + (f" {placement.why()}" if knows_folder and not folder else "") \
+            + self._whence(row)
         debug_log.note("magnet passed on", row=row_id, way=self.torrents, name=name,
                        folder=target if knows_folder else "the torrent program's own", rules=placement.rule_numbers or "none")
         self.store.update(row_id, state=COMPLETE, folder=target if knows_folder else "", filename=name, error="",
@@ -258,10 +273,29 @@ class Queue:
         self._start(row_id, folder=folder, filename=filename)
         return row_id
 
-    def _start(self, row_id: int, folder: str = "", filename: str = "") -> None:
+    @staticmethod
+    def _stays_here(row: Row, folder: str, here: str) -> bool:
+        """Whether this download must be placed on this PC whatever the rules say about another Accipio: its folder
+        was chosen by hand, it is being downloaded here because the other Accipio could not, or it came from
+        another Accipio itself (never sent on: two Accipios pointing at each other would pass it round for ever)."""
+        return bool(folder or here or row.remote.get("from"))
+
+    @staticmethod
+    def _whence(row: Row) -> str:
+        """For "why here?" on the collector: who sent it."""
+        return f" Sent from {row.remote.get('from_name') or 'another Accipio'}." if row.remote.get("from") else ""
+
+    def _start(self, row_id: int, folder: str = "", filename: str = "", here: str = "") -> None:
+        """Check the link, place it and start it. ``here``: why it is downloaded on this PC although a rule sends
+        it to another Accipio (told in "why here?"); the rules that say "another Accipio" are then passed over."""
         row = self.store.get(row_id)
         self.store.update(row_id, state=PROBING, error="")
+        local = self._stays_here(row, folder, here)
         if torrents.is_magnet(row.url):
+            placement = self._place_magnet(row.url, row.page_url, row.added_at, local_only=local)
+            if placement.remote is not None:               # the other Accipio's torrent setting handles it
+                self._hand_over(row_id, placement, torrents.magnet_name(row.url))
+                return
             self._pass_magnet(row_id, folder)
             return
         debug_log.note("check", row=row_id, url=row.url, page=row.page_url, headers=row.headers)
@@ -274,21 +308,34 @@ class Queue:
                 debug_log.note("video check", row=row_id, seconds=round(time.monotonic() - started, 2),
                                video=found_video is not None)
             if found_video is not None:
-                self._start_video(row_id, found_video, folder, filename)
+                self._start_video(row_id, found_video, folder, filename, here)
                 return
             link_started = time.monotonic()
             found = self.prober(row.url, headers=row.headers)
         except probe.ProbeError as error:
             debug_log.note("check failed", row=row_id, seconds=round(time.monotonic() - started, 2), error=str(error))
+            if not local:
+                # This PC cannot reach the link (a site blocked here, say), but the other Accipio may: go by the
+                # name in the link, and hand it over when that lands on a rule for another Accipio.
+                guess = rules.safe_part(probe.filename_from_url(row.url), "download")
+                placement = self._place(Download(url=row.url, filename=guess, page_url=row.page_url, when=row.added_at))
+                if placement.remote is not None:
+                    self._hand_over(row_id, placement, guess,
+                                    note=f" This PC could not check the link itself ({error}), so it went by the "
+                                         "name in the link.")
+                    return
             self.store.update(row_id, state=ERROR, error=str(error))
             return
         debug_log.note("link check", row=row_id, seconds=round(time.monotonic() - link_started, 2), final_url=found.url,
                        filename=found.filename, mime=found.mime, size=found.size, resumable=found.resumable)
-        placement = self._place(self._download(found, row.page_url, row.added_at, filename))
+        placement = self._place(self._download(found, row.page_url, row.added_at, filename), local)
+        if placement.remote is not None:
+            self._hand_over(row_id, placement, placement.filename, size=found.size, mime=found.mime)
+            return
         target = os.path.normpath(folder) if folder else placement.folder
         name = rules.safe_part(filename, placement.filename) if filename else placement.filename
         name = self._free(target, name, row_id)
-        why = placement.why()
+        why = placement.why() + (f" {here}" if here else "") + self._whence(row)
         if folder:
             why += f" Folder chosen by hand: {target}."
         debug_log.note("placed", row=row_id, rules=placement.rule_numbers or "none", folder=target, filename=name,
@@ -303,7 +350,7 @@ class Queue:
                           size=found.size, total=found.size or 0, done=0, resumable=found.resumable,
                           rules=placement.rule_numbers, why=why)
 
-    def _start_video(self, row_id: int, found: VideoProbe, folder: str, filename: str) -> None:
+    def _start_video(self, row_id: int, found: VideoProbe, folder: str, filename: str, here: str = "") -> None:
         if found.entries is not None:                     # a playlist: after a yes, this row becomes its first video
             if not found.entries:
                 self.store.update(row_id, state=ERROR, error="The playlist is empty.")
@@ -324,11 +371,21 @@ class Queue:
         row = self.store.get(row_id)
         d = Download(url=found.url, filename=filename or found.filename, page_url=row.page_url, size=found.size,
                      source="video", video=found.fields, when=row.added_at)
-        placement = self._place(d)
+        placement = self._place(d, self._stays_here(row, folder, here))
+        offer = self.ask_playlists and video.carries_a_list(row.url) and not video.is_mix(row.url) \
+            and not row.remote.get("from")                # a Mix is YouTube's endless radio: not offered (59B); and
+        #                                                   the Accipio that sent a video has asked about its list
+        if placement.remote is not None:                  # the list is still asked about here, where the user is
+            self.store.update(row_id, source="video", video=found.fields)
+            self._hand_over(row_id, placement, placement.filename, size=found.size)
+            if offer:
+                self.in_background(self._offer_the_list, row_id)
+            return
         target = os.path.normpath(folder) if folder else placement.folder
         name = rules.safe_part(filename, placement.filename) if filename else placement.filename
         name = self._free(target, name, row_id)
-        why = placement.why() + (f" Folder chosen by hand: {target}." if folder else "")
+        why = placement.why() + (f" {here}" if here else "") + self._whence(row) \
+            + (f" Folder chosen by hand: {target}." if folder else "")
         self.store.update(row_id, source="video", video=found.fields)
         try:
             gid = self.engines["video"].add(row.url, target, name, headers=[f"{k}: {v}" for k, v in row.headers.items()])
@@ -337,8 +394,8 @@ class Queue:
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime="", size=found.size,
                           total=found.size or 0, done=0, resumable=True, rules=placement.rule_numbers, why=why)
-        if self.ask_playlists and video.carries_a_list(row.url) and not video.is_mix(row.url):
-            self.in_background(self._offer_the_list, row_id)      # a Mix is YouTube's endless radio: not offered (59B)
+        if offer:
+            self.in_background(self._offer_the_list, row_id)
 
     # ---- playlists: only with a yes --------------------------------------------------------------------------
 
@@ -418,6 +475,7 @@ class Queue:
             changed.append(self.store.get(row.id))
         self._share_speed()
         self.tidy()
+        self.link_tick()
         return changed
 
     def _share_speed(self) -> None:
@@ -453,7 +511,7 @@ class Queue:
                 renamed = f"{stem}.{real}" if ext in probe.SCRIPT_EXTENSIONS else f"{name}.{real}"
                 d = Download(url=row.url, filename=renamed, page_url=row.page_url, mime=row.mime, size=status.total,
                              source=row.source, video=row.video, when=row.added_at)
-                placement = self._place(d)
+                placement = self._place(d, local_only=True)       # the file is on this PC: it stays on it
                 target = folder if row.pinned else placement.folder
                 final = rules.free_name(target, placement.filename, self.exists)
                 os.makedirs(target, exist_ok=True)
@@ -505,7 +563,9 @@ class Queue:
         elif named_by_hand(suggested, name):
             why += " You gave it a name of your own in the browser's Save As box, so it stays where you put it."
         else:
-            placement = self._place(Download(url=site, filename=name, page_url=page_url, mime=mime, size=size, when=now))
+            # a file only the browser could fetch stays on this PC (the user's 100A): never to another Accipio
+            placement = self._place(Download(url=site, filename=name, page_url=page_url, mime=mime, size=size, when=now),
+                                    local_only=True)
             target, final = placement.folder, placement.filename
             if os.path.normcase(os.path.join(target, final)) == os.path.normcase(path):
                 why += f" It was already in place: {placement.why()}"
@@ -545,7 +605,7 @@ class Queue:
             self.store.update(row_id, unpack={"state": "failed", "message": str(error)})
             return
         placement = self._place(Download(url=row.url, filename=row.filename, page_url=row.page_url, mime=row.mime,
-                                         size=row.size, when=row.added_at))
+                                         size=row.size, when=row.added_at), local_only=True)
         choice, folder, why = placement.unpack, placement.folder, f"the archive's own rule ({placement.rule_numbers})"
         if not choice and not row.pinned:
             choice, folder, why = self._choice_from_inside(row, entries)
@@ -600,7 +660,8 @@ class Queue:
 
     def _inner(self, row: Row, name: str) -> Placement:
         """Where a file from inside the archive would go if it had been downloaded on its own, from the same link."""
-        return self._place(Download(url=row.url, filename=name, page_url=row.page_url, when=row.added_at))
+        return self._place(Download(url=row.url, filename=name, page_url=row.page_url, when=row.added_at),
+                           local_only=True)
 
     def _fits_a_rule(self, row: Row, name: str) -> bool:
         """For the suggestion: a rule with conditions knows this file (a catch-all rule does not count)."""
@@ -726,6 +787,11 @@ class Queue:
         row = self.store.get(row_id)
         if not row or row.state != ERROR:
             return
+        if row.remote.get("peer"):                # it failed on, or never got to, another Accipio: send it again
+            self._forget_there(row)
+            self.store.update(row_id, remote={})
+            self._start(row_id)
+            return
         if not row.filename or torrents.is_magnet(row.url):       # a magnet link is passed on again, never downloaded
             self._start(row_id)
             return
@@ -740,10 +806,13 @@ class Queue:
 
     def remove(self, row_id: int) -> None:
         """Take a download off the list. An unfinished one is stopped and its half-finished file deleted;
-        a finished file is never touched."""
+        a finished file is never touched. One that another Accipio holds unfinished is stopped and removed there
+        too, at once or when that Accipio is back (the user's 103A); what it has finished stays there."""
         row = self.store.get(row_id)
         if not row:
             return
+        if row.state != COMPLETE:
+            self._forget_there(row)
         if row.gid:
             try:
                 self.engine_of(row).remove(row.gid)
@@ -756,10 +825,158 @@ class Queue:
 
     def _drop_partial(self, row: Row) -> None:
         """Delete a half-finished file, but only when aria2's control file beside it proves it is ours."""
-        if row.path and os.path.isfile(row.path + ".aria2"):
+        if row.folder and row.path and os.path.isfile(row.path + ".aria2"):       # no folder: nothing was ever here
             for leftover in (row.path, row.path + ".aria2"):
                 if os.path.isfile(leftover):
                     os.remove(leftover)
+
+    # ---- another Accipio: this one sends (2026-11-17; the messages are handover.Sender's business) --------------
+
+    def _hand_over(self, row_id: int, placement: Placement, name: str, *, size: Optional[int] = None,
+                   mime: str = "", note: str = "") -> None:
+        """The rules send this download to another Accipio: the row waits for it. Magnet links and .torrent files
+        always wait, whatever the place says (the user's 97C): they are never downloaded on this PC instead."""
+        place = placement.remote
+        row = self.store.get(row_id)
+        torrent = torrents.is_magnet(row.url) or torrents.is_torrent_file(name)
+        away = rules.AWAY_HERE if place.away == rules.AWAY_HERE and not torrent else rules.AWAY_WAIT
+        debug_log.note("for another Accipio", row=row_id, place=place.name, peer=place.peer, away=away,
+                       cookies=bool(place.cookies), rules=placement.rule_numbers, filename=name)
+        self.store.update(row_id, state=WAITING, gid="", folder="", filename=name, mime=mime, size=size,
+                          total=size or 0, done=0, rules=placement.rule_numbers, why=placement.why() + note, error="",
+                          remote={"peer": place.peer, "place": place.name, "away": away, "cookies": bool(place.cookies),
+                                  "torrent": torrent, "ref": f"{row_id}-{secrets.token_hex(4)}"})
+        self.link_nudge()
+
+    def _handed_row(self, row_id: int, ref: str, state: str) -> Optional[Row]:
+        """The row a message was about, when it is still the same hand-over (not removed or retried meanwhile)."""
+        row = self.store.get(row_id)
+        return row if row is not None and row.state == state and row.remote.get("ref") == ref else None
+
+    def handed(self, row_id: int, ref: str, peer: str, remote_id: int) -> None:
+        """The other Accipio has taken it and calls it ``remote_id``. A row removed here while the message was on
+        its way is removed there too."""
+        row = self._handed_row(row_id, ref, WAITING)
+        if row is None:
+            self.store.owe(peer, OWE_REMOVE, remote_id)
+            self.link_nudge()
+            return
+        self.store.update(row_id, state=SENT, remote={**row.remote, "id": remote_id})
+
+    def not_handed(self, row_id: int, ref: str, reason: str, away: bool) -> None:
+        """It could not be handed over. ``away``: the other Accipio was not reached, so the row waits, or is
+        downloaded here when its place says so. Otherwise that Accipio was reached and said no (not paired any
+        more, not a link it takes): waiting would never end, so the row fails with the reason, unless its place
+        says "download here"."""
+        row = self._handed_row(row_id, ref, WAITING)
+        if row is None:
+            return
+        if row.remote.get("away") == rules.AWAY_HERE:
+            self._download_here(row, reason)
+        elif not away:
+            debug_log.note("not taken by the other Accipio", row=row_id, place=row.remote.get("place"), error=reason)
+            self.store.update(row_id, state=ERROR, error=reason)
+
+    def outcome(self, row_id: int, ref: str, report: Dict) -> None:
+        """What the other Accipio says about a download it has (the user's 98B): finished there, failed there, or
+        no longer listed. "working" changes nothing: there is no live percent."""
+        row = self._handed_row(row_id, ref, SENT)
+        state = report.get("state")
+        if row is None or state not in ("finished", "failed", "gone"):
+            return
+        place, peer, remote_id = row.remote.get("place") or "the other Accipio", row.remote["peer"], row.remote["id"]
+        debug_log.note("outcome from the other Accipio", row=row_id, place=place, state=state,
+                       folder=report.get("folder") or "", error=report.get("error") or "")
+        if state == "finished":
+            folder = str(report.get("folder") or "")
+            told = f"Finished on {place}" + (f", in {folder}" if folder else "")
+            self.store.update(row_id, state=COMPLETE, filename=str(report.get("filename") or "") or row.filename,
+                              why=f"{row.why} {told}.", headers={}, error="", remote={**row.remote, "outcome": told},
+                              finished=self.clock().isoformat(timespec="seconds"))
+            self.store.owe(peer, OWE_HEARD, remote_id)
+        elif state == "failed":
+            reason = str(report.get("error") or "no reason given")
+            if row.remote.get("away") == rules.AWAY_HERE:
+                self.store.owe(peer, OWE_REMOVE, remote_id)       # its failed row there has no use any more
+                self._download_here(row, f"{place} could not download it ({reason})")
+            else:
+                self.store.update(row_id, state=ERROR, error=f"Failed on {place}: {reason}")
+                self.store.owe(peer, OWE_HEARD, remote_id)
+        else:
+            self.store.update(row_id, state=ERROR, remote={k: v for k, v in row.remote.items() if k != "id"},
+                              error=f"{place} no longer lists this download: it was removed there before this "
+                                    "Accipio heard how it went.")
+        self.link_nudge()
+
+    def _download_here(self, row: Row, reason: str) -> None:
+        """The place says "download here" (97C): by this PC's other rules, as if the rules that say "another
+        Accipio" were not there, else the Default folder (the user's 102A)."""
+        self.store.update(row.id, remote={})
+        self._start(row.id, here=f"{reason.rstrip('.')}, so it is downloaded on this PC instead.")
+
+    def _forget_there(self, row: Row) -> None:
+        """This row is going, or is being sent anew: what the other Accipio holds for it (unfinished or failed)
+        is to be stopped and removed there, now or when it is back."""
+        if row.remote.get("peer") and row.remote.get("id") is not None:
+            self.store.owe(row.remote["peer"], OWE_REMOVE, row.remote["id"])
+            self.link_nudge()
+
+    # ---- another Accipio: this one collects (called by handover.Collector) --------------------------------------
+
+    def receive(self, url: str, *, peer_id: str, peer_name: str, page_url: str = "",
+                headers: Optional[Dict[str, str]] = None, ref: str = "") -> Tuple[int, bool]:
+        """A link another Accipio sends: listed at once, so that Accipio has its answer without waiting for the
+        check (``begin`` does the rest). Returns the row and whether it is new: the same ``ref`` asked twice (the
+        first answer got lost on the way) is one download. No network here, safe from any thread."""
+        if ref:
+            for row in self.store.rows():
+                if row.remote.get("from") == peer_id and row.remote.get("ref") == ref:
+                    return row.id, False
+        return self.store.add(url, page_url=page_url, headers=headers or {}, state=PROBING,
+                              added=self.clock().isoformat(timespec="seconds"),
+                              remote={"from": peer_id, "from_name": peer_name, "ref": ref}), True
+
+    def begin(self, row_id: int) -> None:
+        """Check, place (by THIS Accipio's rules, the user's 96A) and start what ``receive`` listed. Network I/O,
+        like ``add``."""
+        row = self.store.get(row_id)
+        if row is not None and row.state == PROBING:
+            self._start(row_id)
+
+    def _from(self, row_id: int, peer_id: str) -> Optional[Row]:
+        """The row, when it is one that Accipio sent: no Accipio may ask about or remove another's downloads."""
+        row = self.store.get(row_id)
+        return row if row is not None and row.remote.get("from") == peer_id else None
+
+    def report(self, row_id: int, peer_id: str) -> Dict:
+        """How a download from that Accipio went, for its list: "working", "finished" (with the NAME of the
+        place it is in, as the rules call it), "failed" (with the reason) or "gone" (removed or cleared here)."""
+        row = self._from(row_id, peer_id)
+        if row is None:
+            return {"id": row_id, "state": "gone"}
+        if row.state == COMPLETE:
+            return {"id": row_id, "state": "finished", "filename": row.filename,
+                    "folder": self.placed_folder(row_id) if row.folder else ""}
+        if row.state == ERROR:
+            return {"id": row_id, "state": "failed", "filename": row.filename, "error": row.error}
+        return {"id": row_id, "state": "working", "filename": row.filename}
+
+    def heard(self, row_id: int, peer_id: str) -> None:
+        """That Accipio has recorded the outcome: the row need not be kept for it any longer."""
+        row = self._from(row_id, peer_id)
+        if row is not None and not row.remote.get("heard"):
+            self.store.update(row_id, remote={**row.remote, "heard": True})
+
+    def remove_for(self, row_id: int, peer_id: str) -> None:
+        """Remove on that Accipio (103A): an unfinished or failed download from it is stopped and removed here;
+        a finished one stays, file and row, and is only marked as heard."""
+        row = self._from(row_id, peer_id)
+        if row is None:
+            return
+        if row.state == COMPLETE:
+            self.heard(row_id, peer_id)
+        else:
+            self.remove(row_id)
 
     def clear_finished(self) -> int:
         return self.store.forget_finished()
