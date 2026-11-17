@@ -127,6 +127,25 @@ session does not reopen what is settled. Keep it current when a decision changes
   Tests replace `queue.pass_torrent`; no real torrent program was ever started (work PC: no torrent traffic here).
   Not done: the extension's right-click on a magnet link (`isTakeable` refuses magnet:; needs a new signed version),
   registering Accipio as the magnet: handler, qBittorrent's Web API (the fit for the Accipio-to-Accipio collector).
+- Accipio-to-Accipio link, stage 1 of 4: the core (2026-11-17#08; answers 93A, 94A, 95B, 99B, 101C). NOTHING uses it
+  yet. `core/link.py`, Qt-free, no rules or queue: `Node(folder, keys)` = this Accipio's id + name and its paired
+  `Peer`s in `link.json` (nothing secret in it); the long key of each peer is in the keyring as `link-key-<peer id>`
+  through `SystemKeys` (redactor_common's secret_store, app "accipio", never its unencrypted file; `keyring` is now a
+  dependency and in accipio.spec). The line: TLS-PSK from Python's `ssl` (3.13+; `available()`, `why_unavailable()`,
+  `LinkUnavailable`), **pinned to TLS 1.2 + ECDHE-PSK-CHACHA20-POLY1305: do not allow TLS 1.3**, whose first packet
+  lets a mere listener test pairing codes offline. Messages: JSON behind a 4-byte length, `v` + `type`
+  (`hello` answered by the listener, `add` with the extension's field names incl. optional `cookies`, `status`),
+  one dict back; `problem_with()` checks the shape before the handler sees it. `Listener(node, handler, addresses,
+  port)` binds ONLY the given addresses (none = nothing listens; `problems` names those that failed), a thread per
+  connection; `handler(message, peer)`. Sender: `send()` / `Line`; errors `Away` (unreachable: wait, 97C) vs
+  `Refused` (not paired any more). Pairing: `node.begin_pairing()` gives a 12-character code in three groups (the
+  user's pick over six digits, which someone in the middle could have tried out offline), single use, 5 minutes,
+  3 connections right or wrong; key from the code by scrypt salted through the TLS identity hint; `pair(node, host,
+  port, code)` on the sender; each side gives half of the long key. Tests (`tests/test_link.py`): real connections
+  on 127.0.0.1, `tmp_path`, a `MemoryKeys` stand-in; an autouse fixture fails any test that reaches the real keyring.
+  Not decided here: where the ticked addresses and the port are saved (stage 3; `DEFAULT_PORT` 47610 is a
+  placeholder nobody chose). Next: stage 2 rules + queue (a place can be another Accipio; cookies per place, 99B),
+  stage 3 the windows, stage 4 two scratch copies. Design and answers: the handover file of 2026-11-17.
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

@@ -2,6 +2,15 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#08 -- The line between two Accipios (the core only; nothing to see yet)
+
+- **First part of "send my downloads to the Accipio on another PC".** This build holds only the inner workings (`accipio/core/link.py`); there is no window for it yet, and nothing in Accipio uses it. Rules that send downloads to another Accipio, and the windows for it, come in later builds.
+- **How two Accipios get to trust each other:** the collecting PC shows a code of twelve letters and digits in three groups (like `K7QM-2XRD-9FHP`, without the look-alikes 0, O, 1, I and L). Typed into the sending PC, it works once, for five minutes, and three attempts end it. The two then agree on a long key, which is kept in Windows' credential store, never in a settings file.
+- **Everything on the line is encrypted** with that key (TLS with a pre-shared key, from Python itself). An Accipio that is not paired, or one that has been forgotten, is refused.
+- **The collecting PC listens only on the addresses you tick.** Nothing ticked means nothing listens.
+- Accipio now needs the `keyring` package (it was not a requirement before), and Python 3.13 or newer for the link itself; on an older Python the rest of Accipio works and the link says plainly why it cannot.
+- Tried only by the tests, between two stand-in Accipios on this PC (127.0.0.1). Not tried: two real machines, the real Windows credential store, and an installer build with `keyring` in it.
+
 ## 2026-11-17#07 -- Magnet links and .torrent files are passed on to your torrent program
 
 - **Accipio can now pass torrents on.** It does not download them itself. **Settings > Torrents** has three choices:

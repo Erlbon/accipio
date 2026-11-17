@@ -1,6 +1,6 @@
 [project]
 name = "accipio"
-version = "2026.11.17.7"
+version = "2026.11.17.8"
 description = "Download manager with your own rules for where each file goes"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,6 +9,7 @@ dependencies = [
     "PyQt6>=6.6",
     "yt-dlp>=2026.8.19",
     "redactor_common @ git+https://github.com/Erlbon/redactor_common.git@2026-11-08-02",   # pin a tag, never @main
+    "keyring>=24",          # the key shared with another Accipio lives in the system's credential store (core/link.py)
     # Windows' own notices, each with its sound (core/toasts.py); about 1.2 MB
     "winrt-runtime>=3.2; sys_platform == 'win32'",
     "winrt-Windows.Data.Xml.Dom>=3.2; sys_platform == 'win32'",

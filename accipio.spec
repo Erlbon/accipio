@@ -38,7 +38,9 @@ a = Analysis(
     # preview players would drag in Qt Multimedia and Qt Pdf; the parts Accipio imports are found as usual. winrt's
     # parts load each other at run time (load_projection), so its notices need it collected whole (only the five
     # small packages core/toasts.py uses are installed).
-    hiddenimports=collect_submodules("accipio") + collect_submodules("yt_dlp") + collect_submodules("winrt"),
+    # keyring picks its backend by name at run time, and the link reaches it through redactor_common's secret store.
+    hiddenimports=collect_submodules("accipio") + collect_submodules("yt_dlp") + collect_submodules("winrt")
+    + collect_submodules("keyring.backends") + ["redactor_common.core.secret_store"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
