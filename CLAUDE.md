@@ -222,6 +222,11 @@ session does not reopen what is settled. Keep it current when a decision changes
   `NamedListTab._put` is the one place an item's data is set and calls `mark`; `PlacesTab.mark` tints a remote place
   and sets the tooltip "Another Accipio". The words (Status, place name) stay: colour is never the only sign.
   Tests: `tests/test_link_colours.py`. Renders: `C:\Temp\Claude\accipio-link-colours\render.py dark|light`.
+- Copying between two Accipios (2026-11-17#12; the user: "Writing in the whole tailscale address is not going to go
+  well"). `LinkDialog`: the addresses table and the paired table have an `ActionsContextMenu` (`_copy_action`):
+  "Copy Address and Port" (Ctrl+C, `with_port`: "1.2.3.4:47610", "[v6]:47610") and "Copy Address"; "Copy Code" beside
+  the countdown while a code shows. The sender's Address field takes what was copied: `split_address` on
+  `editingFinished` and in `pair_now` fills the port box (never while typing; a bare IPv6 address is left alone).
 - Every finished file gets Windows' Mark of the Web (`core/zone.py`, `file:Zone.Identifier`, ZoneId=3 + ReferrerUrl
   + HostUrl without passwords), written in `Queue._finish` after any sniff move. Failure (no NTFS) is ignored.
 - Speed limit (2026-11-05#03): `Queue.speed_limit` is the TOTAL; `refresh()` splits it with `share_speed()` by how

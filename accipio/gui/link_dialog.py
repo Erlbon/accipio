@@ -8,10 +8,11 @@ saves the three link settings through ``save(accept, addresses, port)`` (the mai
 from __future__ import annotations
 
 import ipaddress
-from typing import Callable, Dict, List, Optional
+import re
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
                              QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QSpinBox,
                              QTableWidget, QTableWidgetItem, QVBoxLayout)
@@ -59,6 +60,27 @@ def network_names_of() -> Dict[str, str]:
     except Exception:
         return {}
     return names
+
+
+def with_port(address: str, port: int) -> str:
+    """An address and its port as one text to copy: "100.101.102.103:47610", "[fd7a::1]:47610"."""
+    return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+
+
+def split_address(text: str) -> Tuple[str, Optional[int]]:
+    """What ``with_port`` wrote, taken apart again: the address and its port, or the text as it is and None when it
+    holds no port (a bare IPv6 address has colons of its own and is left alone)."""
+    text = text.strip()
+    bracketed = re.fullmatch(r"\[([^\]]+)\](?::(\d{1,5}))?", text)
+    if bracketed:
+        host, port = bracketed.group(1), bracketed.group(2)
+    elif text.count(":") == 1:
+        host, port = text.split(":")
+    else:
+        return text, None
+    if port is None or not port.isdigit() or not 1 <= int(port) <= 65535 or not host:
+        return (host, None) if bracketed else (text, None)
+    return host, int(port)
 
 
 def _minutes(seconds: float) -> str:
@@ -150,6 +172,12 @@ class LinkDialog(QDialog):
         self.addresses.horizontalHeader().resizeSection(LISTEN, 60)
         self.addresses.horizontalHeader().resizeSection(ADDRESS, 220)
         self.addresses.itemChanged.connect(lambda item: self._changed() if item.column() == LISTEN else None)
+        self.addresses.setToolTip("Right-click an address to copy it (Ctrl+C copies it with the port), then paste it "
+                                  "into the Address field on the Accipio that is to send downloads here.")
+        # an address is long (Tailscale's most of all): it is copied here and pasted on the other Accipio, not typed
+        self.copy_endpoint = self._copy_action(self.addresses, "Copy Address and Port", self.copy_selected_endpoint,
+                                               shortcut=True)
+        self.copy_address = self._copy_action(self.addresses, "Copy Address", self.copy_selected_address)
         column.addWidget(self.addresses)
         port_row = QHBoxLayout()
         port_row.addWidget(QLabel("Port"))
@@ -171,6 +199,11 @@ class LinkDialog(QDialog):
         code_row.addWidget(self.show_code)
         self.code_left = QLabel("")
         code_row.addWidget(self.code_left)
+        self.copy_code = QPushButton("Copy Code")
+        self.copy_code.setToolTip("Copy the code shown below, to paste it on the other Accipio")
+        self.copy_code.clicked.connect(self.copy_shown_code)
+        self.copy_code.setVisible(False)
+        code_row.addWidget(self.copy_code)
         code_row.addStretch(1)
         column.addLayout(code_row)
         self.code = QLabel("")
@@ -188,7 +221,10 @@ class LinkDialog(QDialog):
         form = QFormLayout(group)
         row = QHBoxLayout()
         self.host = QLineEdit()
-        self.host.setPlaceholderText("the collector's address")
+        self.host.setPlaceholderText("the collector's address (paste it: address, or address:port)")
+        self.host.setToolTip("Copy it in the other Accipio's own Other Accipios window (right-click its address) and "
+                             "paste it here. An address pasted with its port fills the port too.")
+        self.host.editingFinished.connect(self._split_host)
         self.send_port = QSpinBox()
         self.send_port.setRange(1, 65535)
         self.send_port.setValue(link.DEFAULT_PORT)
@@ -215,6 +251,7 @@ class LinkDialog(QDialog):
         self.paired.horizontalHeader().resizeSection(NAME, 180)
         self.paired.horizontalHeader().resizeSection(WHERE, 180)
         self.paired.itemSelectionChanged.connect(self._selection_changed)
+        self.copy_peer = self._copy_action(self.paired, "Copy Address", self.copy_selected_peer, shortcut=True)
         column.addWidget(self.paired)
         row = QHBoxLayout()
         self.forget_button = QPushButton("Forget")
@@ -224,6 +261,52 @@ class LinkDialog(QDialog):
         row.addStretch(1)
         column.addLayout(row)
         return group
+
+    # ---- copying ---------------------------------------------------------------------------------------------------
+
+    def _copy_action(self, table: QTableWidget, text: str, slot: Callable[[], None], shortcut: bool = False) -> QAction:
+        """A line in a table's right-click menu; with ``shortcut`` it is also what Ctrl+C does in that table."""
+        action = QAction(text, table)
+        if shortcut:
+            action.setShortcut(QKeySequence.StandardKey.Copy)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        action.triggered.connect(lambda *_: slot())
+        table.addAction(action)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+        return action
+
+    def _copy(self, text: str, what: str) -> None:
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+        self._say(f"Copied {text}. {what}", False)
+
+    def selected_address(self) -> str:
+        rows = self.addresses.selectionModel().selectedRows() if self.addresses.selectionModel() else []
+        return self.addresses.item(rows[0].row(), LISTEN).data(ADDRESS_ROLE) if rows else ""
+
+    def copy_selected_address(self) -> None:
+        self._copy(self.selected_address(), "Paste it into the Address field on the Accipio that sends.")
+
+    def copy_selected_endpoint(self) -> None:
+        address = self.selected_address()
+        self._copy(with_port(address, self.port.value()) if address else "",
+                   "Paste it into the Address field on the Accipio that sends: it fills the port too.")
+
+    def copy_selected_peer(self) -> None:
+        peer = self.selected_peer()
+        self._copy(with_port(peer.host, peer.port) if peer is not None and peer.host else "", "")
+
+    def copy_shown_code(self) -> None:
+        self._copy(self.code.text(), "Paste it into the Code field on the Accipio that sends.")
+
+    def _split_host(self) -> None:
+        """An address pasted with its port ("100.101.102.103:47610") goes into the two fields."""
+        host, port = split_address(self.host.text())
+        if host != self.host.text():
+            self.host.setText(host)
+        if port is not None:
+            self.send_port.setValue(port)
 
     # ---- reading the state in -----------------------------------------------------------------------------------
 
@@ -307,7 +390,9 @@ class LinkDialog(QDialog):
         return self.node.peer(self.paired.item(rows[0].row(), NAME).data(ADDRESS_ROLE))
 
     def _selection_changed(self) -> None:
-        self.forget_button.setEnabled(self.selected_peer() is not None)
+        peer = self.selected_peer()
+        self.forget_button.setEnabled(peer is not None)
+        self.copy_peer.setEnabled(peer is not None and bool(peer.host))    # one that only sends has no address
 
     # ---- this PC collects -----------------------------------------------------------------------------------------
 
@@ -345,6 +430,7 @@ class LinkDialog(QDialog):
         self._code_until = self.node.clock() + self.node.pairing_left()
         self.code.setText(code)
         self.code.setVisible(True)
+        self.copy_code.setVisible(True)
         self._known_peers = [p.id for p in self.node.peers()]
         self.result_label.setText("")
         self.tick()
@@ -353,6 +439,7 @@ class LinkDialog(QDialog):
         self._code_until = 0.0
         self.code.setVisible(False)
         self.code.setText("")
+        self.copy_code.setVisible(False)
         self.code_left.setText("")
         if message:
             self.result_label.setText(message)
@@ -381,6 +468,7 @@ class LinkDialog(QDialog):
     # ---- this PC sends: pair with a collector -------------------------------------------------------------------------
 
     def pair_now(self) -> None:
+        self._split_host()                               # Enter in the Code field right after a paste
         host, code = self.host.text().strip(), self.typed_code.text()
         if not host or not link.tidy_code(code):
             self._say("Type the collector's address and the code it shows.", True)

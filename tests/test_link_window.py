@@ -332,6 +332,76 @@ def test_settings_ok_does_not_undo_what_the_link_window_saved(win, monkeypatch):
     assert win.link.listening == [(HERE, port)]
 
 
+# ---- copying an address from one Accipio to the other -------------------------------------------------------------
+
+def select_address(box, address):
+    for r in range(box.addresses.rowCount()):
+        if box.addresses.item(r, link_dialog.LISTEN).data(link_dialog.ADDRESS_ROLE) == address:
+            box.addresses.selectRow(r)
+            return
+    raise KeyError(address)
+
+
+def test_an_address_is_copied_from_the_right_click_menu_with_or_without_the_port(win):
+    box = dialog_of(win)
+    box.port.setValue(47611)
+    menu = [a.text() for a in box.addresses.actions()]
+    assert menu == ["Copy Address and Port", "Copy Address"]
+    assert box.addresses.contextMenuPolicy() == Qt.ContextMenuPolicy.ActionsContextMenu
+    QApplication.clipboard().setText("before")
+    box.copy_address.trigger()                                   # nothing selected: nothing is copied
+    assert QApplication.clipboard().text() == "before"
+    select_address(box, "192.0.2.7")
+    box.copy_address.trigger()
+    assert QApplication.clipboard().text() == "192.0.2.7" and "Copied 192.0.2.7." in box.result_label.text()
+    box.copy_endpoint.trigger()                                  # also what Ctrl+C does in the table
+    assert QApplication.clipboard().text() == "192.0.2.7:47611"
+    assert box.copy_endpoint.shortcut().toString() == "Ctrl+C"
+    box.reject()
+
+
+def test_an_address_pasted_with_its_port_fills_both_fields(win):
+    box = dialog_of(win)
+    box.host.setText("  100.101.102.103:47611 ")
+    box.host.editingFinished.emit()
+    assert box.host.text() == "100.101.102.103" and box.send_port.value() == 47611
+    box.host.setText("[fd7a:115c:a1e0::5]:5000")
+    box.host.editingFinished.emit()
+    assert box.host.text() == "fd7a:115c:a1e0::5" and box.send_port.value() == 5000
+    for plain in ("collector.tail1234.ts.net", "fd7a:115c:a1e0::5", "host:notaport", "host:70000"):
+        box.host.setText(plain)                                  # no port in it: the field and the port stay
+        box.host.editingFinished.emit()
+        assert box.host.text() == plain and box.send_port.value() == 5000
+    box.reject()
+
+
+def test_what_one_window_copies_the_other_takes_apart():
+    for address, port in (("100.101.102.103", 47610), ("fd7a:115c:a1e0::5", 1), ("pc.example", 65535)):
+        assert link_dialog.split_address(link_dialog.with_port(address, port)) == (address, port)
+
+
+def test_the_paired_table_copies_a_collectors_address_and_the_code_has_a_copy_button(win):
+    win.services.node.remember(link.Peer("c0ffee", "Collector", "100.101.102.103", 47610), bytes(32))
+    win.services.node.remember(link.Peer("beef01", "Laptop"), bytes(32))          # sends only: no address
+    box = listen_on(win)
+    rows = {box.paired.item(r, link_dialog.NAME).text(): r for r in range(box.paired.rowCount())}
+    box.paired.selectRow(rows["Laptop"])
+    assert not box.copy_peer.isEnabled()
+    box.paired.selectRow(rows["Collector"])
+    assert box.copy_peer.isEnabled()
+    box.copy_peer.trigger()
+    assert QApplication.clipboard().text() == "100.101.102.103:47610"
+    assert box.copy_code.isHidden()
+    if win.link.listening:
+        box.begin_pairing()
+        assert not box.copy_code.isHidden()
+        box.copy_code.click()
+        assert QApplication.clipboard().text() == box.code.text() != ""
+        box.accept_box.setChecked(False)                         # nothing listens: the code goes, and its button
+        assert box.copy_code.isHidden()
+    box.reject()
+
+
 # ---- the Add box and the right-click menu -----------------------------------------------------------------------
 
 def preview_for(url, place=None, folder=""):

@@ -2,6 +2,13 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-17#12 -- An Accipio's address is copied and pasted, not typed
+
+- **Settings > Other Accipios, on the collecting PC:** right-click an address in the list and pick "Copy Address and Port" (also Ctrl+C) or "Copy Address". A line at the bottom says what was copied.
+- **On the sending PC,** paste it into the Address field. An address pasted with its port, such as `100.101.102.103:47610`, fills the port too when you leave the field or press Pair.
+- **"Copy Code"** appears beside the countdown while a pairing code is shown.
+- **The list of paired Accipios** has "Copy Address" on right-click (and Ctrl+C) for one that collects for this PC.
+
 ## 2026-11-17#11 -- Downloads that belong to another Accipio have their own colour
 
 - **A violet tint marks every download another Accipio is involved in** (your answers 105B, 107A, 108A, 109A). On the sending PC: the rows that are waiting for, sent to, finished on or failed on another Accipio. On the collecting PC: the rows that came from another Accipio. One colour for both directions. A selected row shows the normal blue selection instead. The tint is mixed from the palette in use, so it reads in dark and in light.
