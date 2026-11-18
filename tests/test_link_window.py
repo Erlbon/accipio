@@ -1,4 +1,4 @@
-"""The windows of the link to other Accipios: Settings > Other Accipios, the Add box, the right-click menu. Offscreen,
+"""The windows of the link to other Accipios: Tools > Other Accipios, the Add box, the right-click menu. Offscreen,
 everything under tmp_path, a stand-in key store (never the real keyring), and no network but 127.0.0.1."""
 import concurrent.futures
 import os
@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PyQt6")
 
 from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox  # noqa: E402
 
 from accipio.core import link, rules, settings  # noqa: E402
 from accipio.core.queue import Preview  # noqa: E402
@@ -107,7 +107,7 @@ def test_nothing_listens_until_the_user_switches_it_on(win):
     assert win.link.listening == [] and win.link.listener is None
     assert win.services.settings.link_accept is False and win.services.settings.link_addresses == []
     assert win.services.node.peers() == []
-    assert "Not accepting" in win.link_summary() and "No Accipio is paired" in win.link_summary()
+    assert "Not accepting" in win.link.status_text()
 
 
 @needs_psk
@@ -208,7 +208,7 @@ def test_a_real_pairing_through_the_pair_button_shows_up_on_both_sides(two):
     c_box.tick()                                                              # the collector's window learns of it
     assert c_box.result_label.text() == f"Paired with {sender.link.node.name}." and c_box.code.isHidden()
     assert c_box.paired.rowCount() == 1 and c_box.paired.item(0, link_dialog.ROLE).text() == "sends to this PC"
-    assert "1 Accipio paired" in collector.link_summary()
+    assert [p.name for p in collector.link.node.peers()] == [sender.link.node.name]
     # the paired one can be reached (the hello of the Places tab)
     assert sender.link.reach(collector.link.node.id) == ""
     c_box.reject()
@@ -290,11 +290,10 @@ def test_without_encryption_the_window_says_why_and_is_disabled(app, tmp_path, m
     try:
         box = dialog_of(window)
         assert not box.unavailable_label.isHidden() and "Python 3.13" in box.unavailable_label.text()
-        for part in (box.name, box.collect_group, box.send_group, box.paired_group):
+        for part in (box.name, box.collect_group, box.send_group, box.paired_group, *box.role_buttons.values()):
             assert not part.isEnabled()
         window.apply_link(True, [HERE], free_port())
         assert window.link.listening == [] and window.link.status_text() == window.link.unavailable
-        assert window.link_summary() == window.link.unavailable
         box.reject()
     finally:
         close(window)
@@ -302,34 +301,96 @@ def test_without_encryption_the_window_says_why_and_is_disabled(app, tmp_path, m
 
 # ---- Settings --------------------------------------------------------------------------------------------------
 
-def test_settings_has_the_other_accipios_row_and_it_is_off_without_a_window_to_open(app):
+def test_other_accipios_is_its_own_window_under_tools_and_settings_has_no_row_for_it(win, monkeypatch):
+    """Answer 112B: a window that applies at once does not sit inside one with OK and Cancel."""
     box = SettingsDialog(settings.Settings())
-    assert not box.link_button.isEnabled() and box.link_label.text()
-    box = SettingsDialog(settings.Settings(), link_status=lambda: "Fine.", open_link=lambda parent: None)
-    assert box.link_button.isEnabled() and box.link_label.text() == "Fine."
-    assert "Rules > Places" in "".join(w.text() for w in box.findChildren(type(box.link_label)))
+    assert not hasattr(box, "link_button") and "Other Accipios" not in [box.side.item(i).text() for i in range(box.side.count())]
+    opened = []
+    monkeypatch.setattr(win, "_show_link_dialog", lambda dialog: (opened.append(dialog.windowTitle()), dialog.reject()))
+    action = win.actions_by_key["other_accipios"]
+    assert action.text() == "Other &Accipios…" and action in win.menus["Tools"].actions()
+    action.trigger()
+    assert opened == ["Other Accipios"]
 
 
 @needs_psk
-def test_settings_ok_does_not_undo_what_the_link_window_saved(win, monkeypatch):
+def test_settings_ok_does_not_undo_what_was_saved_elsewhere_meanwhile(win, monkeypatch):
+    """OK lays Settings' own fields onto the settings as they are then: the link's stay as they were saved."""
     port = free_port()
-    seen = {}
 
     def exec_settings(self):
-        seen["before"] = self.link_label.text()
-        monkeypatch.setattr(win, "_show_link_dialog", lambda box: (box.port.setValue(port), box.accept_box.setChecked(True),
-                                                                   box.tick_address(HERE), box.reject()))
-        self._set_up_link()                                      # the link window opens from Settings, changes things
-        seen["after"] = self.link_label.text()
-        self.max_downloads.setValue(7)                           # and the rest of Settings is changed as usual
+        win.apply_link(True, [HERE], port)                       # saved while the Settings window was open
+        self.max_downloads.setValue(7)                           # and Settings is changed as usual
         return True
 
     monkeypatch.setattr(SettingsDialog, "exec", exec_settings)
     win.open_settings()
-    assert "Not accepting" in seen["before"] and f"port {port}" in seen["after"]
     now = settings.load_settings(win.services.folder)
     assert (now.link_accept, now.link_addresses, now.link_port) == (True, [HERE], port) and now.max_downloads == 7
     assert win.link.listening == [(HERE, port)]
+
+
+# ---- "This PC: sends / collects / both" (answer 115B) -------------------------------------------------------------
+
+def shown(box):
+    return [name for name, part in (("collect", box.collect_group), ("send", box.send_group),
+                                    ("paired", box.paired_group)) if not part.isHidden()]
+
+
+def test_a_new_window_asks_the_question_and_shows_neither_part_until_it_is_answered(win):
+    box = dialog_of(win, save_role=win.apply_link_role)
+    assert [b.text() for b in box.role_buttons.values()] == ["sends to another Accipio", "collects for others", "both"]
+    assert not any(b.isChecked() for b in box.role_buttons.values())
+    assert shown(box) == ["paired"] and "Pick what this PC does" in box.role_note.text()
+    tall = box.height()
+    box.role_buttons[settings.LINK_SENDS].click()
+    assert shown(box) == ["send", "paired"] and box.role_note.isHidden()
+    assert settings.load_settings(win.services.folder).link_role == settings.LINK_SENDS       # kept at once
+    box.role_buttons[settings.LINK_BOTH].click()
+    assert shown(box) == ["collect", "send", "paired"] and box.height() > tall
+    box.role_buttons[settings.LINK_COLLECTS].click()
+    assert shown(box) == ["collect", "paired"]
+    box.reject()
+    again = dialog_of(win)                                           # the answer is remembered
+    assert again.role_buttons[settings.LINK_COLLECTS].isChecked() and shown(again) == ["collect", "paired"]
+    again.reject()
+
+
+def test_without_an_answer_the_window_goes_by_what_is_set_up(win):
+    win.apply_link(True, [], free_port())                            # it accepts: it collects
+    box = dialog_of(win)
+    assert box.role() == settings.LINK_COLLECTS and shown(box) == ["collect", "paired"]
+    box.reject()
+    win.services.node.remember(link.Peer("c0ffee", "Collector", "100.101.102.103", 47610), bytes(32))
+    box = dialog_of(win)                                             # and it has a collector: both
+    assert box.role() == settings.LINK_BOTH and shown(box) == ["collect", "send", "paired"]
+    box.reject()
+    win.apply_link(False, [], free_port())
+    box = dialog_of(win)
+    assert box.role() == settings.LINK_SENDS and shown(box) == ["send", "paired"]
+    box.reject()
+    assert settings.Settings(link_role="everything").link_role == ""             # a damaged settings file
+
+
+def test_the_question_only_decides_what_shows_and_says_when_accepting_is_out_of_sight(win):
+    win.apply_link(True, [], free_port())
+    box = dialog_of(win, save_role=win.apply_link_role)
+    box.role_buttons[settings.LINK_SENDS].click()
+    assert win.services.settings.link_accept is True                 # picking "sends" switches nothing off
+    assert "still accepts downloads" in box.role_note.text() and not box.role_note.isHidden()
+    box.role_buttons[settings.LINK_BOTH].click()
+    box.accept_box.setChecked(False)
+    box.role_buttons[settings.LINK_SENDS].click()
+    assert box.role_note.isHidden()
+    box.reject()
+
+
+def test_each_part_starts_with_its_steps_in_order(win):
+    box = dialog_of(win)
+    texts = lambda group: " ".join(label.text() for label in group.findChildren(QLabel))      # noqa: E731
+    assert "1.  Tick the address" in texts(box.collect_group) and "3.  On the Accipio that sends" in texts(box.collect_group)
+    assert "1.  On the Accipio that collects" in texts(box.send_group) and "Rules > 1 · Places" in texts(box.send_group)
+    box.reject()
 
 
 # ---- copying an address from one Accipio to the other -------------------------------------------------------------
@@ -357,6 +418,18 @@ def test_an_address_is_copied_from_the_right_click_menu_with_or_without_the_port
     box.copy_endpoint.trigger()                                  # also what Ctrl+C does in the table
     assert QApplication.clipboard().text() == "192.0.2.7:47611"
     assert box.copy_endpoint.shortcut().toString() == "Ctrl+C"
+    box.reject()
+
+
+def test_the_copy_button_is_in_sight_beside_the_port_and_works_on_the_selected_address(win):
+    """Card 20: copying an address was only in a tooltip."""
+    box = dialog_of(win)
+    box.port.setValue(47611)
+    assert box.copy_address_button.text() == "Copy Address and Port" and not box.copy_address_button.isEnabled()
+    select_address(box, "192.0.2.7")
+    assert box.copy_address_button.isEnabled()
+    box.copy_address_button.click()
+    assert QApplication.clipboard().text() == "192.0.2.7:47611"
     box.reject()
 
 
@@ -478,7 +551,8 @@ def test_a_row_that_belongs_to_another_accipio_cannot_show_a_folder_and_why_here
         [a.isEnabled() for a in menu.actions() if a is win.actions_by_key["open_folder"]]))
     win.show_context_menu(win.table.visualRect(win.proxy.index(0, 0)).center())
     assert shown == [[False]]
-    assert win.actions_by_key["open_folder"].isEnabled()                         # the menu bar's own action is not left off
+    # card 9: the menu bar's line follows the selection too, so it is off while this row is selected
+    assert not win.actions_by_key["open_folder"].isEnabled() and win.actions_by_key["why_here"].isEnabled()
     told = []
     monkeypatch.setattr(mw.QMessageBox, "information", lambda parent, title, text: told.append(text))
     win.why_selected()

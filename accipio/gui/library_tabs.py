@@ -94,7 +94,7 @@ class NamedListTab(QWidget):
     # ---- for subclasses --------------------------------------------------------------------------------------
 
     def list_buttons(self):
-        return [("+ New", self.new_item), ("Delete", self.delete_item)]
+        return [("+ New", self.new_item), ("Copy", self.copy_item), ("Delete", self.delete_item)]   # as the Rules tab
 
     def build_form(self) -> None:
         raise NotImplementedError
@@ -222,6 +222,17 @@ class NamedListTab(QWidget):
         self.name.selectAll()
         self.changed.emit()
 
+    def copy_item(self):
+        """A copy of the selected item under it, named "… (copy)" (card 21: the same three buttons on every tab)."""
+        if self.current is None:
+            return
+        self._store()
+        data = copy.deepcopy(self.current.data(Qt.ItemDataRole.UserRole))
+        data.name = rules.unique_name(f"{data.name} (copy)", self.names())
+        item = self._append(data, self.list.currentRow() + 1)
+        self.list.setCurrentItem(item)
+        self.changed.emit()
+
     def delete_item(self):
         row = self.list.currentRow()
         if row < 0:
@@ -241,7 +252,7 @@ class NamedListTab(QWidget):
         self.changed.emit()
 
 
-NO_PEERS = "Pair with the other Accipio first: Settings > Other Accipios."
+NO_PEERS = "Pair with the other Accipio first: Tools > Other Accipios."
 KIND_CHOICES = ((rules.PLACE_FOLDER, "A folder on this PC"), (rules.PLACE_ACCIPIO, "Another Accipio"))
 AWAY_CHOICES = ((rules.AWAY_WAIT, "Wait for it"), (rules.AWAY_HERE, "Download here instead"))
 
@@ -352,7 +363,7 @@ class PlacesTab(NamedListTab):
 
         machine_row = QHBoxLayout()
         self.machine = QComboBox()
-        self.machine.setToolTip("A paired Accipio that listens for downloads. Pair one in Settings > Other Accipios.")
+        self.machine.setToolTip("A paired Accipio that listens for downloads. Pair one in Tools > Other Accipios.")
         self.machine.currentIndexChanged.connect(self._machine_changed)
         self.state = QLabel()
         machine_row.addWidget(self.machine)
@@ -512,7 +523,7 @@ class PlacesTab(NamedListTab):
                 return ["Choose the Accipio this place sends to."] if self.available_peers() else [NO_PEERS]
             if item.peer not in {p.id for p in self.available_peers()}:
                 return ["The Accipio chosen for this place is not paired with this PC any more. Pair it again "
-                        "(Settings > Other Accipios), or choose another."]
+                        "(Tools > Other Accipios), or choose another."]
             return []
         if rules.is_default(item.name) and self.list.count() and self.current is self.list.item(0):
             self.today.setText(item.path)

@@ -862,7 +862,8 @@ class RulesDialog(QDialog):
         for number, (tab, title) in enumerate(((self.places_tab, "Places"), (self.groups_tab, "File Groups"),
                                                 (self.sites_tab, "Site Groups"), (rules_page, "Rules"),
                                                 (self.archives_tab, "Archives")), 1):
-            self.tabs.addTab(tab, f"{number} · {title}")
+            self.tabs.addTab(style.plain_page(tab), f"{number} · {title}")      # one background for all five
+        self._pages = {"places": self.places_tab, "archives": self.archives_tab}
         self.tabs.currentChanged.connect(self._tab_changed)
         layout.addWidget(self.tabs, 1)
         split = QSplitter()
@@ -876,8 +877,9 @@ class RulesDialog(QDialog):
         self.list.currentItemChanged.connect(self._select)
         left_layout.addWidget(self.list, 1)
         buttons = QHBoxLayout()
-        for text, slot, tip in (("+", self.new_rule, "New rule"), ("Copy", self.duplicate_rule, "Copy this rule"),
-                                ("−", self.delete_rule, "Delete this rule")):
+        # the same three names as on Places, File Groups and Site Groups (card 21)
+        for text, slot, tip in (("+ New", self.new_rule, "New rule"), ("Copy", self.duplicate_rule, "Copy this rule"),
+                                ("Delete", self.delete_rule, "Delete this rule")):
             button = QPushButton(text)
             button.setToolTip(tip)
             button.clicked.connect(slot)
@@ -953,6 +955,11 @@ class RulesDialog(QDialog):
         for tab in (self.places_tab, self.groups_tab, self.sites_tab):
             tab.refresh()                                # "used by", now that the rules are in
         self.update_test()
+
+    def show_tab(self, name: str) -> None:
+        """Open on "places" or "archives" instead of the Rules tab (the signposts in Settings)."""
+        if name in self._pages:
+            self.tabs.setCurrentWidget(self._pages[name])
 
     # ---- the library tabs ------------------------------------------------------------------------------------
 

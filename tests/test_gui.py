@@ -154,7 +154,12 @@ def test_the_debug_log_is_off_until_switched_on_and_then_tells_what_the_browser_
     assert report.startswith("h\n") and "answer to Chrome" in report
     dialog = SettingsDialog(win.services.settings, win)
     dialog.debug_log.setChecked(False)
-    dialog._delete_debug_log()
+    dialog.confirm_delete_log = lambda: False                          # it asks first (card 7): a No keeps the log
+    dialog.debug_delete.click()
+    assert os.path.exists(path) and dialog.debug_delete.text() == "Delete the log…"
+    dialog.confirm_delete_log = lambda: True
+    dialog.debug_delete.click()
+    assert not os.path.exists(path) and dialog.debug_delete.text() == "Deleted"
     win.apply_settings(dialog.result_settings())
     assert not os.path.exists(path) and not debug_log.LOG.on
 
@@ -164,7 +169,9 @@ def test_the_debug_log_is_off_until_switched_on_and_then_tells_what_the_browser_
 def test_the_menu_bar_follows_the_family_skeleton(world):
     from redactor_common.gui.menu_lint import lint_menu_bar
     win, *_ = world
-    assert lint_menu_bar(win) == []
+    # one difference from the family, decided on 2026-11-17 (answer 113A): the line is "Settings…", as the button
+    # and the window say, where the family's menus say "Preferences…". Everything else follows the skeleton.
+    assert lint_menu_bar(win) == ["Tools > Settings is bound to Ctrl+,: Ctrl+, is Preferences"]
     assert list(win.menus)[:3] == ["File", "Edit", "View"] and "Downloads" in win.menus
 
 
@@ -261,7 +268,7 @@ def test_a_finished_program_runs_from_the_right_click_menu_and_other_files_open(
     add(win, prober, "https://a.org/setup.exe", "setup.exe")
     select(win, 0)
     win.show_context_menu(win.table.visualRect(win.proxy.index(0, 0)).center())
-    assert shown[-1][0] == ("Open", False)                         # not finished yet
+    assert shown[-1][0] == ("&Open", False)                        # not finished yet
     win.actions_by_key["open_file"].trigger()                      # from the menu bar: nothing to open yet
     assert opened == []
     engine.finish(win.model.rows[0].gid, b"MZ")
@@ -776,8 +783,8 @@ def test_the_add_box_checks_every_link_and_shows_where_it_goes(world):
         seen["error_checkable"] = bool(dialog.table.item(2, 0).flags() & Qt.ItemFlag.ItemIsUserCheckable)
         return False
     open_box(win, "https://a.org/tool.zip https://a.org/Dune.epub https://gone.org/x", look)
-    assert seen["rows"][0] == ["tool.zip", "Archives", "8","Ready · 88.0 MB"]
-    assert seen["rows"][1][:3] == ["Dune.epub", "Books", "5"]
+    assert seen["rows"][0] == ["tool.zip", "Archives", "Archives", "Ready · 88.0 MB"]     # folder, then the rule's NAME
+    assert seen["rows"][1][:3] == ["Dune.epub", "Books", "Ebooks"]                       # (card 18), not its number
     assert seen["rows"][2][0] == "https://gone.org/x" and "404" in seen["rows"][2][3]
     assert seen["button"] == "Add 2" and seen["error_checkable"] is False
     win.flush()
@@ -1346,7 +1353,8 @@ def test_settings_say_when_ffmpeg_is_missing_and_offer_to_install_it(world, tmp_
     assert text.startswith("Not found") and buttons == ["Install ffmpeg", "Browse…"]
     dialog.ffmpeg_install.click()
     assert fake.installs == 1
-    assert ffmpeg_row(dialog) == (str(fake.installed), ["Browse…"])       # found at once, no restart
+    # found at once, no restart; and the line says it is done, whatever OK or Cancel does next (card 7)
+    assert ffmpeg_row(dialog) == (f"{fake.installed}   (installed just now)", ["Browse…"])
     assert dialog.result_settings().ffmpeg_path == ""                       # found by itself: nothing to remember
 
 

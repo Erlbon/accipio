@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from PyQt6.QtCore import QModelIndex, QObject, QSettings, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeySequence, QPainter, QPalette, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                              QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QStyle, QSystemTrayIcon,
                              QTableView, QVBoxLayout, QWidget)
@@ -28,7 +28,7 @@ from redactor_common.core import labels
 from redactor_common.core import selfupdate
 from redactor_common.core.selfupdate import KEY_CHECK_FOR_UPDATES
 from redactor_common.gui.about_dialog import CreditsDialog
-from redactor_common.gui.menu_builder import MenuAction, Separator
+from redactor_common.gui.menu_builder import MenuAction, Separator, Submenu
 from redactor_common.gui.standard_menus import AppMenu, StandardMenuSpec, build_standard_menu_bar, standard_help_items
 from redactor_common.gui.update_controller import UpdateController
 
@@ -42,7 +42,8 @@ from accipio.gui.archive_box import ArchiveBox
 from accipio.gui.browser_help import BrowserBar, ConnectDialog, resource_dir
 from accipio.gui.playlist_question import PlaylistQuestion
 from accipio.gui.taskbar_button import TaskbarButton
-from accipio.gui.queue_model import COLUMNS, FILTERS, FOLDER, NAME, PROGRESS, ProgressDelegate, QueueFilter, QueueModel, human_size
+from accipio.gui.queue_model import (COLUMNS, FILTERS, FIRST_ORDER, FIRST_WIDTHS, NAME, PROGRESS, ProgressDelegate,
+                                     QueueFilter, QueueModel, human_size)
 
 LINK = re.compile(r"(?:https?|ftp)://\S+|magnet:\?\S+", re.IGNORECASE)
 
@@ -73,8 +74,30 @@ class Bridge(QObject):
 
 
 TAKEOVER_WAIT = 8.0       # seconds a download Chrome hands over may take to check (under ipc.TIMEOUT, 10)
-OPEN = "Open"             # the right-click menu says "Run setup.exe" for a finished program instead (92A)
+OPEN = "&Open"            # the right-click menu says "Run setup.exe" for a finished program instead (92A)
 UPDATES_FILE = "accipio_updates.json"    # the family's update-check file (on/off, last check, skipped version)
+SETTINGS = "&Settings…"   # Accipio's own word, in the menu too (answer 113A); the family's menus say Preferences…
+EMPTY_LIST = "Nothing here yet. Paste a link above, drop one on the window, or click a download in your browser."
+PROBLEM_LENGTH = 90       # how much of a failed operation's last line the status bar shows before the "…"
+
+
+class QueueTable(QTableView):
+    """The list, with a line of help in the middle while it is empty (card 15)."""
+    empty_text = ""
+
+    def set_empty_text(self, text: str) -> None:
+        if text != self.empty_text:
+            self.empty_text = text
+            self.viewport().update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.empty_text and self.model() is not None and self.model().rowCount() == 0:
+            painter = QPainter(self.viewport())
+            painter.setPen(self.palette().color(QPalette.ColorRole.PlaceholderText))
+            painter.drawText(self.viewport().rect().adjusted(24, 0, -24, 0),
+                             int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap), self.empty_text)
+            painter.end()
 
 
 @dataclass
@@ -164,9 +187,9 @@ class MainWindow(QMainWindow):
         self.add_button = QPushButton("Add")
         self.add_button.clicked.connect(self.add_from_bar)
         self.rules_button = QPushButton("Rules…")
-        self.rules_button.clicked.connect(self.open_rules)
+        self.rules_button.clicked.connect(lambda: self.open_rules())
         self.settings_button = QPushButton("Settings…")
-        self.settings_button.clicked.connect(self.open_settings)
+        self.settings_button.clicked.connect(lambda: self.open_settings())
         bar.addWidget(self.paste, 1)
         for button in (self.add_button, self.rules_button, self.settings_button):
             bar.addWidget(button)
@@ -192,7 +215,7 @@ class MainWindow(QMainWindow):
         self.model = QueueModel(services.settings.base_folder, self)
         self.proxy = QueueFilter(self)
         self.proxy.setSourceModel(self.model)
-        self.table = QTableView()
+        self.table = QueueTable()
         self.table.setModel(self.proxy)
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(-1, Qt.SortOrder.AscendingOrder)          # queue order until a header is clicked
@@ -208,8 +231,13 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)   # every column can be resized...
         header.setSectionsClickable(True)                                 # ...and sorted
         header.setStretchLastSection(True)
-        for column, width in ((NAME, 300), (PROGRESS, 120), (FOLDER, 180)):
-            header.resizeSection(column, width)
+        # a first start (114A): Status second, every column in sight at 1000 px. _restore_layout then puts back a
+        # header that was saved before, order, widths and hidden columns, so a window already arranged keeps it.
+        for position, column in enumerate(FIRST_ORDER):
+            header.moveSection(header.visualIndex(column), position)
+            header.resizeSection(column, FIRST_WIDTHS[column])
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.show_column_menu)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         self.table.doubleClicked.connect(self.open_item)
@@ -225,6 +253,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.archive_box)
         self.setCentralWidget(central)
 
+        # the last operation that failed stays here until it is clicked (card 19); a click shows it in full
+        self.problem_text = ""
+        self.problem_button = QPushButton()
+        self.problem_button.setFlat(True)
+        self.problem_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.problem_button.setStyleSheet(f"QPushButton {{ color: {style.WARNING_COLOR}; border: none; padding: 0 8px; "
+                                          "min-height: 0; }")
+        self.problem_button.setToolTip("Something Accipio tried to do failed. Click to read it in full and copy it.")
+        self.problem_button.clicked.connect(self.problem_clicked)
+        self.problem_button.hide()
+        self.statusBar().addPermanentWidget(self.problem_button)
         self.build_label = QLabel(f"Build {APP_VERSION}")
         self.statusBar().addPermanentWidget(self.build_label)
         # The family's update framework: the installer writes update-channel = windows-installer beside the exe, the zip
@@ -270,7 +309,7 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(tick_ms)
-        self.updates.start_auto_check()                 # only when switched on in Preferences, at most once a day
+        self.updates.start_auto_check()                 # only when switched on in Settings, at most once a day
         if services.video_engine is not None:
             self.run(ytdlp_update.note_in_use, services.folder)     # on the worker: importing yt-dlp takes a moment
         self.reload()
@@ -363,6 +402,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.addAction(f"Show {APP_NAME}", self.bring_to_front)
         menu.addSeparator()
+        menu.addAction(self.actions_by_key["pause_all"])        # the same two lines as in Downloads (card 11)
+        menu.addAction(self.actions_by_key["resume_all"])
+        menu.addSeparator()
         menu.addAction(labels.EXIT, self.quit_app)
         tray.setContextMenu(menu)
         tray.activated.connect(lambda reason: self.bring_to_front()
@@ -444,18 +486,23 @@ class MainWindow(QMainWindow):
         spec = StandardMenuSpec(
             file=[MenuAction("add_links", "&Add Links…", lambda: self.open_add_dialog(), shortcut="Ctrl+N"),  # not "checked"
                   Separator(),
-                  MenuAction("clear_finished", "&Clear Finished", self.clear_finished),
-                  Separator(),
-                  MenuAction("exit", labels.EXIT, self.quit_app, shortcut=QKeySequence.StandardKey.Quit)],
+                  MenuAction("exit", labels.EXIT, self.quit_app, shortcut="Ctrl+Q")],   # Windows has no "quit" key
             edit=[MenuAction("paste_links", "&Paste Links", self.paste_links, shortcut="Ctrl+Shift+V"),
                   Separator(),
                   MenuAction("select_all", "Select &All", self.table.selectAll, shortcut="Ctrl+A")],
             view=[MenuAction(f"show_{name.lower()}", label, lambda _=False, n=name: self.set_filter(n), shortcut=f"Ctrl+{i}")
-                  for i, (name, label) in enumerate(zip(FILTERS, ("Show A&ll", "Show A&ctive", "Show &Done", "Show &Failed")), 1)],
+                  for i, (name, label) in enumerate(zip(FILTERS, ("Show A&ll", "Show A&ctive", "Show &Done", "Show &Failed")), 1)]
+            + [Separator(),                       # which columns show (card 13); the header's right-click has the same
+               Submenu("Colu&mns", [MenuAction(f"column_{column}", name, lambda on, c=column: self.show_column(c, on),
+                                               checkable=True, enabled=column != NAME)
+                                    for column, name in enumerate(COLUMNS)])],
             app_menus=[AppMenu("&Downloads", [
                 MenuAction("pause", "&Pause", self.pause_selected, shortcut="Space"),
                 MenuAction("resume", "&Resume", self.resume_selected),
                 MenuAction("retry", "Re&try", self.retry_selected, shortcut="Ctrl+R"),
+                Separator(),
+                MenuAction("pause_all", "Pause A&ll", self.pause_all),
+                MenuAction("resume_all", "Resume &All", self.resume_all),
                 Separator(),
                 MenuAction("open_file", OPEN, self.open_selected),   # no Ctrl+O: in the family that is Open Files
                 MenuAction("open_folder", "Show in &Folder", self.open_folder_of_selected, shortcut="Ctrl+Shift+F"),
@@ -464,12 +511,14 @@ class MainWindow(QMainWindow):
                 MenuAction("why_here", "&Why Here?", self.why_selected, shortcut="Ctrl+I"),
                 Separator(),
                 MenuAction("remove", labels.REMOVE_FROM_LIST, self.remove_selected, shortcut="Delete"),
+                MenuAction("clear_finished", "Clear Fi&nished", self.clear_finished),   # acts on the list: here (card 1)
             ])],
             tools=[MenuAction("rules", "&Rules…", self.open_rules, shortcut="Ctrl+Shift+R"),
-                   MenuAction("update_ytdlp", "&Update yt-dlp…", self.update_ytdlp),
+                   MenuAction("other_accipios", "Other &Accipios…", self.open_link_dialog),      # answer 112B
                    MenuAction("connect_browser", "Connect &Browser…", self.connect_browser),
+                   MenuAction("update_ytdlp", "&Update yt-dlp…", self.update_ytdlp),
                    Separator(),
-                   MenuAction("preferences", labels.PREFERENCES, self.open_settings, shortcut="Ctrl+,")],
+                   MenuAction("preferences", SETTINGS, self.open_settings, shortcut="Ctrl+,")],
             help=standard_help_items(APP_NAME, self.open_changelog, self.show_credits, self.about,
                                      extra=[MenuAction("open_debug_log", "Open &Debug Log", self.open_debug_log),
                                             MenuAction("copy_debug_log", "Copy Debug Log for a &Bug Report",
@@ -478,6 +527,30 @@ class MainWindow(QMainWindow):
         )
         self.menus = build_standard_menu_bar(self, spec)
         self.actions_by_key = self.action_registry          # key -> QAction, attached by build_standard_menu_bar
+        self.actions_by_key[f"column_{NAME}"].setChecked(True)      # Name is always shown: ticked and switched off
+        self._tick_columns()
+        self.table.selectionModel().selectionChanged.connect(self.fit_actions)
+        self.fit_actions()
+
+    # ---- which columns show (card 13) ------------------------------------------------------------------------
+
+    def show_column(self, column: int, on: bool) -> None:
+        """Show or hide one column. Name always stays. The header's saved state remembers it with the widths."""
+        if column != NAME:
+            self.table.horizontalHeader().setSectionHidden(column, not on)
+        self._tick_columns()
+
+    def _tick_columns(self) -> None:
+        header = self.table.horizontalHeader()
+        for column in range(len(COLUMNS)):
+            self.actions_by_key[f"column_{column}"].setChecked(not header.isSectionHidden(column))
+
+    def show_column_menu(self, point) -> None:
+        """A right-click on the header: the same ticks as View > Columns."""
+        menu = QMenu(self)
+        for column in range(len(COLUMNS)):
+            menu.addAction(self.actions_by_key[f"column_{column}"])
+        menu.exec(self.table.horizontalHeader().mapToGlobal(point))
 
     # ---- the worker ------------------------------------------------------------------------------------------
 
@@ -488,9 +561,44 @@ class MainWindow(QMainWindow):
         def done(f):
             error = f.exception()
             if error is not None:
-                self.failures.append("".join(traceback.format_exception_only(type(error), error)).strip())
+                self.failures.append("".join(traceback.format_exception(type(error), error, error.__traceback__)).strip())
         future.add_done_callback(done)
         return future
+
+    # ---- an operation that failed (card 19) --------------------------------------------------------------------
+
+    def show_problem(self, text: str) -> None:
+        """Keep the last failed operation in the status bar until it is clicked: its last line there, all of it
+        (the program's own error text, with where it happened) behind the click."""
+        self.problem_text = text
+        last = (text.strip().splitlines() or [""])[-1].strip()
+        debug_log.note("operation failed", error=last)
+        short = last if len(last) <= PROBLEM_LENGTH else last[:PROBLEM_LENGTH - 1].rstrip() + "…"
+        self.problem_button.setText(f"Problem: {short}")
+        self.problem_button.show()
+
+    def problem_clicked(self) -> None:
+        text = self.problem_text
+        if not text:
+            return
+        if self._show_problem_box(text):
+            QGuiApplication.clipboard().setText(f"{APP_NAME} {APP_VERSION}\n{text}")
+            self.statusBar().showMessage("The problem's text is on the clipboard.", 6000)
+        self.problem_text = ""
+        self.problem_button.hide()
+
+    def _show_problem_box(self, text: str) -> bool:
+        """The whole text of a failed operation, with Copy. True when Copy was chosen (tests replace this)."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("A problem")
+        box.setText("Something Accipio tried to do failed. Downloads that were running go on.")
+        box.setInformativeText((text.strip().splitlines() or [""])[-1])
+        box.setDetailedText(text)
+        copy = box.addButton("Copy", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        return box.clickedButton() is copy
 
     def flush(self) -> None:
         """Wait until the worker has done everything asked of it, then show the result (tests, and closing)."""
@@ -517,8 +625,10 @@ class MainWindow(QMainWindow):
         self.speed_label.setText(f"↓ {human_size(speed)}/s" if speed else "")
         self._update_archive_box(rows)
         self._update_playlist_question(rows)
+        self.table.set_empty_text("" if rows else EMPTY_LIST)
+        self.fit_actions()
         while self.failures:
-            self.statusBar().showMessage(self.failures.pop(0), 10000)
+            self.show_problem(self.failures.pop(0))
 
     # ---- playlists: asked, never assumed ---------------------------------------------------------------------
 
@@ -706,6 +816,13 @@ class MainWindow(QMainWindow):
     def resume_selected(self) -> None:
         self._each(self.queue.resume, (PAUSED,))
 
+    def pause_all(self) -> None:
+        """Downloads > Pause All and the tray's: every running download, whatever is selected (card 11)."""
+        self.run(self.queue.pause_all)
+
+    def resume_all(self) -> None:
+        self.run(self.queue.resume_all)
+
     def retry_selected(self) -> None:
         self._each(self.queue.retry, (ERROR,))
 
@@ -779,26 +896,42 @@ class MainWindow(QMainWindow):
         rows = self.selected_rows()
         if not rows:
             return
-        states = {r.state for r in rows}
+        self.fit_actions()                                 # the same lines, on and off, as the Downloads menu
         menu = QMenu(self)
-        self.actions_by_key["open_file"].setText(self._open_label(rows[0]))
-        for key, enabled in (("pause", ACTIVE in states), ("resume", PAUSED in states), ("retry", ERROR in states),
-                             (None, True), ("open_file", self._openable(rows[0])), ("open_folder", bool(rows[0].folder)), ("copy_link", True), ("why_here", True),
-                             (None, True), ("remove", True)):
+        for key in ("pause", "resume", "retry", None, "open_file", "open_folder", "copy_link",
+                    "open_in_browser",                     # the failed one whose page wants a captcha
+                    "why_here", None, "remove"):
             if key is None:
                 menu.addSeparator()
-                continue
-            action = self.actions_by_key[key]
-            action.setEnabled(enabled)
-            menu.addAction(action)
+            else:
+                menu.addAction(self.actions_by_key[key])
         unpacked = [r for r in rows if r.unpack.get("state") == "done"]
         if unpacked:
             menu.addSeparator()
             menu.addAction("Undo unpacking", lambda: [self._undo_unpack(r.id) for r in unpacked])
         menu.exec(self.table.viewport().mapToGlobal(point))
-        for key in ("pause", "resume", "retry", "open_file", "open_folder"):
-            self.actions_by_key[key].setEnabled(True)
-        self.actions_by_key["open_file"].setText(OPEN)
+
+    @staticmethod
+    def fitting(rows: List[Row]) -> dict:
+        """Which lines of the Downloads menu fit these selected rows (card 9): action key -> on or off. The one
+        place that decides it, for the menu bar and for the right-click menu. Nothing selected: every line that
+        acts on the selection is off. Pause is also on when everything selected is paused, because Space, its
+        key, then resumes (a switched-off line's key does nothing)."""
+        states = {r.state for r in rows}
+        first = rows[0] if rows else None
+        some = bool(rows)
+        return {"pause": ACTIVE in states or (some and states == {PAUSED}), "resume": PAUSED in states,
+                "retry": ERROR in states, "open_file": MainWindow._openable(first),
+                "open_folder": bool(first and first.folder), "copy_link": some, "open_in_browser": some,
+                "why_here": some, "remove": some}
+
+    def fit_actions(self, *_) -> None:
+        """Switch the Downloads lines on and off for what is selected now. Called when the selection changes and
+        when the rows do (a download finishes while it is selected)."""
+        rows = self.selected_rows()
+        for key, on in self.fitting(rows).items():
+            self.actions_by_key[key].setEnabled(on)
+        self.actions_by_key["open_file"].setText(self._open_label(rows[0] if rows else None))
 
     def set_filter(self, name: str) -> None:
         self.chips[name].setChecked(True)
@@ -816,7 +949,7 @@ class MainWindow(QMainWindow):
         if os.path.isfile(path):
             return False
         state = "on, but nothing has been written yet" if debug_log.LOG.on else \
-            "off. Switch it on under Tools > Preferences (Debug log), then do what went wrong again"
+            "off. Switch it on under Tools > Settings > Program (Debug log), then do what went wrong again"
         QMessageBox.information(self, "Debug Log", f"The debug log is {state}.")
         return True
 
@@ -842,13 +975,17 @@ class MainWindow(QMainWindow):
             self.services.settings.browser_connected = True
             settings_mod.save_settings(self.services.folder, self.services.settings)
 
-    def open_rules(self) -> None:
+    def open_rules(self, tab: str = "", parent=None) -> None:
+        """The Rules window. ``tab`` ("places" or "archives") opens it there: Settings' two signposts do that,
+        with the Settings window as ``parent`` (card 2)."""
         from accipio.gui.rules_dialog import RulesDialog
-        dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, self,
+        dialog = RulesDialog(self.services._holder["rules"], self.services.settings.base_folder, parent or self,
                              library=self.services._holder["library"], archives=self.services.settings.unpack_archives,
                              after_unpack=self.services.settings.after_unpack, peers_of=self.link.node.peers,
                              reach=self.link.reach, link_problem=self.link.unavailable)
-        if dialog.exec():
+        if tab:
+            dialog.show_tab(tab)
+        if self._show_rules_dialog(dialog):
             self.apply_rules(dialog.result_rules(), dialog.result_library())
             unpack_on, after = dialog.archives_tab.result()
             changed = dataclasses.replace(self.services.settings, base_folder=dialog.result_base_folder(),
@@ -864,32 +1001,29 @@ class MainWindow(QMainWindow):
         settings_mod.save_rules(self.services.folder, new_rules, self.services._holder["library"])
         self.statusBar().showMessage("Rules saved. They apply to downloads added from now on.", 5000)
 
+    def _show_rules_dialog(self, dialog) -> bool:
+        return bool(dialog.exec())
+
     def open_settings(self) -> None:
         from accipio.gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self.services.settings, self, check_updates=self.updates.settings.enabled,
-                                browsers=self.read_browsers(), link_status=self.link_summary,
-                                open_link=self.open_link_dialog)
+                                browsers=self.read_browsers(), open_rules=self.open_rules,
+                                base_folder_of=lambda: self.services.settings.base_folder)
         if dialog.exec():
             self.updates.settings.update(**{KEY_CHECK_FOR_UPDATES: dialog.check_updates.isChecked()})
-            live = self.services.settings        # the Other Accipios window saves at once: its choices are not the dialog's copy
-            self.apply_settings(dataclasses.replace(dialog.result_settings(), link_accept=live.link_accept,
-                                                    link_addresses=list(live.link_addresses), link_port=live.link_port))
+            # onto the settings as they are NOW: Rules, opened from a signpost in Settings, may have changed the
+            # Default folder or Archives meanwhile, and the browser may have connected
+            self.apply_settings(dialog.result_settings(self.services.settings))
         else:
             self._use_ffmpeg(self.services.settings.ffmpeg_path)     # Install ffmpeg counts even after Cancel
 
     # ---- the link to other Accipios ----------------------------------------------------------------------------
 
-    def link_summary(self) -> str:
-        """For Settings: what the listener does, and how many Accipios are paired."""
-        paired = len(self.link.node.peers())
-        count = "No Accipio is paired." if not paired else \
-            f"{paired} Accipio{'' if paired == 1 else 's'} paired."
-        return f"{self.link.status_text()} {count}" if not self.link.unavailable else self.link.unavailable
-
-    def open_link_dialog(self, parent=None) -> None:
-        """Settings > Other Accipios. The window saves at once, through ``apply_link``."""
+    def open_link_dialog(self) -> None:
+        """Tools > Other Accipios (answer 112B). The window saves at once, through ``apply_link``."""
         from accipio.gui.link_dialog import LinkDialog
-        self._show_link_dialog(LinkDialog(self.link, lambda: self.services.settings, self.apply_link, parent or self))
+        self._show_link_dialog(LinkDialog(self.link, lambda: self.services.settings, self.apply_link, self,
+                                          save_role=self.apply_link_role))
 
     def _show_link_dialog(self, dialog) -> None:
         dialog.exec()
@@ -898,6 +1032,11 @@ class MainWindow(QMainWindow):
         """The three link settings, from the Other Accipios window: saved and applied now."""
         self.apply_settings(dataclasses.replace(self.services.settings, link_accept=bool(accept),
                                                 link_addresses=list(addresses), link_port=int(port)))
+
+    def apply_link_role(self, role: str) -> None:
+        """Which part of the Other Accipios window this PC uses (answer 115B). Only what that window shows."""
+        self.services.settings = dataclasses.replace(self.services.settings, link_role=role)
+        settings_mod.save_settings(self.services.folder, self.services.settings)
 
     def _tell_link_problems(self) -> None:
         if self.link.problems:
@@ -992,7 +1131,7 @@ class MainWindow(QMainWindow):
     # ---- layout memory and closing ---------------------------------------------------------------------------
 
     def _layout_store(self) -> QSettings:
-        """Window size and column widths, in an ini file in Accipio's own folder (never the registry)."""
+        """Window size and the columns (order, widths, which are hidden), in an ini file in Accipio's own folder (never the registry)."""
         return QSettings(os.path.join(self.services.folder, "window.ini"), QSettings.Format.IniFormat)
 
     def _restore_layout(self) -> None:
@@ -1003,6 +1142,8 @@ class MainWindow(QMainWindow):
         header = stored.value("window/header")
         if header is not None:
             self.table.horizontalHeader().restoreState(header)
+            self.table.horizontalHeader().setSectionHidden(NAME, False)
+            self._tick_columns()
 
     def quit_app(self) -> None:
         """File > Exit, the tray's Exit and Ctrl+Q: stop for real."""

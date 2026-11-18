@@ -186,10 +186,10 @@ session does not reopen what is settled. Keep it current when a decision changes
   owns `self.link`, applies it at start and in `apply_settings`, stops it in `closeEvent` before the worker.
   Settings: `link_accept` (off), `link_addresses` (none), `link_port` (0 or invalid = `link.DEFAULT_PORT`, imported
   inside `__post_init__` because link.py imports settings.py); keys stay in the keyring. `gui/link_dialog.py`
-  `LinkDialog` = Settings > Other Accipios ("Set up…" on a new Settings row): a window of its own with only Close,
-  everything in it takes effect at once through `MainWindow.apply_link` (my decision: pairing and Forget cannot wait
-  for OK, and a code is only of use while the listener runs); so `open_settings` takes the three link fields from
-  the LIVE settings after OK, never from the dialog's copy. Network names come from `QNetworkInterface`, else from
+  `LinkDialog` = Tools > Other Accipios (its own menu line since answer 112B, 2026-11-17; Settings has no row for
+  it): a window with only Close, everything in it takes effect at once through `MainWindow.apply_link` (my decision:
+  pairing and Forget cannot wait for OK, and a code is only of use while the listener runs). It opens with "This PC:
+  sends / collects / both" and shows only that part (115B); see "UX review" below. Network names come from `QNetworkInterface`, else from
   the address range. Pairing runs through `call_in_background`. The Folders tab is `PlacesTab`
   (`RulesDialog.places_tab`, `peers_of=`, `reach=`, `link_problem=`): Kind, and for another Accipio Machine (picked
   from the paired ones that have an address, never typed; a peer that is gone stays as "(not paired any more)"),
@@ -281,7 +281,7 @@ session does not reopen what is settled. Keep it current when a decision changes
   release** or the check finds nothing to install). Update Now = download + checksum, run it with
   `/SILENT ... /relaunch=yes`, close Accipio; the installer's `Relaunch` check starts it again. Only a copy whose
   folder is the installer's InstallLocation updates itself; zip/source copies get the download page. Daily check is
-  the family's `accipio_updates.json`, switched in Preferences (off by default). Credits = CREDITS.md (bundled).
+  the family's `accipio_updates.json`, switched in Settings > Program (off by default). Credits = CREDITS.md (bundled).
 - Installer (picked 2026-11-04): Inno Setup, `installer\accipio.iss`, built by `build_exe.bat` when ISCC is found
   (version passed via `tools/installer_defines.py`). Per-user install `{autopf}` = `%LOCALAPPDATA%\Programs\Accipio`,
   no UAC; fixed AppId GUID (never change it, or updates install side by side). The browser link is written by
@@ -305,6 +305,42 @@ session does not reopen what is settled. Keep it current when a decision changes
   `grab()`), dark AND light.
 - Engines live in `bin/` (gitignored), fetched by `python tools/fetch_engines.py` with pinned SHA-256s.
   The aria2 tests are skipped where aria2c is missing, so fetch it on a new clone.
+
+## UX review of 2026-11-17 (the user's answers; the review is `docs/ux-review-2026-11-17.md`)
+Tests: `tests/test_ux_review.py` (named by card number) and `tests/test_link_window.py`. Question numbers: 115 was
+the last; the next new question is 116.
+- **111B Settings is pages:** a list on the left, the page on the right (`gui/settings_dialog.py`, `PAGES`):
+  Downloads, Video sites, Browser, Torrents, Notifications, Program. A new setting goes on a page, a new topic gets
+  a page. Under each control one plain sentence (`note()`); a tooltip only adds detail (card 4). Number boxes and
+  drop-downs keep the width of their content (`narrow()`, card 3). `result_settings(base)` lays Settings' own
+  fields onto the settings as they are at OK, so what Rules or the link saved meanwhile is kept.
+- **112B Other Accipios is a window under Tools,** not a row in Settings. **115B:** it asks "This PC: sends /
+  collects / both" and shows only that part; the answer is `Settings.link_role` and decides only what is shown
+  (my decision: picking "sends" never switches accepting off; a line says so when the tick is out of sight).
+  Until answered it goes by what is set up. Each part starts with its numbered steps; "Copy Address and Port" is a
+  button (card 20); the tables shrink and scroll and the window never opens taller than the screen (card 6).
+- **113A the word is Settings everywhere,** the menu too (`main_window.SETTINGS`). The family's lint then reports
+  one line ("Ctrl+, is Preferences"); `test_the_menu_bar_follows_the_family_skeleton` expects exactly that line.
+  `redactor_common` is not changed for it.
+- **114A Status is the second column** and all eight fit in 1000 px at a first start (`queue_model.FIRST_ORDER`,
+  `FIRST_WIDTHS`). The model's column numbers did NOT change: the header is only moved, so a header state saved
+  in `window.ini` before still fits and is kept. Never renumber `COLUMNS`.
+- **Menus:** Clear Finished is in Downloads under Remove from List (1). A switched-off menu line is grey with no
+  highlight (`@disabled` in `style.py`, 8). **Card 9:** `MainWindow.fitting(rows)` is the ONE place that says which
+  Downloads lines fit the selection; `fit_actions()` applies it when the selection or the rows change, for the menu
+  bar and the right-click menu alike (Pause stays on when all selected are paused: Space then resumes). Open Link
+  in Browser is in the right-click menu (10). Pause All / Resume All in Downloads and in the tray (11). Exit is
+  Ctrl+Q (12). View > Columns and the header's right-click hide columns, Name never; kept in the header state (13).
+- **The list:** a paused bar is grey (`style.paused_bar`, 14); the empty list says how to start (`QueueTable`,
+  15); the browser bar's colours come from the palette (`style.notice_colors`, 16); headers are aligned as their
+  columns (17). **18:** the Rule column shows the rule's NAME, stored with the row in the new column `rule_names`
+  (queue.db schema 4; `Placement.rule_names`); the number stays in `rules`, the tooltip and Why Here?. Every place
+  that writes `rules=` writes `rule_names=` too. **19:** a failed operation stays in the status bar
+  (`problem_button`) until clicked; the click shows it in full with Copy.
+- **7:** what Cancel cannot undo says so: Delete the log asks first, the ffmpeg line says "installed just now".
+- **21:** "+ New", "Copy", "Delete" on all four list tabs of Rules (Copy is new on Places and the two group tabs);
+  every tab page paints the window's colour (`style.plain_page`). **22:** the Connect window takes its width first,
+  then the height its text needs at that width.
 
 ## Conventions (as in the Redactor apps)
 - **Version bump at check-in:** build number `YYYY-MM-DD#NN` in `accipio/core/version.py`. Every commit that

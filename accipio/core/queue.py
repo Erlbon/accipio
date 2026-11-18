@@ -250,7 +250,8 @@ class Queue:
         debug_log.note("magnet passed on", row=row_id, way=self.torrents, name=name,
                        folder=target if knows_folder else "the torrent program's own", rules=placement.rule_numbers or "none")
         self.store.update(row_id, state=COMPLETE, folder=target if knows_folder else "", filename=name, error="",
-                          rules=placement.rule_numbers if knows_folder and not folder else "", why=why, headers={},
+                          rules=placement.rule_numbers if knows_folder and not folder else "",
+                          rule_names=placement.rule_names if knows_folder and not folder else "", why=why, headers={},
                           finished=self.clock().isoformat(timespec="seconds"))
 
     def _pass_torrent_file(self, row_id: int) -> None:
@@ -348,7 +349,7 @@ class Queue:
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime=found.mime,
                           size=found.size, total=found.size or 0, done=0, resumable=found.resumable,
-                          rules=placement.rule_numbers, why=why)
+                          rules=placement.rule_numbers, rule_names=placement.rule_names, why=why)
 
     def _start_video(self, row_id: int, found: VideoProbe, folder: str, filename: str, here: str = "") -> None:
         if found.entries is not None:                     # a playlist: after a yes, this row becomes its first video
@@ -393,7 +394,8 @@ class Queue:
             self.store.update(row_id, state=ERROR, error=f"The video engine refused it: {error}")
             return
         self.store.update(row_id, state=ACTIVE, gid=gid, folder=target, filename=name, mime="", size=found.size,
-                          total=found.size or 0, done=0, resumable=True, rules=placement.rule_numbers, why=why)
+                          total=found.size or 0, done=0, resumable=True, rules=placement.rule_numbers,
+                          rule_names=placement.rule_names, why=why)
         if offer:
             self.in_background(self._offer_the_list, row_id)
 
@@ -500,7 +502,7 @@ class Queue:
         self.store.update(row.id, state=ERROR, error=status.error_message or f"aria2 error {status.error_code}")
 
     def _finish(self, row: Row, status: aria2.Status) -> None:
-        folder, name, why, numbers = row.folder, row.filename, row.why, row.rules
+        folder, name, why, numbers, names = row.folder, row.filename, row.why, row.rules, row.rule_names
         if status.path and os.path.normcase(status.path) != os.path.normcase(row.path) and os.path.isfile(status.path):
             folder, name = os.path.split(status.path)            # yt-dlp may end up with another container (mkv)
             row.folder, row.filename = folder, name
@@ -518,9 +520,10 @@ class Queue:
                 shutil.move(row.path, os.path.join(target, final))
                 folder, name = target, final
                 why += f" After the download the content turned out to be {real.upper()}, so it became {final}: {placement.why()}"
-                numbers = placement.rule_numbers if not row.pinned else numbers
+                if not row.pinned:
+                    numbers, names = placement.rule_numbers, placement.rule_names
         zone.mark(os.path.join(folder, name), row.url, row.page_url)    # as Chrome does: SmartScreen warns
-        self.store.update(row.id, state=COMPLETE, folder=folder, filename=name, why=why, rules=numbers,
+        self.store.update(row.id, state=COMPLETE, folder=folder, filename=name, why=why, rules=numbers, rule_names=names,
                           done=status.done, total=status.total, headers={}, error="",
                           finished=self.clock().isoformat(timespec="seconds"))
         self.speeds.pop(row.id, None)
@@ -552,7 +555,7 @@ class Queue:
         now = self.clock()
         size = os.path.getsize(path)
         why = "The browser downloaded this file itself (a page built it, or the site refused Accipio)."
-        numbers = ""
+        numbers = names = ""
         try:
             asks = self.browser_asks(browser)
         except Exception as error:                        # the browser's settings are not ours: never fatal
@@ -569,7 +572,7 @@ class Queue:
             target, final = placement.folder, placement.filename
             if os.path.normcase(os.path.join(target, final)) == os.path.normcase(path):
                 why += f" It was already in place: {placement.why()}"
-                numbers = placement.rule_numbers
+                numbers, names = placement.rule_numbers, placement.rule_names
             else:
                 final = self._free(target, final, 0)
                 try:
@@ -579,10 +582,10 @@ class Queue:
                     why += f" It could not be moved to {target} ({error}), so it stays in {folder}."
                 else:
                     why += f" Then it was moved from {folder}: {placement.why()}"
-                    folder, name, numbers = target, final, placement.rule_numbers
+                    folder, name, numbers, names = target, final, placement.rule_numbers, placement.rule_names
         zone.mark(os.path.join(folder, name), site, page_url)       # a move to another drive loses the browser's mark
         row_id = self.store.add(page_url or site, page_url=page_url, state=COMPLETE, folder=folder, filename=name,
-                                mime=mime, size=size, total=size, done=size, rules=numbers, why=why,
+                                mime=mime, size=size, total=size, done=size, rules=numbers, rule_names=names, why=why,
                                 added=now.isoformat(timespec="seconds"), finished=now.isoformat(timespec="seconds"))
         debug_log.note("filed the browser's file", row=row_id, saved_as=path,
                        browser=browser or "not known",
@@ -782,6 +785,20 @@ class Queue:
             self.engine_of(row).resume(row.gid)
             self.store.update(row_id, state=ACTIVE)
 
+    def pause_all(self) -> int:
+        """Pause every running download (Downloads > Pause All, and the tray's). Returns how many."""
+        rows = self.store.rows([ACTIVE])
+        for row in rows:
+            self.pause(row.id)
+        return len(rows)
+
+    def resume_all(self) -> int:
+        """Resume every paused download. A playlist that waits for its yes stays as it is. Returns how many."""
+        rows = [row for row in self.store.rows([PAUSED]) if row.gid]
+        for row in rows:
+            self.resume(row.id)
+        return len(rows)
+
     def retry(self, row_id: int) -> None:
         """Start a failed download again. One that never got a name goes through the probe and rules again."""
         row = self.store.get(row_id)
@@ -843,7 +860,8 @@ class Queue:
         debug_log.note("for another Accipio", row=row_id, place=place.name, peer=place.peer, away=away,
                        cookies=bool(place.cookies), rules=placement.rule_numbers, filename=name)
         self.store.update(row_id, state=WAITING, gid="", folder="", filename=name, mime=mime, size=size,
-                          total=size or 0, done=0, rules=placement.rule_numbers, why=placement.why() + note, error="",
+                          total=size or 0, done=0, rules=placement.rule_numbers, rule_names=placement.rule_names,
+                          why=placement.why() + note, error="",
                           remote={"peer": place.peer, "place": place.name, "away": away, "cookies": bool(place.cookies),
                                   "torrent": torrent, "ref": f"{row_id}-{secrets.token_hex(4)}"})
         self.link_nudge()

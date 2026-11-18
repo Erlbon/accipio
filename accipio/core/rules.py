@@ -358,6 +358,12 @@ class Placement:
         """The table's Rule column: "1+5"."""
         return "+".join(str(s.number) for s in self.steps)
 
+    @property
+    def rule_names(self) -> str:
+        """What the Rule column shows: the names of the rules that hit, "Images + Big files" (a rule without a
+        name by its number). Stored with the row, so reordering the rules later does not change it."""
+        return " + ".join(s.name.strip() or str(s.number) for s in self.steps)
+
     def why(self) -> str:
         if not self.steps:
             return "No rule matched: the Default folder."

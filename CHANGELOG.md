@@ -2,6 +2,26 @@
 
 Build numbers have the form `YYYY-MM-DD#NN`, as in the Redactor apps. Each check-in that changes real code runs `python bump_version.py` and adds a section here.
 
+## 2026-11-18#01 -- Settings in pages, tidier menus, and a list you can read at a glance
+
+These are the fixes from the review of the menus and the UX of 2026-11-17 (your answers 111B, 112B, 113A, 114A, 115B and cards 1 to 22).
+
+- **Settings is no longer one long form.** A list on the left has six pages: Downloads, Video sites, Browser, Torrents, Notifications, Program. Under each control one plain sentence says what it does; before, much of that was only in tooltips. Number boxes and drop-downs are as wide as their content. Three labels now name their setting: "Video quality", "Finished downloads", "Notices and sounds".
+- **"Downloads go to" and "Archives" in Settings are links** that open the Rules window on the right tab. The note about restarting stands under "Connections per file", where it belongs.
+- **Other Accipios has its own line in the Tools menu** and is no longer a row in Settings. The window opens with one question, "This PC: sends to another Accipio / collects for others / both", and shows only that part. The question decides only what you see: picking "sends" does not switch accepting off, and the window says so if it is still on. Each part starts with its three steps in order, and "Copy Address and Port" is now a button beside the port.
+- **The word is "Settings" everywhere,** in the Tools menu too (it said "Preferences…").
+- **Status is the second column,** after Name, and all eight columns fit in the window at a first start. If you have arranged the columns yourself, your arrangement is kept.
+- **Columns can be hidden:** View > Columns, or right-click the header. Name always shows.
+- **The Rule column shows the rule's name** ("Archives") instead of its number, and keeps it when you reorder the rules later. Downloads added before this build still show the number. The number is in the tooltip and in Why Here?.
+- **Menus.** A line that cannot be used is grey. The Downloads menu follows the selection: with nothing selected, the lines that act on a download are switched off, the same as in the right-click menu. Clear Finished moved from File to Downloads. New: Pause All and Resume All, in Downloads and on the tray icon. The right-click menu has "Open Link in Browser". Exit shows Ctrl+Q.
+- **The list.** A paused download has a grey bar, so blue always means "moving now". An empty list says how to start. The yellow bar about the browser is pale in light mode. Each header is aligned as its column.
+- **When something Accipio tries fails,** the problem stays at the bottom right until you click it; the click shows the whole text with a Copy button. Before, it was gone after ten seconds.
+- **What Cancel cannot undo says so.** "Delete the log…" asks first, and the ffmpeg line says "installed just now" after Install ffmpeg.
+- **Rules window:** the buttons under the lists are "+ New", "Copy", "Delete" on all four tabs (Copy is new on Places, File Groups and Site Groups), and all five tabs have the same background in dark mode.
+- **Connect your browser** no longer has empty bands, and "Copy file" stands beside the Firefox paragraph.
+- **Other Accipios on a small screen:** the two tables shrink and scroll, and the window never opens taller than the screen.
+- The queue file gets a new column for the rule's name. An older Accipio will not open a queue file this build has used.
+
 ## 2026-11-17#12 -- An Accipio's address is copied and pasted, not typed
 
 - **Settings > Other Accipios, on the collecting PC:** right-click an address in the list and pick "Copy Address and Port" (also Ctrl+C) or "Copy Address". A line at the bottom says what was copied.

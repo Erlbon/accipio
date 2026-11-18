@@ -17,7 +17,8 @@ import threading
 from dataclasses import dataclass, field, fields
 from typing import Any, Dict, Iterable, List, Optional
 
-SCHEMA_VERSION = 3          # 2 (2026-11-05): the unpack column; 3 (2026-11-17): remote, and what is owed to peers
+SCHEMA_VERSION = 4          # 2 (2026-11-05): the unpack column; 3 (2026-11-17): remote, and what is owed to peers;
+#                             4 (2026-11-17): rule_names, the names of the rules that placed the row
 
 # states a row can be in
 PROBING = "probing"       # asking the server what the link is
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS downloads (
     added     TEXT NOT NULL,
     finished  TEXT NOT NULL DEFAULT '',
     unpack    TEXT NOT NULL DEFAULT '{}',
-    remote    TEXT NOT NULL DEFAULT '{}'
+    remote    TEXT NOT NULL DEFAULT '{}',
+    rule_names TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS downloads_state ON downloads(state);
 CREATE TABLE IF NOT EXISTS owed (
@@ -102,7 +104,8 @@ class Row:
     restarts: int = 0
     pinned: bool = False            # folder chosen by hand in the Add box: the rules never move it
     error: str = ""
-    rules: str = ""                 # the table's Rule column, "1+5"
+    rules: str = ""                 # the numbers of the rules that placed it, "1+5" (their places in the list then)
+    rule_names: str = ""            # their names, "Images + Big files": what the table's Rule column shows (card 18)
     why: str = ""
     added: str = ""                 # ISO time the download was added; time rules use it
     finished: str = ""
@@ -145,6 +148,8 @@ class Store:
                 self._db.execute("ALTER TABLE downloads ADD COLUMN unpack TEXT NOT NULL DEFAULT '{}'")
             if "remote" not in have:                                     # a schema 1 or 2 file
                 self._db.execute("ALTER TABLE downloads ADD COLUMN remote TEXT NOT NULL DEFAULT '{}'")
+            if "rule_names" not in have:                                 # a schema 1 to 3 file: its rows show the number
+                self._db.execute("ALTER TABLE downloads ADD COLUMN rule_names TEXT NOT NULL DEFAULT ''")
             self._db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -216,7 +221,7 @@ class Store:
             self._db.execute("DELETE FROM downloads WHERE id = ?", (row_id,))
 
     def forget_finished(self, before: str = "", keep_waiting: bool = False) -> int:
-        """Remove completed rows (Edit > Clear Finished: all of them). `before`: only those that finished before that
+        """Remove completed rows (Downloads > Clear Finished: all of them). `before`: only those that finished before that
         moment (an ISO time, as `finished` holds it). `keep_waiting`: not an archive still waiting for the user's
         choice, and not a download another Accipio sent here that has not yet heard how it went (the automatic
         clearing, Settings). Returns how many went."""

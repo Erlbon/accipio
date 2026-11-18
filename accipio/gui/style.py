@@ -66,6 +66,8 @@ QScrollBar::add-page, QScrollBar::sub-page { background: none; }
 QMenu { border: 1px solid @border; border-radius: 8px; padding: 4px; }
 QMenu::item { padding: 5px 22px; border-radius: 5px; }
 QMenu::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+QMenu::item:disabled { color: @disabled; }
+QMenu::item:disabled:selected { background: transparent; color: @disabled; }
 QMenu::separator { height: 1px; background: @border; margin: 4px 8px; }
 QToolTip { border: 1px solid @border; border-radius: 6px; padding: 4px 6px; }
 """
@@ -89,6 +91,33 @@ def link_bar(palette: QPalette) -> QColor:
     """The link colour for a progress bar (answer 106B): a little of the text colour mixed in, which lifts it
     on the dark palette and deepens it on the light one."""
     return QColor(mix(QColor(LINK_COLOR), palette.color(QPalette.ColorRole.Text), 0.12))
+
+
+def paused_bar(palette: QPalette) -> QColor:
+    """The fill of a paused download's progress bar (card 14): grey, mixed from the palette, so the accent colour
+    always means "moving now"."""
+    return QColor(mix(palette.color(QPalette.ColorRole.Base), palette.color(QPalette.ColorRole.Text), 0.42))
+
+
+def is_dark(palette: QPalette) -> bool:
+    return palette.color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def notice_colors(palette: QPalette) -> tuple:
+    """(background, text) of a notice bar, as #rrggbb (card 16): a pale amber wash with the palette's own text in
+    light mode, the deep brown with pale text in dark mode."""
+    if is_dark(palette):
+        return "#5c4a14", "#fbe9b7"
+    return mix(palette.color(QPalette.ColorRole.Window), QColor("#E6A817"), 0.30), \
+        palette.color(QPalette.ColorRole.Text).name()
+
+
+def plain_page(page: QWidget) -> QWidget:
+    """A tab page painted in the window's own colour. Fusion paints a tab pane a shade lighter than the window in
+    dark mode, so pages that show the pane looked different from a page that fills itself (card 21)."""
+    page.setAutoFillBackground(True)
+    page.setBackgroundRole(QPalette.ColorRole.Window)
+    return page
 
 
 class TintDelegate(QStyledItemDelegate):
@@ -124,6 +153,7 @@ def stylesheet(palette: QPalette) -> str:
     background = palette.color(QPalette.ColorRole.Base)
     text = palette.color(QPalette.ColorRole.Text)
     shades = {"@handlehover": mix(background, text, 0.45), "@handle": mix(background, text, 0.28),
+              "@disabled": mix(palette.color(QPalette.ColorRole.Window), text, 0.38),   # a switched-off menu line (card 8)
               "@pressed": mix(background, text, 0.16), "@border": mix(background, text, 0.20),
               "@hover": mix(palette.color(QPalette.ColorRole.Button), text, 0.08)}
     sheet = STYLESHEET.replace("@chevron", CHEVRON.replace(os.sep, "/"))   # Qt wants / in url(); @2x is found

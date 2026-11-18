@@ -131,7 +131,7 @@ def test_no_paired_accipio_says_so(app, tmp_path):
     tab = dialog.places_tab
     select(tab, "Collector")
     assert tab.machine.currentText() == "(none paired yet)"
-    assert tab.problems.text() == NO_PEERS == "Pair with the other Accipio first: Settings > Other Accipios."
+    assert tab.problems.text() == NO_PEERS == "Pair with the other Accipio first: Tools > Other Accipios."
 
 
 def test_a_link_problem_keeps_a_new_place_a_folder_but_an_old_one_shows(app, tmp_path):

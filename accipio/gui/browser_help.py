@@ -10,13 +10,17 @@ from __future__ import annotations
 import os
 import sys
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QGuiApplication
-from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-                             QToolButton, QVBoxLayout)
+from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                             QPushButton, QToolButton, QVBoxLayout)
+
+from accipio.gui import style
 
 EXTENSIONS_PAGE = "chrome://extensions"
 HELP_PAGE = "connect-browser.html"
+WIDTH = 620                 # the Connect window's width; its height follows from the text at that width
+BUTTON_TEXT_DROP = 5        # px from a button's top edge to its text: a paragraph beside it starts that far down
 
 
 def resource_dir() -> str:
@@ -66,14 +70,11 @@ class ConnectDialog(QDialog):
             ("Click <b>Load unpacked</b> and paste this folder into the box that opens:<br>"
              f"<code>{self.folder}</code>", self.copy_folder),
         ]
+        grid.setVerticalSpacing(10)
         for row, (text, button) in enumerate(steps):
             number = QLabel(f"<b>{row + 1}</b>")
-            number.setAlignment(Qt.AlignmentFlag.AlignTop)
-            label = QLabel(text)
-            label.setWordWrap(True)
-            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            grid.addWidget(number, row, 0, Qt.AlignmentFlag.AlignTop)
-            grid.addWidget(label, row, 1, Qt.AlignmentFlag.AlignTop)
+            grid.addWidget(self._beside_button(number), row, 0)
+            grid.addWidget(self._beside_button(self._paragraph(text)), row, 1)     # fills its cell: it wraps to the width
             if button is not None:
                 grid.addWidget(button, row, 2, Qt.AlignmentFlag.AlignTop)
         grid.setColumnStretch(1, 1)
@@ -82,18 +83,19 @@ class ConnectDialog(QDialog):
         self.firefox_file = firefox_file or firefox_extension_file()
         self.copy_firefox = QPushButton("Copy file")
         self.copy_firefox.clicked.connect(lambda: self._copy(self.firefox_file, self.copy_firefox))
-        firefox = QLabel("<b>Firefox</b> takes one file instead: open the Add-ons page (Ctrl+Shift+A), click the "
-                         "cogwheel, choose <b>Install Add-on From File</b> and pick this file:<br>"
-                         f"<code>{self.firefox_file}</code><br>After an Accipio update, do this again: Firefox keeps "
-                         "its own copy of the file.")
-        firefox.setWordWrap(True)
-        firefox.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        firefox_row = QHBoxLayout()
-        firefox_row.addWidget(firefox, 1)
-        firefox_row.addWidget(self.copy_firefox, 0, Qt.AlignmentFlag.AlignTop)
+        firefox = self._paragraph(
+            "<b>Firefox</b> takes one file instead: open the Add-ons page (Ctrl+Shift+A), click the "
+            "cogwheel, choose <b>Install Add-on From File</b> and pick this file:<br>"
+            f"<code>{self.firefox_file}</code><br>After an Accipio update, do this again: Firefox keeps "
+            "its own copy of the file.")
         self.firefox_row_shown = os.path.isfile(self.firefox_file)
         if self.firefox_row_shown:                        # a copy without the signed file says nothing about Firefox
-            layout.addLayout(firefox_row)
+            row = grid.rowCount()                         # in the same grid: its button lines up with the others
+            grid.addWidget(self._beside_button(firefox), row, 0, 1, 2)
+            grid.addWidget(self.copy_firefox, row, 2, Qt.AlignmentFlag.AlignTop)
+        else:
+            self.copy_firefox.setParent(self)
+            self.copy_firefox.hide()
         after = QLabel("Accipio then appears in the list of extensions. Its toolbar button switches the hand-over "
                        "off and on. If Free Download Manager or another download manager has an extension, switch "
                        "that one off: both would try to take the same downloads.")
@@ -107,7 +109,26 @@ class ConnectDialog(QDialog):
         page.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(help_page())))
         page.setEnabled(os.path.isfile(help_page()))
         layout.addWidget(buttons)
-        self.resize(620, self.sizeHint().height())
+        # the width first, then the height the wrapped text needs at that width (card 22): the other way round the
+        # text was measured narrow and the window had empty bands
+        layout.activate()
+        width = max(WIDTH, layout.totalMinimumSize().width())      # a long folder path cannot wrap: it sets the width
+        self.resize(width, max(layout.totalHeightForWidth(width), layout.totalMinimumSize().height()))
+
+    @staticmethod
+    def _paragraph(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return label
+
+    @staticmethod
+    def _beside_button(label: QLabel) -> QLabel:
+        """Text in a row that has a button: pushed down so its first line is level with the button's own text."""
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        label.setContentsMargins(0, BUTTON_TEXT_DROP, 0, 0)
+        return label
 
     def _copy(self, text: str, button: QPushButton) -> None:
         QGuiApplication.clipboard().setText(text)
@@ -121,13 +142,12 @@ class BrowserBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("browserBar")
-        self.setStyleSheet("#browserBar { background: #5c4a14; border-radius: 6px; } "
-                           "#browserBar QLabel { color: #fbe9b7; } #browserBar QToolButton { color: #fbe9b7; }")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 4, 4, 4)
-        self.text = QLabel("Clicked downloads don't reach Accipio yet. "
-                           "<a href='connect' style='color:#fbe9b7'>Connect your browser…</a>")
+        self.text = QLabel()
         self.text.setTextFormat(Qt.TextFormat.RichText)
+        self._colouring = False
+        self.colour()
         self.text.linkActivated.connect(lambda _: self.connect_clicked.emit())
         layout.addWidget(self.text, 1)
         close = QToolButton()
@@ -136,3 +156,19 @@ class BrowserBar(QFrame):
         close.setAutoRaise(True)
         close.clicked.connect(self.hide)
         layout.addWidget(close)
+
+    def colour(self) -> None:
+        """The bar's colours from the palette in use (card 16): a pale amber wash in light mode, the deep brown in
+        dark mode. Fixed colours made it the heaviest thing in a light window."""
+        background, text = style.notice_colors(QApplication.palette())
+        self._colouring = True
+        self.setStyleSheet(f"#browserBar {{ background: {background}; border-radius: 6px; }} "
+                           f"#browserBar QLabel {{ color: {text}; }} #browserBar QToolButton {{ color: {text}; }}")
+        self.text.setText("Clicked downloads don't reach Accipio yet. "
+                          f"<a href='connect' style='color:{text}'>Connect your browser…</a>")
+        self._colouring = False
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.ApplicationPaletteChange and not self._colouring:
+            self.colour()                                 # Windows switched between light and dark
+        super().changeEvent(event)

@@ -1,5 +1,10 @@
-"""Settings > Other Accipios: the window where this PC is set up to collect downloads from other Accipios, to send to
-one, and where the paired ones are listed and forgotten.
+"""Tools > Other Accipios (its own window since answer 112B): where this PC is set up to collect downloads from other
+Accipios, to send to one, and where the paired ones are listed and forgotten.
+
+The window opens with one question, "This PC: sends / collects / both", and shows only that part (answer 115B);
+the paired Accipios are listed under either. The answer is kept (``save_role``) and decides nothing but what is
+shown: accepting downloads is still the tick in the collecting part. Until it has been answered the window goes by
+what is set up already. Each part starts with its steps in order (card 20).
 
 Everything here takes effect at once and the window has only Close: pairing and Forget cannot wait for an OK, and
 a pairing code is only of use while the listener really runs. The window talks to a ``handover.Service`` and
@@ -11,16 +16,25 @@ import ipaddress
 import re
 from typing import Callable, Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import QAction, QFont, QGuiApplication, QKeySequence
-from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox, QHBoxLayout,
-                             QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressDialog, QPushButton, QSpinBox,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout)
+from PyQt6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
+                             QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QMessageBox, QProgressDialog,
+                             QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout)
 from redactor_common.gui.background_call import BackgroundCancelled, call_in_background
 
 from accipio.core import link
-from accipio.core.settings import Settings
+from accipio.core.settings import LINK_BOTH, LINK_COLLECTS, LINK_ROLES, LINK_SENDS, Settings
 from accipio.gui import style
+
+WIDTH = 640
+ROLE_TEXTS = {LINK_SENDS: "sends to another Accipio", LINK_COLLECTS: "collects for others", LINK_BOTH: "both"}
+COLLECT_STEPS = ("1.  Tick the address the other Accipio can reach, and tick Accept.\n"
+                 "2.  Click \"Show a pairing code\".\n"
+                 "3.  On the Accipio that sends: paste this address and the code, and click Pair.")
+SEND_STEPS = ("1.  On the Accipio that collects: copy its address and show a pairing code.\n"
+              "2.  Paste the address and the code here, and click Pair.\n"
+              "3.  Under Rules > 1 · Places, make a place that is that Accipio, and point a rule at it.")
 
 ADDRESS_ROLE = Qt.ItemDataRole.UserRole          # the address (or peer id) a row stands for, whatever the sorting
 LISTEN, ADDRESS, NETWORK = range(3)
@@ -88,8 +102,21 @@ def _minutes(seconds: float) -> str:
     return f"{whole // 60}:{whole % 60:02d}"
 
 
-def _table(columns: List[str]) -> QTableWidget:
-    table = QTableWidget(0, len(columns))
+class _Table(QTableWidget):
+    """A table that asks for ``wanted`` px of height and can be squeezed to a header and one row: on a small
+    screen the window's tables shrink and scroll instead of pushing Close off the screen (card 6)."""
+    wanted = 120
+
+    def sizeHint(self) -> QSize:
+        return QSize(400, self.wanted)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(200, 64)
+
+
+def _table(columns: List[str], wanted: int) -> QTableWidget:
+    table = _Table(0, len(columns))
+    table.wanted = wanted
     table.setHorizontalHeaderLabels(columns)
     table.verticalHeader().hide()
     table.verticalHeader().setDefaultSectionSize(style.ROW_HEIGHT)
@@ -101,25 +128,34 @@ def _table(columns: List[str]) -> QTableWidget:
     header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     header.setSectionsClickable(True)
     header.setStretchLastSection(True)
+    header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)    # as the cells (card 17)
     table.setSortingEnabled(True)
     return table
+
+
+def _steps(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setEnabled(False)
+    return label
 
 
 class LinkDialog(QDialog):
     def __init__(self, service, settings_of: Callable[[], Settings], save: Callable[[bool, List[str], int], None],
                  parent=None, network_names: Optional[Callable[[], Dict[str, str]]] = None,
-                 addresses_of: Callable[[], List[str]] = link.local_addresses):
+                 addresses_of: Callable[[], List[str]] = link.local_addresses,
+                 save_role: Optional[Callable[[str], None]] = None):
         super().__init__(parent)
         self.setWindowTitle("Other Accipios")
         self.service = service
         self.node = service.node
         self.settings_of, self.save = settings_of, save
+        self.save_role = save_role
         self.network_names = network_names or network_names_of
         self.addresses_of = addresses_of
         self._filling = False
         self._code_until = 0.0                    # when the shown code runs out, on the node's clock; 0 = none shown
         self._known_peers: List[str] = []
-        self.resize(640, 700)
         layout = QVBoxLayout(self)
 
         self.unavailable_label = QLabel(service.unavailable)
@@ -134,7 +170,22 @@ class LinkDialog(QDialog):
                              "they pair with this one.")
         self.name.editingFinished.connect(self._renamed)
         top.addRow("This Accipio's name", self.name)
+        # the one question (115B): which part of the window this PC needs
+        role_row = QHBoxLayout()
+        self.role_group = QButtonGroup(self)
+        self.role_buttons: Dict[str, QRadioButton] = {}
+        for role in LINK_ROLES:
+            button = QRadioButton(ROLE_TEXTS[role])
+            self.role_group.addButton(button)
+            self.role_buttons[role] = button
+            role_row.addWidget(button)
+        role_row.addStretch(1)
+        top.addRow("This PC", role_row)
         layout.addLayout(top)
+        self.role_note = QLabel("")
+        self.role_note.setWordWrap(True)
+        self.role_note.setEnabled(False)
+        layout.addWidget(self.role_note)
 
         layout.addWidget(self._build_collect())
         layout.addWidget(self._build_send())
@@ -152,28 +203,88 @@ class LinkDialog(QDialog):
         self.clock.timeout.connect(self.tick)
         self.clock.start()
         self.load()
+        self._show_role(self.role())
+        for role, button in self.role_buttons.items():
+            button.toggled.connect(lambda on, r=role: self.set_role(r) if on else None)
         if service.unavailable:
-            for part in (self.name, self.collect_group, self.send_group, self.paired_group):
+            for part in (self.name, self.collect_group, self.send_group, self.paired_group,
+                         *self.role_buttons.values()):
                 part.setEnabled(False)
+
+    # ---- sends, collects or both (115B) --------------------------------------------------------------------------
+
+    def role(self) -> str:
+        """The part this PC uses: what was answered, else what is set up already ("" when nothing is)."""
+        current = self.settings_of()
+        if current.link_role in LINK_ROLES:
+            return current.link_role
+        peers = self.node.peers()
+        collects = bool(current.link_accept) or any(not p.host for p in peers)
+        sends = any(p.host for p in peers)
+        return LINK_BOTH if collects and sends else LINK_COLLECTS if collects else LINK_SENDS if sends else ""
+
+    def set_role(self, role: str) -> None:
+        """An answer to the question: kept, and only that part is shown."""
+        if self.save_role is not None:
+            self.save_role(role)
+        self._show_role(role)
+
+    def _show_role(self, role: str) -> None:
+        self._role = role
+        if role in self.role_buttons and not self.role_buttons[role].isChecked():
+            self.role_buttons[role].blockSignals(True)
+            self.role_buttons[role].setChecked(True)
+            self.role_buttons[role].blockSignals(False)
+        self.collect_group.setVisible(role in (LINK_COLLECTS, LINK_BOTH))
+        self.send_group.setVisible(role in (LINK_SENDS, LINK_BOTH))
+        self._show_role_note()
+        self._fit()
+
+    def _fit(self) -> None:
+        """The height the parts in sight ask for, but never more than the screen has: there the two tables give
+        way and scroll, and Close stays in reach (card 6)."""
+        for inner in self.findChildren(QLayout):         # a part shown or hidden just now must count, in the
+            inner.invalidate()                           # groups' own layouts too
+        for group in (self.collect_group, self.send_group, self.paired_group):
+            group.updateGeometry()                       # ...and in what the window's layout remembers of each group
+        self.layout().invalidate()
+        self.layout().activate()
+        wanted = max(self.layout().totalHeightForWidth(WIDTH), self.layout().totalMinimumSize().height())
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        room = screen.availableGeometry().height() - 60 if screen is not None else wanted
+        self.resize(WIDTH, min(wanted, max(room, self.layout().totalMinimumSize().height())))
+
+    def _show_role_note(self) -> None:
+        role = getattr(self, "_role", "")
+        if not role:
+            text = "Pick what this PC does. Only that part is shown."
+        elif role == LINK_SENDS and self.accept_box.isChecked():
+            # the question only decides what is shown: a tick that is out of sight must not be a surprise
+            text = "This PC also still accepts downloads from paired Accipios. Pick \"both\" to see or change that."
+        else:
+            text = ""
+        self.role_note.setText(text)
+        self.role_note.setVisible(bool(text))
 
     # ---- the three groups --------------------------------------------------------------------------------------
 
     def _build_collect(self) -> QGroupBox:
         group = self.collect_group = QGroupBox("This PC collects")
         column = QVBoxLayout(group)
+        column.addWidget(_steps(COLLECT_STEPS))
         self.accept_box = QCheckBox("Accept downloads from the Accipios paired below")
         self.accept_box.setToolTip("Off until you switch it on. While it is on, a paired Accipio can have this PC "
                                    "download links for it, on the ticked addresses only.")
         self.accept_box.toggled.connect(self._changed)
         column.addWidget(self.accept_box)
         column.addWidget(QLabel("Listen on these addresses of this PC (nothing is ticked until you tick it):"))
-        self.addresses = _table(["Listen", "Address", "Network"])
-        self.addresses.setMinimumHeight(140)             # the header and four rows
+        self.addresses = _table(["Listen", "Address", "Network"], wanted=140)       # the header and four rows
         self.addresses.horizontalHeader().resizeSection(LISTEN, 60)
         self.addresses.horizontalHeader().resizeSection(ADDRESS, 220)
         self.addresses.itemChanged.connect(lambda item: self._changed() if item.column() == LISTEN else None)
-        self.addresses.setToolTip("Right-click an address to copy it (Ctrl+C copies it with the port), then paste it "
-                                  "into the Address field on the Accipio that is to send downloads here.")
+        self.addresses.setToolTip("Select an address and click \"Copy Address and Port\" (or Ctrl+C, or right-click), "
+                                  "then paste it into the Address field on the Accipio that is to send downloads here.")
+        self.addresses.itemSelectionChanged.connect(self._address_selected)
         # an address is long (Tailscale's most of all): it is copied here and pasted on the other Accipio, not typed
         self.copy_endpoint = self._copy_action(self.addresses, "Copy Address and Port", self.copy_selected_endpoint,
                                                shortcut=True)
@@ -186,6 +297,12 @@ class LinkDialog(QDialog):
         self.port.setKeyboardTracking(False)           # a change is saved when typing ends, not at each digit
         self.port.valueChanged.connect(self._changed)
         port_row.addWidget(self.port)
+        # in sight, as Copy Code is (card 20): the address is long, and copying it was only in a tooltip
+        self.copy_address_button = QPushButton("Copy Address and Port")
+        self.copy_address_button.setToolTip("Copy the selected address with the port, to paste it on the Accipio that sends")
+        self.copy_address_button.clicked.connect(self.copy_selected_endpoint)
+        self.copy_address_button.setEnabled(False)
+        port_row.addWidget(self.copy_address_button)
         port_row.addStretch(1)
         column.addLayout(port_row)
         self.status = QLabel("")
@@ -219,10 +336,11 @@ class LinkDialog(QDialog):
     def _build_send(self) -> QGroupBox:
         group = self.send_group = QGroupBox("This PC sends: pair with a collector")
         form = QFormLayout(group)
+        form.addRow(_steps(SEND_STEPS))
         row = QHBoxLayout()
         self.host = QLineEdit()
         self.host.setPlaceholderText("the collector's address (paste it: address, or address:port)")
-        self.host.setToolTip("Copy it in the other Accipio's own Other Accipios window (right-click its address) and "
+        self.host.setToolTip("Copy it in the other Accipio's own Other Accipios window (\"Copy Address and Port\") and "
                              "paste it here. An address pasted with its port fills the port too.")
         self.host.editingFinished.connect(self._split_host)
         self.send_port = QSpinBox()
@@ -246,8 +364,7 @@ class LinkDialog(QDialog):
     def _build_paired(self) -> QGroupBox:
         group = self.paired_group = QGroupBox("Paired Accipios")
         column = QVBoxLayout(group)
-        self.paired = _table(["Name", "Address", "Role"])
-        self.paired.setMinimumHeight(90)
+        self.paired = _table(["Name", "Address", "Role"], wanted=96)
         self.paired.horizontalHeader().resizeSection(NAME, 180)
         self.paired.horizontalHeader().resizeSection(WHERE, 180)
         self.paired.itemSelectionChanged.connect(self._selection_changed)
@@ -284,6 +401,9 @@ class LinkDialog(QDialog):
     def selected_address(self) -> str:
         rows = self.addresses.selectionModel().selectedRows() if self.addresses.selectionModel() else []
         return self.addresses.item(rows[0].row(), LISTEN).data(ADDRESS_ROLE) if rows else ""
+
+    def _address_selected(self) -> None:
+        self.copy_address_button.setEnabled(bool(self.selected_address()))
 
     def copy_selected_address(self) -> None:
         self._copy(self.selected_address(), "Paste it into the Address field on the Accipio that sends.")
@@ -401,6 +521,7 @@ class LinkDialog(QDialog):
             return
         self.save(self.accept_box.isChecked(), self.ticked(), self.port.value())
         self._show_status()
+        self._show_role_note()
 
     def _show_status(self) -> None:
         text = self.service.status_text()
@@ -434,6 +555,7 @@ class LinkDialog(QDialog):
         self._known_peers = [p.id for p in self.node.peers()]
         self.result_label.setText("")
         self.tick()
+        self._fit()                                      # the code needs room of its own
 
     def _end_code(self, message: str) -> None:
         self._code_until = 0.0

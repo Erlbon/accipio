@@ -94,7 +94,8 @@ class AddDialog(QDialog):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setStretchLastSection(True)
-        for column, width in ((CHECK, 28), (NAME, 260), (FOLDER, 280), (RULE, 50)):
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)   # as the columns (card 17)
+        for column, width in ((CHECK, 28), (NAME, 250), (FOLDER, 230), (RULE, 160)):          # Rule holds a name now
             header.resizeSection(column, width)
         self.table.cellClicked.connect(self._clicked)
         self.table.cellDoubleClicked.connect(self._double_clicked)
@@ -245,8 +246,10 @@ class AddDialog(QDialog):
         name = entry.preview.filename if entry.preview else (url.rsplit("/", 1)[-1] if child else url)
         status = self._status(entry)
         cells = [check, QTableWidgetItem(("      " if child else "") + name), QTableWidgetItem(self._where(entry)),
-                 QTableWidgetItem("" if by_hand or not entry.preview else entry.preview.placement.rule_numbers),
+                 QTableWidgetItem("" if by_hand or not entry.preview else entry.preview.placement.rule_names),
                  QTableWidgetItem(status)]
+        if entry.preview and not by_hand and entry.preview.placement.rule_numbers:      # the name shows (card 18)
+            cells[RULE].setToolTip(f"Rule {entry.preview.placement.rule_numbers} in the list")
         cells[FOLDER].setToolTip(REMOTE_TIP if self._place_of(entry, by_hand) else
                                  folder + ("  (chosen by hand)" if by_hand else ""))
         cells[STATUS].setToolTip(status)
@@ -270,7 +273,7 @@ class AddDialog(QDialog):
         check.setCheckState(Qt.CheckState.Checked if usable and ticked == len(usable)
                             else Qt.CheckState.PartiallyChecked if ticked else Qt.CheckState.Unchecked)
         folders = {self._where(e) for e in entries} - {""}
-        rules = {e.preview.placement.rule_numbers for e in entries if e.preview and not self._folder_of(e)[1]}
+        rules = {e.preview.placement.rule_names for e in entries if e.preview and not self._folder_of(e)[1]}
         folder = next(iter(folders)) if len(folders) == 1 else ("(several)" if folders else "")
         ready = sum(e.state == "ready" for e in entries)
         failed = sum(e.state == "error" for e in entries)

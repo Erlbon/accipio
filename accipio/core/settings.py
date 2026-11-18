@@ -27,12 +27,17 @@ def config_dir() -> str:
     return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "accipio")
 
 
-# When finished downloads leave the list (only the list: the files stay). Edit > Clear Finished works with each.
+# When finished downloads leave the list (only the list: the files stay). Downloads > Clear Finished works with each.
 CLEAR_NEVER = "never"           # until cleared by hand (was "keep history" on)
 CLEAR_AT_START = "start"        # at the next start (the default; was "keep history" off)
 CLEAR_AFTER = "after"           # clear_after_minutes after they finished
 CLEAR_AT_ONCE = "done"          # as soon as they finish
 CLEAR_CHOICES = (CLEAR_NEVER, CLEAR_AT_START, CLEAR_AFTER, CLEAR_AT_ONCE)
+
+# What this PC does with other Accipios, as the Other Accipios window asks it (115B). Only which part of that
+# window shows: accepting downloads is still ``link_accept``, and sending needs only a paired collector.
+LINK_SENDS, LINK_COLLECTS, LINK_BOTH = "sends", "collects", "both"
+LINK_ROLES = (LINK_SENDS, LINK_COLLECTS, LINK_BOTH)
 
 
 def default_download_folder() -> str:
@@ -66,6 +71,7 @@ class Settings:
     link_accept: bool = False             # this PC collects downloads from the Accipios paired with it (link.py)
     link_addresses: List[str] = field(default_factory=list)      # the addresses it listens on; none = nothing listens
     link_port: int = 0                    # the listening port; 0 or anything invalid = link.DEFAULT_PORT
+    link_role: str = ""                   # what Other Accipios shows (115B): LINK_ROLES; "" = not picked yet
 
     def notice_kinds(self) -> List[str]:
         return [kind for kind, on in (("added", self.notify_added), ("finished", self.notify_finished),
@@ -89,6 +95,8 @@ class Settings:
             self.clear_after_minutes = 15
         if not isinstance(self.link_accept, bool):
             self.link_accept = False
+        if self.link_role not in LINK_ROLES:
+            self.link_role = ""
         if not isinstance(self.link_addresses, list) \
                 or any(not isinstance(a, str) or not a.strip() for a in self.link_addresses) \
                 or len(set(self.link_addresses)) != len(self.link_addresses):

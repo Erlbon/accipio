@@ -15,6 +15,12 @@ from accipio.gui import style
 COLUMNS = ["Name", "Size", "Progress", "Speed", "Time left", "Folder", "Rule", "Status"]
 NAME, SIZE, PROGRESS, SPEED, ETA, FOLDER, RULE, STATUS = range(len(COLUMNS))
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
+# How a new installation shows the columns (answer 114A): Status second, and widths that let all eight fit in the
+# 1000 px the window starts at (the last one, Rule, takes what is left). The numbers above are the model's own and
+# never change, so a header state saved in window.ini before this still fits its columns.
+FIRST_ORDER = (NAME, STATUS, PROGRESS, SIZE, SPEED, ETA, FOLDER, RULE)
+FIRST_WIDTHS = {NAME: 220, STATUS: 150, PROGRESS: 125, SIZE: 86, SPEED: 80, ETA: 70, FOLDER: 136, RULE: 100}
+RIGHT_ALIGNED = (SIZE, SPEED, ETA)
 
 # the filter chips: name -> the states it shows
 FILTERS = {
@@ -106,7 +112,20 @@ class QueueModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             return COLUMNS[section]
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.TextAlignmentRole:
+            return self.alignment(section)                  # a header stands as its column does (card 17)
         return None
+
+    @staticmethod
+    def alignment(column: int) -> int:
+        side = Qt.AlignmentFlag.AlignRight if column in RIGHT_ALIGNED else Qt.AlignmentFlag.AlignLeft
+        return int(side | Qt.AlignmentFlag.AlignVCenter)
+
+    @staticmethod
+    def rule_shown(row: Row) -> str:
+        """The Rule cell: the names of the rules that placed the download, kept with the row. A row from before
+        the names were kept shows the numbers it has (card 18)."""
+        return row.rule_names or row.rules
 
     def _speed(self, row: Row) -> int:
         return self.speeds.get(row.id, 0) if row.state == ACTIVE else 0
@@ -161,7 +180,7 @@ class QueueModel(QAbstractTableModel):
             if column == FOLDER:
                 return self._folder_shown(row)
             if column == RULE:
-                return row.rules
+                return self.rule_shown(row)
             if column == STATUS:
                 if row.state == COMPLETE and row.unpack:
                     return archive_status(row.unpack)
@@ -172,16 +191,18 @@ class QueueModel(QAbstractTableModel):
         if role == SORT_ROLE:
             return {NAME: (row.filename or row.url).lower(), SIZE: row.total or row.size or 0,
                     PROGRESS: self.fraction(row), SPEED: self._speed(row), ETA: self._eta(row) or 0,
-                    FOLDER: self._folder(row).lower(), RULE: row.rules, STATUS: row.state}[column]
+                    FOLDER: self._folder(row).lower(), RULE: self.rule_shown(row).lower(), STATUS: row.state}[column]
         if role == Qt.ItemDataRole.BackgroundRole and self.elsewhere(row):
             return QBrush(style.link_tint(QApplication.palette()))
         if role == Qt.ItemDataRole.ToolTipRole:
             lines = [row.url, f"Why here: {row.why}" if row.why else ""]
+            if column == RULE and row.rules:
+                lines.insert(1, f"Rule {row.rules} in the list when this download was added")
             if row.state == ERROR and row.error:
                 lines.append(f"Error: {row.error}")
             return "\n".join(line for line in lines if line)
-        if role == Qt.ItemDataRole.TextAlignmentRole and column in (SIZE, SPEED, ETA):
-            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        if role == Qt.ItemDataRole.TextAlignmentRole and column in RIGHT_ALIGNED:
+            return self.alignment(column)
         return None
 
 
@@ -211,8 +232,8 @@ LABEL_WIDTH = 46
 
 
 class ProgressDelegate(style.TintDelegate):
-    """The Progress column as a rounded bar with the percentage beside it: the accent colour while running,
-    green when done, red when failed. A download for another Accipio (106B): filled in the link colour when it
+    """The Progress column as a rounded bar with the percentage beside it: the accent colour while running (and
+    only then: a paused bar is grey, card 14), green when done, red when failed. A download for another Accipio (106B): filled in the link colour when it
     finished there (green always means "the file is on this PC"), a hollow bar outlined in the link colour while
     it is sent and not finished, and a hollow bar outlined in red when it failed there (nothing was downloaded
     here, so there is no part to fill); empty while it waits."""
@@ -230,6 +251,8 @@ class ProgressDelegate(style.TintDelegate):
     def fill(row: Row, palette: QPalette) -> QColor:
         if row.state == COMPLETE:
             return style.link_bar(palette) if handover.sent_to(row) else DONE_GREEN
+        if row.state == PAUSED:
+            return style.paused_bar(palette)
         return FAILED_RED if row.state == ERROR else palette.color(QPalette.ColorRole.Highlight)
 
     def paint(self, painter, option, index):
